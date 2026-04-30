@@ -1,0 +1,484 @@
+uniform_bool uContactShadows {
+    default = false;
+}
+uniform_int uContactShadowsSteps {
+    default = 12;
+    min = 4;
+    max = 64;
+}
+uniform_float uContactShadowsLength {
+    default = 0.05;
+    min = 0.0;
+    max = 1.0;
+}
+uniform_float uContactShadowsThickness {
+    default = 0.005;
+    min = 0.0;
+    max = 1.0;
+}
+uniform_bool uSsao {
+    default = false;
+}
+uniform_float uSsaoRadius {
+    default = 80.0;
+    min = 0.05;
+    max = 1024.0;
+}
+uniform_float uSsaoStrength {
+    default = 1.0;
+    min = 0.0;
+    max = 4.0;
+}
+uniform_int uSsaoSamples {
+    default = 8;
+    min = 2;
+    max = 32;
+}
+uniform_bool uSunHalo {
+    default = true;
+}
+uniform_bool uWorldSSR {
+    default = false;
+}
+uniform_int uWorldSSRSteps {
+    default = 16;
+    min = 4;
+    max = 64;
+}
+uniform_float uWorldSSRStrength {
+    default = 0.6;
+    min = 0.0;
+    max = 2.0;
+}
+uniform_float uWorldSSRSmoothness {
+    default = 0.7;
+    min = 0.0;
+    max = 1.0;
+}
+uniform_float uWetness {
+    default = 0.4;
+    min = 0.0;
+    max = 1.0;
+}
+uniform_bool uGodRays {
+    default = true;
+}
+uniform_int uGodRaysSteps {
+    default = 32;
+    min = 8;
+    max = 96;
+}
+uniform_float uGodRaysDecay {
+    default = 0.96;
+    min = 0.5;
+    max = 1.0;
+}
+uniform_float uGodRaysIntensity {
+    default = 0.6;
+    min = 0.0;
+    max = 4.0;
+}
+uniform_float uSunHaloRadius {
+    default = 0.18;
+    min = 0.01;
+    max = 0.5;
+}
+uniform_float uSunHaloIntensity {
+    default = 1.2;
+    min = 0.0;
+    max = 6.0;
+}
+
+fragment main {
+
+    omw_In vec2 omw_TexCoord;
+
+    // Reconstruct view-space position from depth using the inverse projection.
+    vec3 viewPosFromUV(vec2 uv)
+    {
+        float d = omw_GetDepth(uv);
+#if (OMW_REVERSE_Z == 1)
+        float ndcZ = 1.0 - d;
+#else
+        float ndcZ = d * 2.0 - 1.0;
+#endif
+        vec4 ndc = vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
+        vec4 view = omw_InvProjectionMatrix() * ndc;
+        return view.xyz / view.w;
+    }
+
+    // Bayer 4x4 dither matrix to break up banding in the raymarch.
+    float bayer4x4(vec2 p)
+    {
+        int x = int(mod(p.x, 4.0));
+        int y = int(mod(p.y, 4.0));
+        int idx = y * 4 + x;
+        // Standard 4x4 Bayer table normalised to [0..1).
+        const float tab[16] = float[16](
+             0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+            12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+             3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+            15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+        );
+        return tab[idx];
+    }
+
+    // -------------------------------------------------------------------
+    // Contact shadows
+    // -------------------------------------------------------------------
+    // Marches a short ray from the surface toward the sun, in screen space.
+    // Returns 1.0 if unoccluded, 0.0 if a depth occluder was hit.
+    float contactShadow(vec2 uv)
+    {
+        if (!uContactShadows) return 1.0;
+
+        // Sun direction in view space. omw.sunPos is a directional light
+        // expressed as a position; normalising gives the inverse light dir.
+        vec3 sunVS = normalize((omw.viewMatrix * vec4(omw.sunPos.xyz, 0.0)).xyz);
+        if (sunVS.z >= 0.0) return 1.0; // sun behind / below — skip
+
+        vec3 origin = viewPosFromUV(uv);
+        // Bias along view-space normal to avoid self-shadowing.
+        vec3 n = omw_GetNormals(uv);
+        origin += n * 0.5;
+
+        // Project a step into clip space to convert into screen-space delta.
+        vec3 endVS = origin + sunVS * (uContactShadowsLength * length(origin) * 4.0);
+        vec4 clipS = omw_ProjectionMatrix() * vec4(origin, 1.0);
+        vec4 clipE = omw_ProjectionMatrix() * vec4(endVS, 1.0);
+        vec2 ssStart = (clipS.xy / clipS.w) * 0.5 + 0.5;
+        vec2 ssEnd   = (clipE.xy / clipE.w) * 0.5 + 0.5;
+
+        vec2 delta = ssEnd - ssStart;
+        int steps = uContactShadowsSteps;
+        float dither = bayer4x4(gl_FragCoord.xy);
+        float occluded = 0.0;
+
+        for (int i = 1; i <= steps; ++i)
+        {
+            float t = (float(i) + dither) / float(steps);
+            vec2 sUV = ssStart + delta * t;
+            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
+                break;
+            // Reconstruct sampled position and compare with our ray's z.
+            vec3 sampled = viewPosFromUV(sUV);
+            vec3 rayVS = origin + sunVS * (uContactShadowsLength * length(origin) * 4.0 * t);
+            float diff = sampled.z - rayVS.z;
+            // OpenGL view-space: smaller (more negative) z = farther.
+            // Occluded when sampled is closer to camera than the ray AND
+            // the gap is within the configured thickness.
+            if (diff > 0.0 && diff < uContactShadowsThickness * omw.far)
+            {
+                occluded = 1.0;
+                break;
+            }
+        }
+        return 1.0 - occluded;
+    }
+
+    // -------------------------------------------------------------------
+    // GTAO-style horizon-based ambient occlusion
+    // -------------------------------------------------------------------
+    float ambientOcclusion(vec2 uv)
+    {
+        if (!uSsao) return 1.0;
+
+        vec3 origin = viewPosFromUV(uv);
+        vec3 n = omw_GetNormals(uv);
+        if (length(n) < 0.5) return 1.0;
+        n = normalize(n);
+
+        // Screen-space radius proportional to world radius / depth.
+        vec2 res = omw.resolution;
+        float pxRadius = uSsaoRadius * res.y / max(0.001, -origin.z) * 0.5;
+        pxRadius = clamp(pxRadius, 4.0, 0.25 * res.y);
+        vec2 uvRadius = vec2(pxRadius) / res;
+
+        int samples = uSsaoSamples;
+        float dither = bayer4x4(gl_FragCoord.xy);
+        float ao = 0.0;
+        const float TWO_PI = 6.2831853;
+
+        for (int i = 0; i < samples; ++i)
+        {
+            float angle = (float(i) + dither) / float(samples) * TWO_PI;
+            vec2 dir = vec2(cos(angle), sin(angle));
+            vec2 sUV = uv + dir * uvRadius;
+            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
+                continue;
+            vec3 sampled = viewPosFromUV(sUV);
+            vec3 toSample = sampled - origin;
+            float d2 = dot(toSample, toSample);
+            // Falloff with distance so distant points don't dominate.
+            float falloff = clamp(1.0 - d2 / (uSsaoRadius * uSsaoRadius), 0.0, 1.0);
+            float horizon = max(0.0, dot(n, normalize(toSample))) * falloff;
+            ao += horizon;
+        }
+        ao = clamp(1.0 - ao * uSsaoStrength / float(samples), 0.0, 1.0);
+        return ao;
+    }
+
+    // -------------------------------------------------------------------
+    // Sun halo / glare
+    // -------------------------------------------------------------------
+    // Project the sun's world-space direction into screen space and add a
+    // soft additive disc + Gaussian falloff. The halo is *not* gated by
+    // depth so it bleeds through thin/transparent geometry, but it is
+    // gated by occlusion of the sun's own pixel (if the sun is behind a
+    // mountain, no halo).
+    vec3 sunHalo(vec2 uv)
+    {
+        if (!uSunHalo) return vec3(0.0);
+
+        // Sun direction in clip space.
+        vec3 sunVS = (omw.viewMatrix * vec4(omw.sunPos.xyz, 0.0)).xyz;
+        if (sunVS.z >= 0.0) return vec3(0.0); // sun behind camera
+        vec4 sunClip = omw_ProjectionMatrix() * vec4(sunVS, 1.0);
+        if (sunClip.w <= 0.0) return vec3(0.0);
+        vec2 sunUV = sunClip.xy / sunClip.w * 0.5 + 0.5;
+
+        // Distance from the fragment to the projected sun (aspect-corrected).
+        vec2 res = omw.resolution;
+        float aspect = res.x / max(1.0, res.y);
+        vec2 d = (uv - sunUV) * vec2(aspect, 1.0);
+        float dist = length(d);
+
+        if (dist > uSunHaloRadius * 2.0) return vec3(0.0);
+
+        // Two-lobe falloff: a hot inner disc + a soft Gaussian outer halo.
+        float inner = smoothstep(uSunHaloRadius * 0.4, 0.0, dist);
+        float outer = exp(-pow(dist / uSunHaloRadius, 2.0) * 6.0);
+        float intensity = (inner * 1.5 + outer) * uSunHaloIntensity;
+
+        // Occlude the halo when the sun's own pixel is behind geometry.
+        // Sample the depth at sunUV; if it's not at the far plane the sun
+        // is hidden by an occluder, so kill the halo.
+        if (sunUV.x >= 0.0 && sunUV.x <= 1.0 && sunUV.y >= 0.0 && sunUV.y <= 1.0)
+        {
+            float sunPixelDepth = omw_GetDepth(sunUV);
+#if (OMW_REVERSE_Z == 1)
+            bool occluded = sunPixelDepth > 0.001;
+#else
+            bool occluded = sunPixelDepth < 0.99999;
+#endif
+            if (occluded) intensity *= 0.15; // bleed-through, not full kill
+        }
+
+        return omw.sunColor.rgb * intensity;
+    }
+
+    // -------------------------------------------------------------------
+    // Wet surface effect
+    // -------------------------------------------------------------------
+    // Tints surfaces facing up with a darkened, more-saturated look and
+    // adds a soft sun specular bump. Approximates the "everything's been
+    // rained on" feel without needing a per-mesh rain accumulation buffer.
+    // Strength is uWetness (0..1) — the user toggles it via F2.
+    vec3 applyWetness(vec3 col, vec2 uv)
+    {
+        if (uWetness <= 0.0) return col;
+        vec3 n = omw_GetNormals(uv);
+        if (length(n) < 0.5) return col;
+        n = normalize(n);
+
+        // Up-mask: surfaces with normal pointing toward camera-up get
+        // wetter (water pools there). Convert (0,0,1) world-up into view
+        // space and dot with view normal.
+        vec3 upVS = (omw.viewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz;
+        float upMask = clamp(dot(n, normalize(upVS)), 0.0, 1.0);
+        upMask = pow(upMask, 1.5);
+        float wet = uWetness * upMask;
+
+        // Darken slightly (water absorbs light a bit) and boost saturation.
+        float lum = dot(col, vec3(0.299, 0.587, 0.114));
+        vec3 saturated = mix(vec3(lum), col, 1.0 + 0.4 * wet);
+        saturated *= mix(1.0, 0.7, wet);
+
+        // Sun specular bump: phong term on the wet-up surface.
+        vec3 sunVS = normalize((omw.viewMatrix * vec4(omw.sunPos.xyz, 0.0)).xyz);
+        if (sunVS.z < 0.0)
+        {
+            vec3 viewPos = viewPosFromUV(uv);
+            vec3 viewDir = normalize(-viewPos);
+            vec3 reflDir = reflect(-sunVS, n);
+            float spec = pow(max(dot(reflDir, viewDir), 0.0), 96.0);
+            saturated += omw.sunColor.rgb * spec * wet * 1.5;
+        }
+
+        return saturated;
+    }
+
+    // -------------------------------------------------------------------
+    // Volumetric god rays
+    // -------------------------------------------------------------------
+    // Karras-style screen-space radial scattering: from each pixel we
+    // raymarche along the line toward the projected sun position. At each
+    // sample we accumulate a contribution that decays with step index, but
+    // is killed if the depth at that sample is closer than the far plane
+    // (i.e. the sun ray passes through occluding geometry there). The
+    // result is the iconic shafts of light through clouds / canopy / windows.
+    vec3 godRays(vec2 uv)
+    {
+        if (!uGodRays) return vec3(0.0);
+
+        // Project sun in clip → screen.
+        vec3 sunVS = (omw.viewMatrix * vec4(omw.sunPos.xyz, 0.0)).xyz;
+        if (sunVS.z >= 0.0) return vec3(0.0);
+        vec4 sunClip = omw_ProjectionMatrix() * vec4(sunVS, 1.0);
+        if (sunClip.w <= 0.0) return vec3(0.0);
+        vec2 sunUV = sunClip.xy / sunClip.w * 0.5 + 0.5;
+
+        int steps = uGodRaysSteps;
+        vec2 delta = (sunUV - uv) / float(steps);
+        float dither = bayer4x4(gl_FragCoord.xy);
+        vec2 sUV = uv + delta * dither;
+        float weight = 1.0;
+        float accum = 0.0;
+        for (int i = 0; i < steps; ++i)
+        {
+            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0) break;
+            float d = omw_GetDepth(sUV);
+            // Sky pixel = unobstructed sun; geometry pixel = block.
+#if (OMW_REVERSE_Z == 1)
+            float skyContribution = step(d, 0.0001);
+#else
+            float skyContribution = step(0.99999, d);
+#endif
+            accum += skyContribution * weight;
+            weight *= uGodRaysDecay;
+            sUV += delta;
+        }
+        accum /= float(steps);
+
+        // Falloff with screen-distance from the sun so we don't bleed into
+        // the corners of the screen unrealistically.
+        float distFromSun = length(uv - sunUV);
+        float radial = exp(-distFromSun * 1.8);
+
+        return omw.sunColor.rgb * accum * radial * uGodRaysIntensity;
+    }
+
+    // -------------------------------------------------------------------
+    // World-space SSR for shiny / metallic surfaces
+    // -------------------------------------------------------------------
+    // Raymarches the reflection ray of every pixel through the depth
+    // buffer; on hit, samples the LastShader (= colour the camera saw at
+    // that pixel before our pass). This naturally captures dynamic objects
+    // (NPCs, animations) since they're written into LastShader the same
+    // frame. We modulate the additive contribution by a "metallic-like"
+    // heuristic so flat diffuse surfaces don't get a chrome look:
+    //   - bias by surface "smoothness" estimated from local normal variance
+    //   - bias by view-luminance (brighter pixels are usually highlights)
+    // The user controls strength via uWorldSSRStrength.
+    vec4 worldSSR(vec2 uv, vec3 baseColor)
+    {
+        if (!uWorldSSR) return vec4(0.0);
+
+        vec3 n = omw_GetNormals(uv);
+        if (length(n) < 0.5) return vec4(0.0);
+        n = normalize(n);
+
+        // Smoothness heuristic: low local variance => smooth (metal/wet),
+        // high variance => rough (grass/cloth/skin). Sample 4 neighbours.
+        vec2 res = omw.resolution;
+        vec2 px = vec2(1.0) / res;
+        vec3 nN = omw_GetNormals(uv + vec2(0.0,  px.y));
+        vec3 nS = omw_GetNormals(uv - vec2(0.0,  px.y));
+        vec3 nE = omw_GetNormals(uv + vec2(px.x, 0.0));
+        vec3 nW = omw_GetNormals(uv - vec2(px.x, 0.0));
+        float variance = length(n - nN) + length(n - nS) + length(n - nE) + length(n - nW);
+        float smoothness = clamp(1.0 - variance * 1.5, 0.0, 1.0);
+        if (smoothness < uWorldSSRSmoothness) return vec4(0.0);
+
+        // View-space position from depth.
+        vec3 viewPos = viewPosFromUV(uv);
+        vec3 viewDir = normalize(viewPos);
+        vec3 reflDir = reflect(viewDir, n);
+
+        // Raymarche.
+        int steps = uWorldSSRSteps;
+        float maxLen = max(50.0, -viewPos.z * 0.4); // proportional to depth
+        float stepLen = maxLen / float(steps);
+        float dither = bayer4x4(gl_FragCoord.xy);
+        vec3 origin = viewPos + n * 0.5; // bias along normal
+
+        vec2 hitUV = vec2(-1.0);
+        for (int i = 1; i <= steps; ++i)
+        {
+            float t = (float(i) + dither) * stepLen;
+            vec3 sampleVS = origin + reflDir * t;
+            vec4 clip = omw_ProjectionMatrix() * vec4(sampleVS, 1.0);
+            if (clip.w <= 0.0) break;
+            vec2 sUV = clip.xy / clip.w * 0.5 + 0.5;
+            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0) break;
+            float scnDepth = omw_GetLinearDepth(sUV);
+            float rayDepth = -sampleVS.z;
+            float diff = scnDepth - rayDepth;
+            if (diff > 0.0 && diff < stepLen * 1.5)
+            {
+                hitUV = sUV;
+                break;
+            }
+        }
+
+        if (hitUV.x < 0.0) return vec4(0.0);
+
+        // Edge fade so reflections don't pop at screen borders.
+        vec2 edgeFade = vec2(0.5) - abs(hitUV - vec2(0.5));
+        float edgeMask = clamp(min(edgeFade.x, edgeFade.y) * 6.0, 0.0, 1.0);
+
+        // Brightness bias: brighter input pixels look more "metallic" with
+        // a hint of reflection; avoid lighting up matte dark surfaces.
+        float lum = dot(baseColor, vec3(0.299, 0.587, 0.114));
+        float brightnessBias = smoothstep(0.15, 0.6, lum);
+
+        vec3 reflectedColor = omw_GetLastShader(hitUV).rgb;
+        float strength = smoothness * edgeMask * brightnessBias * uWorldSSRStrength;
+        return vec4(reflectedColor, strength);
+    }
+
+    void main()
+    {
+        vec4 col = omw_GetLastShader(omw_TexCoord);
+
+        // Skip the sky / pixels at the far plane (depth at 1 / 0 reverse-Z).
+        float d = omw_GetDepth(omw_TexCoord);
+#if (OMW_REVERSE_Z == 1)
+        bool isSky = d <= 0.0;
+#else
+        bool isSky = d >= 0.99999;
+#endif
+
+        vec3 halo = sunHalo(omw_TexCoord);
+
+        if (isSky)
+        {
+            vec3 rays = godRays(omw_TexCoord);
+            omw_FragColor = vec4(col.rgb + halo + rays, col.a);
+            return;
+        }
+
+        float shadow = contactShadow(omw_TexCoord);
+        float ao = ambientOcclusion(omw_TexCoord);
+        vec4 ssr = worldSSR(omw_TexCoord, col.rgb);
+        vec3 rays = godRays(omw_TexCoord);
+
+        // Apply as a multiplicative term on the final image, then add the
+        // sun halo + SSR + god rays. Not physically correct but visually
+        // convincing for forward-rendered Morrowind scenes.
+        vec3 base = col.rgb * shadow * ao;
+        base = applyWetness(base, omw_TexCoord);
+        // SSR is mixed in additively-with-clamp; the .a holds the strength.
+        base = mix(base, max(base, ssr.rgb), ssr.a);
+        omw_FragColor = vec4(base + halo + rays, col.a);
+    }
+}
+
+technique {
+    description = "Internal screen-space contact shadows + SSAO for OpenMW";
+    version = "1.0";
+    author = "OpenMW";
+    passes = main;
+    flags = hidden;
+    pass_normals = true;
+}

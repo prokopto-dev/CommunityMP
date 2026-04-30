@@ -58,6 +58,14 @@ namespace SceneUtil
         return ext.glVersion >= 4.0f && ext.glPatchParameteri != nullptr;
     }
 
+    bool isComputeSupported()
+    {
+        if (!glExtensionsReady())
+            return false;
+        const osg::GLExtensions& ext = getGLExtensions();
+        return ext.glVersion >= 4.3f && ext.glDispatchCompute != nullptr;
+    }
+
     GetGLExtensionsOperation::GetGLExtensionsOperation()
         : GraphicsOperation("GetGLExtensionsOperation", false)
     {

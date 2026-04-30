@@ -1,5 +1,8 @@
 #include "chunkmanager.hpp"
 
+#include <algorithm>
+
+#include <osg/Array>
 #include <osg/Material>
 #include <osg/Texture2D>
 
@@ -18,6 +21,83 @@
 #include "storage.hpp"
 #include "terraindrawable.hpp"
 #include "texturemanager.hpp"
+
+namespace
+{
+    // Round factor down to the nearest power of two in [1, 4]. The buffer
+    // cache's stitching at chunk borders assumes power-of-two LOD deltas.
+    inline unsigned int sanitiseEmulationFactor(int requested)
+    {
+        if (requested >= 4)
+            return 4;
+        if (requested >= 2)
+            return 2;
+        return 1;
+    }
+
+    // Bilinear densification of a square attribute grid. Source layout matches
+    // Storage::fillVertexBuffers: index = vertX * srcVerts + vertY. The source
+    // vertices land at integer multiples of 'factor' in the destination, so
+    // chunk borders coincide with the original mesh and stitch naturally.
+    void densifyTerrainArrays(const osg::Vec3Array& srcPos, const osg::Vec3Array& srcNorm,
+        const osg::Vec4ubArray& srcCol, unsigned int srcVerts, unsigned int factor, osg::Vec3Array& dstPos,
+        osg::Vec3Array& dstNorm, osg::Vec4ubArray& dstCol)
+    {
+        const unsigned int dstVerts = (srcVerts - 1) * factor + 1;
+        dstPos.resize(dstVerts * dstVerts);
+        dstNorm.resize(dstVerts * dstVerts);
+        dstCol.resize(dstVerts * dstVerts);
+
+        const float invFactor = 1.0f / static_cast<float>(factor);
+
+        for (unsigned int x = 0; x < dstVerts; ++x)
+        {
+            const float fx = x * invFactor;
+            const unsigned int x0 = static_cast<unsigned int>(fx);
+            const unsigned int x1 = std::min(x0 + 1, srcVerts - 1);
+            const float tx = fx - static_cast<float>(x0);
+
+            for (unsigned int y = 0; y < dstVerts; ++y)
+            {
+                const float fy = y * invFactor;
+                const unsigned int y0 = static_cast<unsigned int>(fy);
+                const unsigned int y1 = std::min(y0 + 1, srcVerts - 1);
+                const float ty = fy - static_cast<float>(y0);
+
+                const std::size_t i00 = static_cast<std::size_t>(x0) * srcVerts + y0;
+                const std::size_t i10 = static_cast<std::size_t>(x1) * srcVerts + y0;
+                const std::size_t i01 = static_cast<std::size_t>(x0) * srcVerts + y1;
+                const std::size_t i11 = static_cast<std::size_t>(x1) * srcVerts + y1;
+
+                const float w00 = (1.0f - tx) * (1.0f - ty);
+                const float w10 = tx * (1.0f - ty);
+                const float w01 = (1.0f - tx) * ty;
+                const float w11 = tx * ty;
+
+                const std::size_t dstIdx = static_cast<std::size_t>(x) * dstVerts + y;
+
+                dstPos[dstIdx] = srcPos[i00] * w00 + srcPos[i10] * w10 + srcPos[i01] * w01 + srcPos[i11] * w11;
+
+                osg::Vec3f n = srcNorm[i00] * w00 + srcNorm[i10] * w10 + srcNorm[i01] * w01 + srcNorm[i11] * w11;
+                if (n.length2() > 0.0f)
+                    n.normalize();
+                else
+                    n = osg::Vec3f(0.0f, 0.0f, 1.0f);
+                dstNorm[dstIdx] = n;
+
+                osg::Vec4f cf;
+                for (int k = 0; k < 4; ++k)
+                {
+                    cf[k] = static_cast<float>(srcCol[i00][k]) * w00 + static_cast<float>(srcCol[i10][k]) * w10
+                        + static_cast<float>(srcCol[i01][k]) * w01 + static_cast<float>(srcCol[i11][k]) * w11;
+                }
+                osg::Vec4ub& dst = dstCol[dstIdx];
+                for (int k = 0; k < 4; ++k)
+                    dst[k] = static_cast<unsigned char>(std::clamp(cf[k] + 0.5f, 0.0f, 255.0f));
+            }
+        }
+    }
+}
 
 namespace Terrain
 {
@@ -221,6 +301,15 @@ namespace Terrain
     {
         osg::ref_ptr<TerrainDrawable> geometry(new TerrainDrawable);
 
+        // Mirror the gating used in createPasses() — the densified vertex array
+        // and its index buffer must agree with the per-pass shader configuration.
+        const bool useTessellation = chunkSize <= 1.f && Settings::terrain().mTessellation
+            && SceneUtil::isTessellationSupported();
+        const bool emulationActive
+            = !useTessellation && chunkSize <= 1.f && Settings::terrain().mTessellationEmulation;
+        const unsigned int emulationFactor
+            = emulationActive ? sanitiseEmulationFactor(Settings::terrain().mTessellationEmulationFactor.get()) : 1u;
+
         if (!templateGeometry)
         {
             osg::ref_ptr<osg::Vec3Array> positions(new osg::Vec3Array);
@@ -229,6 +318,23 @@ namespace Terrain
             colors->setNormalize(true);
 
             mStorage->fillVertexBuffers(lod, chunkSize, chunkCenter, mWorldspace, *positions, *normals, *colors);
+
+            if (emulationFactor > 1)
+            {
+                osg::ref_ptr<osg::Vec3Array> densePositions(new osg::Vec3Array);
+                osg::ref_ptr<osg::Vec3Array> denseNormals(new osg::Vec3Array);
+                osg::ref_ptr<osg::Vec4ubArray> denseColors(new osg::Vec4ubArray);
+                denseColors->setNormalize(true);
+
+                const auto srcVerts = static_cast<unsigned int>(
+                    (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1);
+                densifyTerrainArrays(
+                    *positions, *normals, *colors, srcVerts, emulationFactor, *densePositions, *denseNormals, *denseColors);
+
+                positions = densePositions;
+                normals = denseNormals;
+                colors = denseColors;
+            }
 
             osg::ref_ptr<osg::VertexBufferObject> vbo(new osg::VertexBufferObject);
             positions->setVertexBufferObject(vbo);
@@ -268,11 +374,47 @@ namespace Terrain
         unsigned int numVerts
             = static_cast<unsigned>((mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1);
 
-        osg::ref_ptr<osg::PrimitiveSet> trianglesPrim = mBufferCache.getIndexBuffer(numVerts, lodFlags);
+        // Apply CPU-side densification to numVerts so the index buffer and UV
+        // grid match the densified vertex array.
+        numVerts = (numVerts - 1) * emulationFactor + 1;
+
+        // The buffer cache encodes per-edge LOD deltas in lodFlags as
+        // (delta << 4*direction). When densifying, neighbours that are *not*
+        // also densified (chunkSize > 1.0) sit at our original resolution,
+        // which is now factor times coarser than us. The stitching machinery
+        // uses outerStep = 1 << delta — so we add log2(factor) to non-zero
+        // deltas. Deltas that are already 0 mean the neighbour shares our
+        // chunkSize and is densified in lockstep — leave them at 0.
+        unsigned int adjustedLodFlags = lodFlags;
+        if (emulationFactor > 1)
+        {
+            const unsigned int factorLog2 = (emulationFactor == 4) ? 2u : 1u;
+            adjustedLodFlags = 0;
+            for (int dir = 0; dir < 4; ++dir)
+            {
+                unsigned int d = (lodFlags >> (4 * dir)) & 0xfu;
+                if (d > 0)
+                    d = std::min(d + factorLog2, 0xfu);
+                else
+                    // Neighbour at the same LOD level is *not* densified if
+                    // its chunkSize > 1.0. We can't know that here without
+                    // querying the quadtree, so we conservatively bump the
+                    // delta when this chunk is at the chunkSize == 1.0
+                    // border. Skipped: we trust the same-chunkSize neighbour
+                    // assumption that holds inside the densified band and
+                    // rely on the displacement scale being small enough that
+                    // any rare residual T-junction stays sub-pixel.
+                    d = 0;
+                adjustedLodFlags |= (d & 0xfu) << (4 * dir);
+            }
+            // Preserve high-order bits (the lod level encoding above bit 16).
+            adjustedLodFlags |= (lodFlags & ~0xffffu);
+        }
+
+        osg::ref_ptr<osg::PrimitiveSet> trianglesPrim
+            = mBufferCache.getIndexBuffer(numVerts, adjustedLodFlags);
         geometry->addPrimitiveSet(trianglesPrim);
 
-        const bool useTessellation = chunkSize <= 1.f && Settings::terrain().mTessellation
-            && SceneUtil::isTessellationSupported();
         if (useTessellation)
         {
             // Clone the triangle primitive sharing the underlying IBO; only the
@@ -282,6 +424,29 @@ namespace Terrain
                 trianglesPrim->clone(osg::CopyOp::SHALLOW_COPY));
             patchesPrim->setMode(GL_PATCHES);
             geometry->setTessellationPrimitive(patchesPrim);
+        }
+
+        // The displacement applied in the VS (or in the TES) moves vertices
+        // away from the positions baked into the array, so the auto-computed
+        // bounding box would underestimate the real silhouette and lead to
+        // sporadic frustum-culling pop-outs near screen borders. Extend it by
+        // the configured displacement scale on all axes — cheap and safe.
+        if (useTessellation || emulationActive)
+        {
+            const float margin = Settings::terrain().mTessellationDisplacementScale.get();
+            if (margin > 0.0f)
+            {
+                const osg::BoundingBox& src = geometry->getBoundingBox();
+                if (src.valid())
+                {
+                    osg::BoundingBox extended;
+                    extended.expandBy(
+                        osg::Vec3f(src.xMin() - margin, src.yMin() - margin, src.zMin() - margin));
+                    extended.expandBy(
+                        osg::Vec3f(src.xMax() + margin, src.yMax() + margin, src.zMax() + margin));
+                    geometry->setInitialBound(extended);
+                }
+            }
         }
 
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;

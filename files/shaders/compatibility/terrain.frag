@@ -20,6 +20,13 @@ uniform sampler2D normalMap;
 uniform sampler2D blendMap;
 #endif
 
+#if @terrainProceduralBump
+uniform sampler2D terrainProceduralBumpMap;
+uniform float terrainProceduralBumpStrength;
+uniform float terrainProceduralBumpScale;
+varying vec3 passWorldPos;
+#endif
+
 varying float euclideanDepth;
 varying float linearDepth;
 
@@ -72,6 +79,26 @@ void main()
     vec3 viewNormal = normalToView(normal);
 #else
     vec3 viewNormal = normalize(gl_NormalMatrix * passNormal);
+#endif
+
+#if @terrainProceduralBump
+    // Perturb the view-space normal using the procedural bump heightmap.
+    // Sample the height + two epsilon-offset taps to compute the gradient
+    // in tangent space, project onto world tangent plane (Z-up), then
+    // transform to view space.
+    {
+        vec2 bumpUV = passWorldPos.xy * terrainProceduralBumpScale;
+        const float eps = 0.5;
+        float h0 = texture2D(terrainProceduralBumpMap, bumpUV).r;
+        float hx = texture2D(terrainProceduralBumpMap, bumpUV + vec2(eps * terrainProceduralBumpScale, 0.0)).r;
+        float hy = texture2D(terrainProceduralBumpMap, bumpUV + vec2(0.0, eps * terrainProceduralBumpScale)).r;
+        // Slope mask so we don't perturb cliffs (where it would look broken).
+        float slopeMask = clamp(passNormal.z, 0.0, 1.0);
+        slopeMask *= slopeMask;
+        vec3 bumpWorld = vec3(-(hx - h0), -(hy - h0), 0.05) * terrainProceduralBumpStrength * slopeMask;
+        vec3 bumpView = gl_NormalMatrix * bumpWorld;
+        viewNormal = normalize(viewNormal + bumpView);
+    }
 #endif
 
     float shadowing = unshadowedLightRatio(linearDepth);

@@ -24,6 +24,10 @@ centroid varying vec3 shadowSpecularLighting;
 varying vec3 passViewPos;
 varying vec3 passNormal;
 
+#if @terrainProceduralBump
+varying vec3 passWorldPos;
+#endif
+
 #include "vertexcolors.glsl"
 #include "shadows_vertex.glsl"
 #include "compatibility/normals.glsl"
@@ -71,15 +75,29 @@ float terrainFbm(vec2 p)
 void main(void)
 {
     vec4 modelVertex = gl_Vertex;
+    vec3 displacedNormal = gl_Normal.xyz;
 #if @terrainDisplacement
     // Software fallback for hardware tessellation. Adds procedural relief at
-    // existing terrain vertices. There is no subdivision in this path, so the
-    // gain in visible detail is bounded by the density of the source mesh
-    // (65x65 vertices per Morrowind cell) — coarse but free everywhere.
+    // existing terrain vertices. Combined with CPU-side mesh densification
+    // (terrain.tessellation_emulation_factor) the effect becomes pronounced.
     float slopeMask = clamp(gl_Normal.z, 0.0, 1.0);
     slopeMask = slopeMask * slopeMask;
-    float h = terrainFbm(modelVertex.xy * 0.015) * slopeMask;
+
+    const float fbmFreq = 0.015;
+    const float eps = 8.0; // world units; coarse central-difference step.
+    float h  = terrainFbm( modelVertex.xy             * fbmFreq) * slopeMask;
+    float hx = terrainFbm((modelVertex.xy + vec2(eps, 0.0)) * fbmFreq) * slopeMask;
+    float hy = terrainFbm((modelVertex.xy + vec2(0.0, eps)) * fbmFreq) * slopeMask;
+
     modelVertex.xyz += gl_Normal.xyz * (h * terrainTessDisplacementScale);
+
+    // Recompute the surface normal from the analytic gradient of the height
+    // field, then blend with the original to keep large-scale terrain shape
+    // intact while letting the displacement drive lighting at small scale.
+    vec3 dpdx = vec3(eps, 0.0, (hx - h) * terrainTessDisplacementScale);
+    vec3 dpdy = vec3(0.0, eps, (hy - h) * terrainTessDisplacementScale);
+    vec3 fbmNormal = normalize(cross(dpdx, dpdy));
+    displacedNormal = normalize(mix(gl_Normal.xyz, fbmNormal, 0.5));
 #endif
 
     gl_Position = modelToClip(modelVertex);
@@ -90,9 +108,15 @@ void main(void)
     linearDepth = getLinearDepth(gl_Position.z, viewPos.z);
 
     passColor = gl_Color;
-    passNormal = gl_Normal.xyz;
+    passNormal = displacedNormal;
     passViewPos = viewPos.xyz;
     normalToViewMatrix = gl_NormalMatrix;
+
+#if @terrainProceduralBump
+    // Pass world-space xy to the fragment so it can index the procedural
+    // bump heightmap independently of the chunk-local UV.
+    passWorldPos = modelVertex.xyz;
+#endif
 
 #if @normalMap
     mat3 tbnMatrix = generateTangentSpace(vec4(1.0, 0.0, 0.0, 1.0), passNormal);

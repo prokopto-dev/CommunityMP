@@ -27,10 +27,10 @@ const vec2 SMALL_WAVES_RAIN = vec2(0.3, 0.3);
 const float WAVE_CHOPPYNESS = 0.05;                // wave choppyness
 const float WAVE_SCALE = 75.0;                     // overall wave scale
 
-const float BUMP = 0.5;                            // overall water surface bumpiness
-const float BUMP_RAIN = 2.5;
-const float REFL_BUMP = 0.10;                      // reflection distortion amount
-const float REFR_BUMP = 0.07;                      // refraction distortion amount
+const float BUMP = 0.06;                           // pushed further: glassy mirror surface
+const float BUMP_RAIN = 1.0;                       // rain stays choppy but pulled in
+const float REFL_BUMP = 0.012;                     // reflection essentially undistorted
+const float REFR_BUMP = 0.012;                     // refraction essentially undistorted
 
 #if @sunlightScattering
 const float SCATTER_AMOUNT = 0.3;                  // amount of sunlight scattering
@@ -39,9 +39,11 @@ const vec3 SUN_EXT = vec3(0.45, 0.55, 0.68);       // sunlight extinction
 #endif
 
 const float SUN_SPEC_FADING_THRESHOLD = 0.15;       // visibility at which sun specularity starts to fade
-const float SPEC_HARDNESS = 256.0;                 // specular highlights hardness
-const float SPEC_BUMPINESS = 5.0;                  // surface bumpiness boost for specular
-const float SPEC_BRIGHTNESS = 1.5;                 // boosts the brightness of the specular highlights
+const float SPEC_HARDNESS = 768.0;                 // (was 256) much sharper hot spot
+const float SPEC_BUMPINESS = 7.5;                  // (was 5) more wave bumps drive the glint
+const float SPEC_BRIGHTNESS = 4.0;                 // (was 1.5) brighter glints, near-pure white
+const float SUN_GLINT_AMPLITUDE = 1.5;             // multiplies the glint contribution
+const float SUN_GLINT_STIPPLE = 0.35;              // size of the sparkle stipples (hash-driven)
 
 const float BUMP_SUPPRESS_DEPTH = 300.0;           // at what water depth bumpmap will be suppressed for reflections and refractions (prevents artifacts at shores)
 const float REFR_FOG_DISTORT_DISTANCE = 3000.0;    // at what distance refraction fog will be calculated using real water depth instead of distorted depth (prevents splotchy shores)
@@ -142,6 +144,11 @@ void main(void)
     // fresnel
     float ior = (cameraPos.z>0.0)?(1.333/1.0):(1.0/1.333); // air to water; water to air
     float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
+    // Mirror bias: lift the fresnel curve so that even normal-incidence
+    // angles reflect strongly (90% min when looking straight down). Pure
+    // physical fresnel would be ~2% for water at normal incidence — fine
+    // for realism, but the user wants a glassy mirror feel.
+    fresnel = mix(0.92, 1.0, fresnel);
 
     vec2 screenCoordsOffset = normal.xy * REFL_BUMP;
 #if @waterRefraction
@@ -152,8 +159,80 @@ void main(void)
     float waterDepthDistorted = max(depthSampleDistorted - surfaceDepth, 0.0);
     screenCoordsOffset *= clamp(realWaterDepth / BUMP_SUPPRESS_DEPTH, 0.0, 1.0);
 #endif
-    // reflection
-    vec3 reflection = sampleReflectionMap(screenCoords + screenCoordsOffset).rgb;
+    // -- Screen-space reflection raycast --
+    //
+    // The plane reflection map captures the static scene mirrored above the
+    // water plane. It misses anything occluded by glancing geometry near the
+    // surface (boat hulls, dock pillars, NPCs at shore). We complement it
+    // with a short SSR raycast against the existing refractionDepthMap (which
+    // is in fact the full opaque depth of the scene). When the ray hits a
+    // surface, we sample the reflection map at the projected hit UV, giving
+    // a much more accurate near-camera reflection.
+    vec3 reflection;
+    {
+        // Reflection direction in view space.
+        vec3 viewN_vs = normalize(gl_NormalMatrix * normal);
+        vec3 viewPos_vs = (gl_ModelViewMatrix * position).xyz;
+        vec3 viewDir_vs = normalize(viewPos_vs);
+        vec3 reflDir_vs = reflect(viewDir_vs, viewN_vs);
+
+        // Bias the ray start slightly along the reflection direction so we
+        // don't self-intersect at the water surface.
+        vec3 rayOrigin_vs = viewPos_vs + reflDir_vs * 1.0;
+
+        const int SSR_STEPS = 14;
+        const float SSR_MAX_LENGTH = 5000.0; // world units, capped
+        float stepLen = SSR_MAX_LENGTH / float(SSR_STEPS);
+
+        // Bayer 4x4 dither to break banding.
+        ivec2 px = ivec2(gl_FragCoord.xy);
+        const float bayerTab[16] = float[16](
+             0.0625, 0.5625, 0.1875, 0.6875,
+             0.8125, 0.3125, 0.9375, 0.4375,
+             0.2500, 0.7500, 0.1250, 0.6250,
+             1.0000, 0.5000, 0.8750, 0.3750
+        );
+        float dither = bayerTab[(px.y & 3) * 4 + (px.x & 3)];
+
+        vec2 ssrHitUV = vec2(-1.0);
+        for (int i = 1; i <= SSR_STEPS; ++i)
+        {
+            float t = (float(i) + dither) * stepLen;
+            vec3 sampleVS = rayOrigin_vs + reflDir_vs * t;
+
+            vec4 sampleClip = gl_ProjectionMatrix * vec4(sampleVS, 1.0);
+            if (sampleClip.w <= 0.0) break;
+            vec2 sUV = (sampleClip.xy / sampleClip.w) * 0.5 + 0.5;
+            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0) break;
+
+            float scnDepth = linearizeDepth(sampleRefractionDepthMap(sUV), near, far);
+            // sampleVS.z is negative (forward in view space). distance to camera.
+            float rayDepth = -sampleVS.z;
+            float diff = scnDepth - rayDepth;
+            if (diff > 0.0 && diff < stepLen * 1.5)
+            {
+                ssrHitUV = sUV;
+                break;
+            }
+        }
+
+        vec2 planeUV = screenCoords + screenCoordsOffset;
+        vec3 planeRefl = sampleReflectionMap(planeUV).rgb;
+        if (ssrHitUV.x >= 0.0)
+        {
+            // Mix the SSR hit (more locally correct) with the plane reflection
+            // (gives sky/distant scene). Bias toward SSR as the hit gets
+            // closer to the screen edges to fade out near boundaries.
+            vec2 edgeFade = vec2(0.5) - abs(ssrHitUV - vec2(0.5));
+            float edgeMask = clamp(min(edgeFade.x, edgeFade.y) * 6.0, 0.0, 1.0);
+            vec3 ssrColor = sampleReflectionMap(ssrHitUV).rgb;
+            reflection = mix(planeRefl, ssrColor, edgeMask * 0.85);
+        }
+        else
+        {
+            reflection = planeRefl;
+        }
+    }
 
     vec3 waterColor = WATER_COLOR * sunFade;
 
@@ -168,7 +247,19 @@ void main(void)
     vec3 viewReflectDir = reflect(viewDir, specNormal);
     float phongTerm = max(dot(viewReflectDir, sunWorldDir), 0.0);
     float specular = pow(atan(phongTerm * SPEC_MAGIC), SPEC_HARDNESS) * SPEC_BRIGHTNESS;
-    specular = clamp(specular, 0.0, 1.0) * shadow * sunSpec.a;
+
+    // Sun glint stipple: a high-frequency hash modulates a second pow lobe
+    // so the highlight breaks into discrete sparkles instead of one smooth
+    // glow — gives a dancing-on-the-water feel.
+    {
+        vec2 sparkleUV = worldPos.xy * SUN_GLINT_STIPPLE + waterTimer * 0.3;
+        float sparkle = fract(sin(dot(floor(sparkleUV * 32.0), vec2(127.1, 311.7))) * 43758.5453);
+        sparkle = smoothstep(0.55, 1.0, sparkle);
+        float glintLobe = pow(phongTerm, SPEC_HARDNESS * 0.25) * sparkle * SUN_GLINT_AMPLITUDE;
+        specular += glintLobe;
+    }
+
+    specular = clamp(specular, 0.0, 4.0) * shadow * sunSpec.a;
 
     // artificial specularity to make rain ripples more noticeable
     vec3 skyColorEstimate = vec3(max(0.0, mix(-0.3, 1.0, sunFade)));
@@ -222,6 +313,31 @@ void main(void)
 #endif
 
     gl_FragData[0].rgb += specular * sunSpec.rgb + rainSpecular;
+
+#if @waterRefraction
+    // -- Edge foam --
+    // Detect a thin band where realWaterDepth is small (we're close to a
+    // shore or submerged geometry) and add a wave-modulated bright tint.
+    // Vanishes in deep water and far away.
+    {
+        const float FOAM_DEPTH = 90.0;
+        const float FOAM_FADE_DIST = 8000.0;
+        float depthFoam = clamp(1.0 - realWaterDepth / FOAM_DEPTH, 0.0, 1.0);
+        depthFoam = pow(depthFoam, 1.6);
+        // Animated wave mask so foam isn't a static ring.
+        float waveMask = clamp(0.5 + 0.5 * (normal2.r + normal4.r), 0.0, 1.0);
+        float distFade = clamp(1.0 - linearDepth / FOAM_FADE_DIST, 0.0, 1.0);
+        float foam = depthFoam * waveMask * distFade;
+        // Foam crests: secondary stipple so the shore foam looks like
+        // breaking white-caps rather than a flat tinted band.
+        vec2 foamUV = worldPos.xy * 0.06 + waterTimer * vec2(0.04, -0.03);
+        float crests = fract(sin(dot(floor(foamUV * 24.0), vec2(127.1, 311.7))) * 43758.5453);
+        float foamStrength = clamp(foam * (0.5 + crests), 0.0, 1.0);
+        // Brightness boost; tinted slightly by the sun colour for warmth.
+        vec3 foamColor = mix(vec3(1.0), sunSpec.rgb, 0.3);
+        gl_FragData[0].rgb = mix(gl_FragData[0].rgb, foamColor, foamStrength);
+    }
+#endif
 
 #if @waterRefraction && @wobblyShores
     // wobbly water: hard-fade into refraction texture at extremely low depth, with a wobble based on normal mapping

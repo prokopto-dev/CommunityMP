@@ -4,8 +4,11 @@
 #include <osg/Capability>
 #include <osg/Depth>
 #include <osg/Fog>
+#include <osg/Image>
 #include <osg/TexMat>
 #include <osg/Texture2D>
+
+#include <cmath>
 
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
@@ -155,6 +158,83 @@ namespace
         }
     };
 
+    // Singleton procedural bump heightmap. Baked once on first request from
+    // a 4-octave value-noise FBM into a 256x256 R8 texture. The result is
+    // shared between all terrain passes so the GPU only ever sees it once.
+    class ProceduralBumpHeightmap
+    {
+    public:
+        static const osg::ref_ptr<osg::Texture2D>& value()
+        {
+            static ProceduralBumpHeightmap instance;
+            return instance.mTexture;
+        }
+
+    private:
+        osg::ref_ptr<osg::Texture2D> mTexture;
+
+        ProceduralBumpHeightmap()
+        {
+            constexpr int kSize = 256;
+            osg::ref_ptr<osg::Image> image = new osg::Image;
+            image->allocateImage(kSize, kSize, 1, GL_LUMINANCE, GL_UNSIGNED_BYTE);
+            image->setInternalTextureFormat(GL_LUMINANCE);
+            unsigned char* data = image->data();
+
+            auto hash21 = [](float x, float y) {
+                float fx = x * 123.34f;
+                float fy = y * 456.21f;
+                fx = fx - std::floor(fx);
+                fy = fy - std::floor(fy);
+                float dot = fx * (fx + 45.32f) + fy * (fy + 45.32f);
+                fx += dot;
+                fy += dot;
+                float r = (fx - std::floor(fx)) * (fy - std::floor(fy));
+                return r - std::floor(r);
+            };
+            auto smoothstep = [](float t) { return t * t * (3.0f - 2.0f * t); };
+
+            auto vnoise = [&](float x, float y) {
+                float ix = std::floor(x), iy = std::floor(y);
+                float fx = x - ix, fy = y - iy;
+                float a = hash21(ix, iy);
+                float b = hash21(ix + 1, iy);
+                float c = hash21(ix, iy + 1);
+                float d = hash21(ix + 1, iy + 1);
+                float ux = smoothstep(fx), uy = smoothstep(fy);
+                return ((a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy);
+            };
+
+            // Tileable FBM: hash on float coordinates wrapped into [0, kSize).
+            for (int y = 0; y < kSize; ++y)
+            {
+                for (int x = 0; x < kSize; ++x)
+                {
+                    float fx = static_cast<float>(x);
+                    float fy = static_cast<float>(y);
+                    float v = 0.0f;
+                    float amp = 0.5f;
+                    float freq = 1.0f / 32.0f;
+                    for (int o = 0; o < 4; ++o)
+                    {
+                        v += amp * vnoise(fx * freq, fy * freq);
+                        freq *= 2.07f;
+                        amp *= 0.5f;
+                    }
+                    v = std::clamp(v, 0.0f, 1.0f);
+                    data[y * kSize + x] = static_cast<unsigned char>(v * 255.0f);
+                }
+            }
+
+            mTexture = new osg::Texture2D(image);
+            mTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+            mTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+            mTexture->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+            mTexture->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+            mTexture->setMaxAnisotropy(4.0f);
+        }
+    };
+
     class UniformCollection
     {
     public:
@@ -168,12 +248,14 @@ namespace
         osg::ref_ptr<osg::Uniform> mBlendMap;
         osg::ref_ptr<osg::Uniform> mNormalMap;
         osg::ref_ptr<osg::Uniform> mColorMode;
+        osg::ref_ptr<osg::Uniform> mProceduralBumpMap;
 
         UniformCollection()
             : mDiffuseMap(new osg::Uniform("diffuseMap", 0))
             , mBlendMap(new osg::Uniform("blendMap", 1))
             , mNormalMap(new osg::Uniform("normalMap", 2))
             , mColorMode(new osg::Uniform("colorMode", 2))
+            , mProceduralBumpMap(new osg::Uniform("terrainProceduralBumpMap", 3))
         {
         }
     };
@@ -280,7 +362,20 @@ namespace Terrain
                 defineMap["writeNormals"] = (it == layers.end() - 1) ? "1" : "0";
                 defineMap["reconstructNormalZ"] = reconstructNormalZ ? "1" : "0";
                 defineMap["terrainDisplacement"] = useDisplacementEmulation ? "1" : "0";
+                const bool useProceduralBump
+                    = !isComposite && Settings::terrain().mProceduralBump.get();
+                defineMap["terrainProceduralBump"] = useProceduralBump ? "1" : "0";
                 Stereo::shaderStereoDefines(defineMap);
+
+                if (useProceduralBump)
+                {
+                    stateset->setTextureAttributeAndModes(3, ProceduralBumpHeightmap::value());
+                    stateset->addUniform(UniformCollection::value().mProceduralBumpMap);
+                    stateset->addUniform(new osg::Uniform("terrainProceduralBumpStrength",
+                        Settings::terrain().mProceduralBumpStrength.get()));
+                    stateset->addUniform(new osg::Uniform("terrainProceduralBumpScale",
+                        Settings::terrain().mProceduralBumpScale.get()));
+                }
 
                 if (useTessellation)
                 {

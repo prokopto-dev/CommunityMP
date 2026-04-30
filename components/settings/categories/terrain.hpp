@@ -51,6 +51,25 @@ namespace Settings
         // terrain vertex shader. Works without a GL 4.0 context, intended for
         // macOS native (GL 2.1) where hardware tessellation is unreachable.
         SettingValue<bool> mTessellationEmulation{ mIndex, "Terrain", "tessellation emulation" };
+        // CPU-side mesh densification factor for the emulation path. Each
+        // near-camera chunk's vertex grid is interpolated to factor * (n-1)+1
+        // resolution before upload. Restricted to powers of two (1, 2, 4) so
+        // the stitching at chunk borders remains valid. Higher factors quickly
+        // increase memory and per-chunk build cost; 2 is the practical sweet
+        // spot.
+        SettingValue<int> mTessellationEmulationFactor{ mIndex, "Terrain", "tessellation emulation factor",
+            makeClampSanitizerInt(1, 4) };
+
+        // Procedurally-generated bump heightmap (FBM, 256x256, baked once at
+        // boot) used to perturb the terrain normal in the fragment shader.
+        // Adds visible micro-relief to grass/dirt at no geometry cost; works
+        // independently of tessellation. Effect strength scales the
+        // perturbation; UV scale controls feature frequency.
+        SettingValue<bool> mProceduralBump{ mIndex, "Terrain", "procedural bump" };
+        SettingValue<float> mProceduralBumpStrength{ mIndex, "Terrain", "procedural bump strength",
+            makeClampSanitizerFloat(0.f, 4.f) };
+        SettingValue<float> mProceduralBumpScale{ mIndex, "Terrain", "procedural bump scale",
+            makeClampSanitizerFloat(0.0001f, 1.f) };
     };
 }
 

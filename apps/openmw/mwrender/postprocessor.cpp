@@ -121,7 +121,11 @@ namespace MWRender
         , mRendering(rendering)
         , mViewer(viewer)
         , mVFS(vfs)
-        , mUsePostProcessing(Settings::postProcessing().mEnabled)
+        // Raytracing features ride on the post-processing pipeline. If they
+        // are requested, force the pipeline on regardless of the user's
+        // explicit post-processing toggle so contact shadows / SSAO still run.
+        , mUsePostProcessing(Settings::postProcessing().mEnabled
+              || Settings::raytracing().mContactShadows || Settings::raytracing().mSsao)
         , mSamples(Settings::video().mAntialiasing)
         , mPingPongCull(new PingPongCull(this))
         , mDistortionCallback(new DistortionCallback)
@@ -185,6 +189,17 @@ namespace MWRender
         distortion->setInternal(true);
         distortion->setLocked(true);
         mInternalTechniques.push_back(std::move(distortion));
+
+        // Internal raycast technique: contact shadows + SSAO. Loaded
+        // unconditionally so its uniforms are bound; the technique itself
+        // checks uContactShadows / uSsao and short-circuits if both are off.
+        if (Settings::raytracing().mContactShadows || Settings::raytracing().mSsao)
+        {
+            auto raycast = loadTechnique("internal_raycast");
+            raycast->setInternal(true);
+            raycast->setLocked(true);
+            mInternalTechniques.push_back(std::move(raycast));
+        }
 
         osg::GraphicsContext* gc = viewer->getCamera()->getGraphicsContext();
         osg::GLExtensions* ext = gc->getState()->get<osg::GLExtensions>();
