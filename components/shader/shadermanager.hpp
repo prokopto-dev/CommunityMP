@@ -50,6 +50,13 @@ namespace Shader
         osg::ref_ptr<osg::Program> getProgram(osg::ref_ptr<osg::Shader> vertexShader,
             osg::ref_ptr<osg::Shader> fragmentShader, const osg::Program* programTemplate = nullptr);
 
+        /// Variant that loads vert + tesc + tese + frag from the same template
+        /// base name and links them as a four-stage tessellation program.
+        /// Caller is responsible for ensuring the GL context supports
+        /// tessellation (see SceneUtil::isTessellationSupported).
+        osg::ref_ptr<osg::Program> getTessellationProgram(const std::string& templateName,
+            const DefineMap& defines = {}, const osg::Program* programTemplate = nullptr);
+
         const osg::Program* getProgramTemplate() const { return mProgramTemplate; }
         void setProgramTemplate(const osg::Program* program) { mProgramTemplate = program; }
 
@@ -109,6 +116,15 @@ namespace Shader
         typedef std::map<std::pair<osg::ref_ptr<osg::Shader>, osg::ref_ptr<osg::Shader>>, osg::ref_ptr<osg::Program>>
             ProgramMap;
         ProgramMap mPrograms;
+
+        // Cache for 4-stage tessellation programs keyed on (vert, tesc, tese, frag).
+        typedef std::array<osg::ref_ptr<osg::Shader>, 4> TessShaderKey;
+        struct TessShaderKeyLess
+        {
+            bool operator()(const TessShaderKey& a, const TessShaderKey& b) const noexcept { return a < b; }
+        };
+        typedef std::map<TessShaderKey, osg::ref_ptr<osg::Program>, TessShaderKeyLess> TessProgramMap;
+        TessProgramMap mTessPrograms;
 
         typedef std::vector<osg::ref_ptr<osg::Shader>> ShaderList;
         typedef std::map<osg::ref_ptr<osg::Shader>, ShaderList> LinkedShadersMap;

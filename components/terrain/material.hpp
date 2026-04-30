@@ -26,7 +26,8 @@ namespace Terrain
 
     std::vector<osg::ref_ptr<osg::StateSet>> createPasses(Resource::SceneManager* sceneManager,
         const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
-        int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain = false);
+        int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain = false,
+        bool useTessellation = false, bool useDisplacementEmulation = false);
 }
 
 #endif

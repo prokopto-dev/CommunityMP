@@ -46,6 +46,17 @@ namespace Terrain
         void accept(osg::NodeVisitor& nv) override;
         void cull(osgUtil::CullVisitor* cv);
 
+        /// Provide an alternative primitive set in GL_PATCHES mode (sharing the
+        /// same IBO as the triangle primitive). When set and the current camera
+        /// is not a shadow camera, drawImplementation swaps it in. This lets
+        /// the terrain submit patches for tessellation in the main pass while
+        /// still rendering plain triangles for the shadow pass (whose program
+        /// has no TCS/TES attached).
+        void setTessellationPrimitive(osg::PrimitiveSet* prim) { mTessellationPrim = prim; }
+        osg::PrimitiveSet* getTessellationPrimitive() const { return mTessellationPrim.get(); }
+
+        void drawImplementation(osg::RenderInfo& renderInfo) const override;
+
         typedef std::vector<osg::ref_ptr<osg::StateSet>> PassVector;
         void setPasses(const PassVector& passes);
         const PassVector& getPasses() const { return mPasses; }
@@ -72,6 +83,7 @@ namespace Terrain
         osg::ref_ptr<SceneUtil::LightListCallback> mLightListCallback;
         osg::ref_ptr<CompositeMap> mCompositeMap;
         osg::ref_ptr<CompositeMapRenderer> mCompositeMapRenderer;
+        osg::ref_ptr<osg::PrimitiveSet> mTessellationPrim;
     };
 
 }

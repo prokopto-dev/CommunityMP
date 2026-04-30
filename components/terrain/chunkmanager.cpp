@@ -9,7 +9,9 @@
 #include <components/resource/objectcache.hpp>
 #include <components/resource/scenemanager.hpp>
 
+#include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/lightmanager.hpp>
+#include <components/settings/values.hpp>
 
 #include "compositemaprenderer.hpp"
 #include "material.hpp"
@@ -197,8 +199,21 @@ namespace Terrain
 
         int tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
+        // Tessellation runs only on near-camera chunks (chunkSize <= 1) where
+        // the per-layer multipass cost is bounded, and only when the GL
+        // context supports GL 4.0+ tessellation.
+        const bool useTessellation = !forCompositeMap && chunkSize <= 1.f
+            && Settings::terrain().mTessellation && SceneUtil::isTessellationSupported();
+
+        // Software displacement fallback path. Used when hardware tess is
+        // requested but unavailable (e.g. macOS native GL 2.1) or when the
+        // user prefers the cheaper non-adaptive path.
+        const bool useEmulation = !forCompositeMap && !useTessellation && chunkSize <= 1.f
+            && Settings::terrain().mTessellationEmulation;
+
         return ::Terrain::createPasses(mSceneManager, layers, blendmapTextures, tileCount,
-            static_cast<float>(tileCount), forCompositeMap, ESM::isEsm4Ext(mWorldspace));
+            static_cast<float>(tileCount), forCompositeMap, ESM::isEsm4Ext(mWorldspace), useTessellation,
+            useEmulation);
     }
 
     osg::ref_ptr<osg::Node> ChunkManager::createChunk(float chunkSize, const osg::Vec2f& chunkCenter, unsigned char lod,
@@ -253,7 +268,21 @@ namespace Terrain
         unsigned int numVerts
             = static_cast<unsigned>((mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1);
 
-        geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
+        osg::ref_ptr<osg::PrimitiveSet> trianglesPrim = mBufferCache.getIndexBuffer(numVerts, lodFlags);
+        geometry->addPrimitiveSet(trianglesPrim);
+
+        const bool useTessellation = chunkSize <= 1.f && Settings::terrain().mTessellation
+            && SceneUtil::isTessellationSupported();
+        if (useTessellation)
+        {
+            // Clone the triangle primitive sharing the underlying IBO; only the
+            // mode differs. drawImplementation in TerrainDrawable will swap it
+            // in for the main pass while shadow keeps drawing triangles.
+            osg::ref_ptr<osg::PrimitiveSet> patchesPrim = static_cast<osg::PrimitiveSet*>(
+                trianglesPrim->clone(osg::CopyOp::SHALLOW_COPY));
+            patchesPrim->setMode(GL_PATCHES);
+            geometry->setTessellationPrimitive(patchesPrim);
+        }
 
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
         unsigned int numUvSets = useCompositeMap ? 1 : 2;

@@ -9,6 +9,11 @@ namespace SceneUtil
     bool glExtensionsReady();
     osg::GLExtensions& getGLExtensions();
 
+    /// Returns true if the current GL context supports hardware tessellation
+    /// (GL 4.0+ or GL_ARB_tessellation_shader). Must be called after the
+    /// graphics context has been initialized.
+    bool isTessellationSupported();
+
     class GetGLExtensionsOperation : public osg::GraphicsOperation
     {
     public:

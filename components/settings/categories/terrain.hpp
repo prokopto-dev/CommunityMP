@@ -38,6 +38,19 @@ namespace Settings
         SettingValue<float> mObjectPagingMinSizeCostMultiplier{ mIndex, "Terrain",
             "object paging min size cost multiplier", makeMaxStrictSanitizerFloat(0) };
         SettingValue<bool> mWaterCulling{ mIndex, "Terrain", "water culling" };
+
+        SettingValue<bool> mTessellation{ mIndex, "Terrain", "tessellation" };
+        SettingValue<int> mTessellationMaxLevel{ mIndex, "Terrain", "tessellation max level",
+            makeClampSanitizerInt(1, 64) };
+        SettingValue<float> mTessellationDisplacementScale{ mIndex, "Terrain", "tessellation displacement scale",
+            makeClampSanitizerFloat(0.f, 256.f) };
+        SettingValue<float> mTessellationViewDistance{ mIndex, "Terrain", "tessellation view distance",
+            makeMaxStrictSanitizerFloat(0) };
+        // Software fallback for the hardware tessellation feature: applies
+        // procedural FBM displacement in the (legacy GL 1.20-compatible)
+        // terrain vertex shader. Works without a GL 4.0 context, intended for
+        // macOS native (GL 2.1) where hardware tessellation is unreachable.
+        SettingValue<bool> mTessellationEmulation{ mIndex, "Terrain", "tessellation emulation" };
     };
 }
 

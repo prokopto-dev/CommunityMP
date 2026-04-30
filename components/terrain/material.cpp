@@ -9,7 +9,9 @@
 
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
+#include <components/sceneutil/patchparameter.hpp>
 #include <components/sceneutil/util.hpp>
+#include <components/settings/values.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/stereo/stereomanager.hpp>
 
@@ -181,10 +183,23 @@ namespace Terrain
 {
     std::vector<osg::ref_ptr<osg::StateSet>> createPasses(Resource::SceneManager* sceneManager,
         const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
-        int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain)
+        int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain, bool useTessellation,
+        bool useDisplacementEmulation)
     {
         auto& shaderManager = sceneManager->getShaderManager();
         std::vector<osg::ref_ptr<osg::StateSet>> passes;
+
+        // Compositing rasterises into a 2D RTT and is not amenable to a 3-stage
+        // tessellation pipeline; force-disable tess in that case.
+        if (isComposite)
+        {
+            useTessellation = false;
+            useDisplacementEmulation = false;
+        }
+        // Hardware tess and software emulation are mutually exclusive — the
+        // hardware path already does displacement in the TES.
+        if (useTessellation)
+            useDisplacementEmulation = false;
 
         unsigned int blendmapIndex = 0;
         for (std::vector<TextureLayer>::const_iterator it = layers.begin(); it != layers.end(); ++it)
@@ -264,9 +279,38 @@ namespace Terrain
                 defineMap["parallax"] = parallax ? "1" : "0";
                 defineMap["writeNormals"] = (it == layers.end() - 1) ? "1" : "0";
                 defineMap["reconstructNormalZ"] = reconstructNormalZ ? "1" : "0";
+                defineMap["terrainDisplacement"] = useDisplacementEmulation ? "1" : "0";
                 Stereo::shaderStereoDefines(defineMap);
 
-                stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                if (useTessellation)
+                {
+                    // Force per-pixel lighting under tess; per-vertex lighting
+                    // would be applied at coarse pre-subdivision vertices and
+                    // the displaced surface would look flat-shaded.
+                    defineMap["forcePPL"] = "1";
+                    stateset->setAttributeAndModes(
+                        shaderManager.getTessellationProgram("core/terrain", defineMap));
+                    stateset->setAttributeAndModes(new SceneUtil::PatchParameter(3));
+                    stateset->addUniform(new osg::Uniform(
+                        "terrainTessMaxLevel",
+                        static_cast<float>(Settings::terrain().mTessellationMaxLevel.get())));
+                    stateset->addUniform(new osg::Uniform(
+                        "terrainTessDisplacementScale",
+                        Settings::terrain().mTessellationDisplacementScale.get()));
+                    stateset->addUniform(new osg::Uniform(
+                        "terrainTessViewDistance",
+                        Settings::terrain().mTessellationViewDistance.get()));
+                }
+                else
+                {
+                    stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                    if (useDisplacementEmulation)
+                    {
+                        stateset->addUniform(new osg::Uniform(
+                            "terrainTessDisplacementScale",
+                            Settings::terrain().mTessellationDisplacementScale.get()));
+                    }
+                }
                 stateset->addUniform(UniformCollection::value().mColorMode);
             }
 

@@ -1,5 +1,6 @@
 #include "terraindrawable.hpp"
 
+#include <osg/Camera>
 #include <osg/ClusterCullingCallback>
 #include <osgUtil/CullVisitor>
 
@@ -18,7 +19,38 @@ namespace Terrain
         : osg::Geometry(copy, copyop)
         , mPasses(copy.mPasses)
         , mLightListCallback(copy.mLightListCallback)
+        , mTessellationPrim(copy.mTessellationPrim)
     {
+    }
+
+    void TerrainDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
+    {
+        if (!mTessellationPrim)
+        {
+            osg::Geometry::drawImplementation(renderInfo);
+            return;
+        }
+
+        const osg::Camera* cam = renderInfo.getCurrentCamera();
+        const bool isShadow = cam != nullptr && cam->getName() == "ShadowCamera";
+        const PrimitiveSetList& list = getPrimitiveSetList();
+        if (isShadow || list.empty())
+        {
+            // Shadow pass uses a different program that has no TCS/TES attached;
+            // GL_PATCHES would generate an error. Render plain triangles.
+            osg::Geometry::drawImplementation(renderInfo);
+            return;
+        }
+
+        // In-place swap of the first primitive set so the standard draw walks
+        // the patches list. We restore immediately, so OSG's VAO/IBO cache —
+        // which keys on the underlying buffer object handles, identical
+        // between the two primitives — remains consistent.
+        PrimitiveSetList& mutableList = const_cast<PrimitiveSetList&>(list);
+        osg::ref_ptr<osg::PrimitiveSet> saved = mutableList[0];
+        mutableList[0] = mTessellationPrim;
+        osg::Geometry::drawImplementation(renderInfo);
+        mutableList[0] = saved;
     }
 
     void TerrainDrawable::accept(osg::NodeVisitor& nv)

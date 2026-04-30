@@ -47,6 +47,17 @@ namespace SceneUtil
         return **sGLExtensions.begin();
     }
 
+    bool isTessellationSupported()
+    {
+        if (!glExtensionsReady())
+            return false;
+        const osg::GLExtensions& ext = getGLExtensions();
+        // Hardware tessellation requires GL 4.0 or GL_ARB_tessellation_shader.
+        // OSG exposes glPatchParameteri through ext.glPatchParameteri once the
+        // extension or core 4.0 is available.
+        return ext.glVersion >= 4.0f && ext.glPatchParameteri != nullptr;
+    }
+
     GetGLExtensionsOperation::GetGLExtensionsOperation()
         : GraphicsOperation("GetGLExtensionsOperation", false)
     {

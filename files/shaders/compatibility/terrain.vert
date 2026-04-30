@@ -31,11 +31,60 @@ varying vec3 passNormal;
 #include "lib/light/lighting.glsl"
 #include "lib/view/depth.glsl"
 
+#if @terrainDisplacement
+uniform float terrainTessDisplacementScale;
+
+float terrainHash21(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float terrainVnoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float a = terrainHash21(i);
+    float b = terrainHash21(i + vec2(1.0, 0.0));
+    float c = terrainHash21(i + vec2(0.0, 1.0));
+    float d = terrainHash21(i + vec2(1.0, 1.0));
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;
+}
+
+float terrainFbm(vec2 p)
+{
+    float v = 0.0;
+    float amp = 0.5;
+    float freq = 1.0;
+    for (int i = 0; i < 3; ++i)
+    {
+        v += amp * terrainVnoise(p * freq);
+        freq *= 2.07;
+        amp *= 0.5;
+    }
+    return v;
+}
+#endif
+
 void main(void)
 {
-    gl_Position = modelToClip(gl_Vertex);
+    vec4 modelVertex = gl_Vertex;
+#if @terrainDisplacement
+    // Software fallback for hardware tessellation. Adds procedural relief at
+    // existing terrain vertices. There is no subdivision in this path, so the
+    // gain in visible detail is bounded by the density of the source mesh
+    // (65x65 vertices per Morrowind cell) — coarse but free everywhere.
+    float slopeMask = clamp(gl_Normal.z, 0.0, 1.0);
+    slopeMask = slopeMask * slopeMask;
+    float h = terrainFbm(modelVertex.xy * 0.015) * slopeMask;
+    modelVertex.xyz += gl_Normal.xyz * (h * terrainTessDisplacementScale);
+#endif
 
-    vec4 viewPos = modelToView(gl_Vertex);
+    gl_Position = modelToClip(modelVertex);
+
+    vec4 viewPos = modelToView(modelVertex);
     gl_ClipVertex = viewPos;
     euclideanDepth = length(viewPos.xyz);
     linearDepth = getLinearDepth(gl_Position.z, viewPos.z);

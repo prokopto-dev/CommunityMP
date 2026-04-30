@@ -604,6 +604,39 @@ namespace Shader
         return found->second;
     }
 
+    osg::ref_ptr<osg::Program> ShaderManager::getTessellationProgram(
+        const std::string& templateName, const DefineMap& defines, const osg::Program* programTemplate)
+    {
+        auto vert = getShader(templateName + ".vert", defines);
+        auto tesc = getShader(templateName + ".tesc", defines);
+        auto tese = getShader(templateName + ".tese", defines);
+        auto frag = getShader(templateName + ".frag", defines);
+
+        if (!vert || !tesc || !tese || !frag)
+            throw std::runtime_error("failed initializing tessellation shader: " + templateName);
+
+        std::lock_guard<std::mutex> lock(mMutex);
+        TessShaderKey key{ vert, tesc, tese, frag };
+        TessProgramMap::iterator found = mTessPrograms.find(key);
+        if (found == mTessPrograms.end())
+        {
+            if (!programTemplate)
+                programTemplate = mProgramTemplate;
+            osg::ref_ptr<osg::Program> program
+                = programTemplate ? cloneProgram(programTemplate) : osg::ref_ptr<osg::Program>(new osg::Program);
+            program->addShader(vert);
+            program->addShader(tesc);
+            program->addShader(tese);
+            program->addShader(frag);
+            addLinkedShaders(vert, program);
+            addLinkedShaders(tesc, program);
+            addLinkedShaders(tese, program);
+            addLinkedShaders(frag, program);
+            found = mTessPrograms.insert(std::make_pair(key, program)).first;
+        }
+        return found->second;
+    }
+
     osg::ref_ptr<osg::Program> ShaderManager::cloneProgram(const osg::Program* src)
     {
         osg::ref_ptr<osg::Program> program = static_cast<osg::Program*>(src->clone(osg::CopyOp::SHALLOW_COPY));
@@ -650,6 +683,8 @@ namespace Shader
                 shader->releaseGLObjects(state);
         }
         for (const auto& [_, program] : mPrograms)
+            program->releaseGLObjects(state);
+        for (const auto& [_, program] : mTessPrograms)
             program->releaseGLObjects(state);
     }
 
