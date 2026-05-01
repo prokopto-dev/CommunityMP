@@ -25,6 +25,7 @@
 
 #include "../mwworld/class.hpp"
 
+#include "joltactor.hpp"
 #include "joltshapeconverter.hpp"
 
 namespace MWPhysics
@@ -178,6 +179,8 @@ namespace MWPhysics
         }
         mObjectBodies.clear();
         mHeightFieldBodies.clear();
+        mActors.clear(); // CharacterVirtual destructors run before
+                         // mJoltSystem so they can deregister cleanly.
 
         // Reverse-order teardown: PhysicsSystem first (it holds
         // references to layer interfaces / contact listener), then
@@ -274,7 +277,27 @@ namespace MWPhysics
             = mJoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
         mObjectBodies.emplace(ptr.mRef, id);
     }
-    void JoltPhysicsSystem::addActor(const MWWorld::Ptr&, VFS::Path::NormalizedView) { notImplemented("addActor"); }
+    void JoltPhysicsSystem::addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh)
+    {
+        const VFS::Path::Normalized animationMesh
+            = Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS());
+        osg::ref_ptr<const Resource::BulletShape> shape = mShapeManager->getShape(animationMesh);
+        if (!shape && animationMesh != mesh)
+            shape = mShapeManager->getShape(mesh);
+        if (!shape)
+            return;
+
+        // Half-extents from the BulletShape's collision box.
+        const osg::Vec3f halfExtents = shape->mCollisionBox.mExtents * 0.5f;
+        if (halfExtents.length2() < 1e-6f)
+            return; // shape has no usable bounds
+
+        const ESM::Position& pos = ptr.getRefData().getPosition();
+        const osg::Vec3f position(pos.pos[0], pos.pos[1], pos.pos[2]);
+
+        auto actor = std::make_unique<JoltActor>(ptr, halfExtents, position, *mJoltSystem);
+        mActors.emplace(ptr.mRef, std::move(actor));
+    }
     int JoltPhysicsSystem::addProjectile(const MWWorld::Ptr&, const osg::Vec3f&, VFS::Path::NormalizedView, bool)
     {
         notImplemented("addProjectile");
@@ -290,7 +313,14 @@ namespace MWPhysics
             bi.DestroyBody(it->second);
             mObjectBodies.erase(it);
         }
-        // Actors will join here in phase 7.
+        else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
+        {
+            // JoltActor's destructor releases the CharacterVirtual;
+            // the inner body owned by the character is collected
+            // through that destruction path, no extra DestroyBody
+            // call needed here.
+            mActors.erase(ait);
+        }
     }
 
     void JoltPhysicsSystem::updatePtr(const MWWorld::Ptr&, const MWWorld::Ptr&) { notImplemented("updatePtr"); }

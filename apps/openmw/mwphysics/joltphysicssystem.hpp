@@ -35,6 +35,11 @@ namespace Resource
 
 namespace MWPhysics
 {
+    class JoltActor;
+}
+
+namespace MWPhysics
+{
     // Jolt object layers — coarse grouping that mirrors OpenMW's
     // CollisionType well enough for broadphase. Static world chunks
     // (terrain, walls, closed doors) live in NON_MOVING; everything
@@ -226,6 +231,9 @@ namespace MWPhysics
         std::unordered_map<const MWWorld::LiveCellRefBase*, JPH::BodyID> mObjectBodies;
         std::map<std::pair<int, int>, JPH::BodyID> mHeightFieldBodies;
         JPH::BodyID mWaterBody;
+
+        // Per-actor character controllers (phase 7).
+        std::unordered_map<const MWWorld::LiveCellRefBase*, std::unique_ptr<JoltActor>> mActors;
     };
 }
 
