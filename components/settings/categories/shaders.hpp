@@ -74,6 +74,12 @@ namespace Settings
         SettingValue<float> mGrassWindFrequency{ mIndex, "Shaders", "grass wind frequency",
             makeClampSanitizerFloat(0.0f, 0.5f) };
         SettingValue<osg::Vec2f> mGrassWindDir{ mIndex, "Shaders", "grass wind dir" };
+
+        // GGX/Cook-Torrance specular instead of Phong. Roughness derived
+        // from material shininess (legacy meshes); a future pass can read
+        // a dedicated _s.dds smoothness map. Pushed via @pbrSpecular global
+        // define — no per-mesh setup required.
+        SettingValue<bool> mPbrSpecular{ mIndex, "Shaders", "pbr specular" };
     };
 }
 

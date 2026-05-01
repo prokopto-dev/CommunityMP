@@ -76,6 +76,9 @@ void main()
 #if @reconstructNormalZ
     normal.z = sqrt(1.0 - dot(normal.xy, normal.xy));
 #endif
+    // Match objects.frag: stretch tangent XY so PBR-pipeline normal
+    // maps (which come out nearly flat) produce visible bump shading.
+    normal.xy *= 4.0;
     vec3 viewNormal = normalToView(normal);
 #else
     vec3 viewNormal = normalize(gl_NormalMatrix * passNormal);

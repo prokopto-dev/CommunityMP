@@ -168,6 +168,10 @@ vec2 screenCoords = gl_FragCoord.xy / screenRes;
 #if @reconstructNormalZ
     normal.z = sqrt(1.0 - dot(normal.xy, normal.xy));
 #endif
+    // The pix2pix-generated normal maps come out nearly flat (tangent
+    // XY stddev ~0.04). Stretch XY so the relief drives diffuse shading
+    // without amplifying the (slight) Y-axis bias enough to streak.
+    normal.xy *= 4.0;
     vec3 viewNormal = normalToView(normal);
 #else
     vec3 viewNormal = normalize(gl_NormalMatrix * passNormal);
