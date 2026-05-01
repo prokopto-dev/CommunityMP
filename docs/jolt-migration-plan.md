@@ -28,7 +28,12 @@ Jolt.
 | 6b1 | Shape converter — compound | ✅ done |
 | 6b2 | Shape converter — triangle mesh | ✅ done |
 | 6c | Height fields + water + addObject wiring | ✅ done |
-| 7 | Actor controller (`CharacterVirtual` ↔ MovementSolver) | ⏳ |
+| 7a | JoltActor scaffold (`CharacterVirtual` wrapper) | ✅ done |
+| 7b | `addActor` / `remove` actor wiring | ✅ done |
+| 7c | `stepSimulation` -> `ExtendedUpdate` per actor | ✅ done |
+| 7d | state queries (isOnGround, position, half extents) | ✅ done |
+| 7e | `queueObjectMovement` + `moveActors` | ✅ done |
+| 7f | Vanilla parity tuning (slope, water, stuck recovery) | ⏳ |
 | 8 | Projectiles + raycasts + sphere casts | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
 | 10 | Animated/skinned shape sync | ⏳ |
