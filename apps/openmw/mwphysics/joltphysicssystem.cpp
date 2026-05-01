@@ -458,25 +458,44 @@ namespace MWPhysics
         notImplemented("traceDown");
     }
 
-    bool JoltPhysicsSystem::isOnGround(const MWWorld::Ptr&) { notImplemented("isOnGround"); }
-    bool JoltPhysicsSystem::isOnSolidGround(const MWWorld::Ptr&) const { notImplemented("isOnSolidGround"); }
+    bool JoltPhysicsSystem::isOnGround(const MWWorld::Ptr& ptr)
+    {
+        const auto it = mActors.find(ptr.mRef);
+        return it != mActors.end() && it->second->isOnGround();
+    }
+    bool JoltPhysicsSystem::isOnSolidGround(const MWWorld::Ptr& ptr) const
+    {
+        const auto it = mActors.find(ptr.mRef);
+        return it != mActors.end() && it->second->isOnGround();
+    }
     bool JoltPhysicsSystem::canMoveToWaterSurface(const MWWorld::ConstPtr&, float)
     {
         notImplemented("canMoveToWaterSurface");
     }
 
-    osg::Vec3f JoltPhysicsSystem::getHalfExtents(const MWWorld::ConstPtr&) const { notImplemented("getHalfExtents"); }
-    osg::Vec3f JoltPhysicsSystem::getOriginalHalfExtents(const MWWorld::ConstPtr&) const
+    osg::Vec3f JoltPhysicsSystem::getHalfExtents(const MWWorld::ConstPtr& ptr) const
     {
-        notImplemented("getOriginalHalfExtents");
+        const auto it = mActors.find(ptr.mRef);
+        return it != mActors.end() ? it->second->getHalfExtents() : osg::Vec3f();
     }
-    osg::Vec3f JoltPhysicsSystem::getRenderingHalfExtents(const MWWorld::ConstPtr&) const
+    osg::Vec3f JoltPhysicsSystem::getOriginalHalfExtents(const MWWorld::ConstPtr& ptr) const
     {
-        notImplemented("getRenderingHalfExtents");
+        // Bullet path differentiates the original (unscaled) and the
+        // current (scaled) extents — actor scale is not yet wired
+        // into the JoltActor (phase 7f), so the two values match.
+        return getHalfExtents(ptr);
     }
-    osg::Vec3f JoltPhysicsSystem::getCollisionObjectPosition(const MWWorld::ConstPtr&) const
+    osg::Vec3f JoltPhysicsSystem::getRenderingHalfExtents(const MWWorld::ConstPtr& ptr) const
     {
-        notImplemented("getCollisionObjectPosition");
+        // Same situation as getOriginalHalfExtents — phase 7f tunes
+        // a per-actor render scale to match the Bullet path's
+        // mRenderingHalfExtents fudge factor.
+        return getHalfExtents(ptr);
+    }
+    osg::Vec3f JoltPhysicsSystem::getCollisionObjectPosition(const MWWorld::ConstPtr& ptr) const
+    {
+        const auto it = mActors.find(ptr.mRef);
+        return it != mActors.end() ? it->second->getPosition() : osg::Vec3f();
     }
     osg::BoundingBox JoltPhysicsSystem::getBoundingBox(const MWWorld::ConstPtr&) const
     {
