@@ -98,14 +98,30 @@ class ReplicateProvider(Provider):
         # higher-res albedo gives the pix2pix model finer per-pixel detail
         # to work with, so the resulting normal/height maps are sharper.
         albedo_bytes = source_image_bytes
+        source_alpha_bytes = _extract_alpha_if_meaningful(source_image_bytes)
+
         if self.upscale > 1:
             albedo_bytes = self._run_upscale(albedo_bytes, scale=self.upscale)
+
+        # Match saturation of the upscaled albedo to the original — the
+        # upscaler tends to wash colours out.
+        albedo_bytes = _match_saturation(albedo_bytes, source_image_bytes)
+
+        # Re-composite source alpha onto the upscaled albedo (resized NN
+        # to preserve hard alpha-test edges on foliage / ironwork).
+        if source_alpha_bytes is not None:
+            albedo_bytes = _composite_alpha(albedo_bytes, source_alpha_bytes)
 
         data_uri = "data:image/png;base64," + base64.b64encode(albedo_bytes).decode()
 
         normal     = self._run_pix2pix("albedo2normal",     data_uri)
         height     = self._run_pix2pix("albedo2height",     data_uri)
         smoothness = self._run_pix2pix("albedo2smoothness", data_uri)
+
+        # Sharpen the normal map's tangent-space XY then renormalise Z so
+        # the result stays a unit vector — the unsharp_mask alone makes
+        # the normal lighting "boil" if Z isn't fixed.
+        normal = _sharpen_and_renormalize_normal(normal)
 
         return PBRResult(
             albedo=albedo_bytes,
@@ -236,23 +252,148 @@ class StabilityProvider(Provider):
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# Image post-processing helpers (Pillow)
+# --------------------------------------------------------------------------
+
+
+def _extract_alpha_if_meaningful(png_bytes: bytes) -> Optional[bytes]:
+    """Return the alpha channel as a single-band PNG if the source has any
+    non-trivial transparency, else None."""
+    try:
+        from PIL import Image
+        import io
+    except ImportError:
+        return None
+    try:
+        img = Image.open(io.BytesIO(png_bytes))
+        if img.mode not in ("RGBA", "LA", "PA"):
+            return None
+        a = img.convert("RGBA").split()[-1]
+        # Quick check: if every pixel is >= 254 there's no real transparency.
+        bbox = a.point(lambda p: 255 if p < 254 else 0).getbbox()
+        if bbox is None:
+            return None
+        out = io.BytesIO()
+        a.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return None
+
+
+def _composite_alpha(albedo_png_bytes: bytes, alpha_png_bytes: bytes) -> bytes:
+    """Take the alpha channel from `alpha_png_bytes`, resize to match the
+    albedo, paste as alpha. Nearest-neighbour preserves hard edges."""
+    try:
+        from PIL import Image
+        import io
+    except ImportError:
+        return albedo_png_bytes
+    try:
+        rgb = Image.open(io.BytesIO(albedo_png_bytes)).convert("RGB")
+        a   = Image.open(io.BytesIO(alpha_png_bytes)).convert("L")
+        if a.size != rgb.size:
+            a = a.resize(rgb.size, Image.Resampling.NEAREST)
+        rgba = Image.merge("RGBA", (*rgb.split(), a))
+        out = io.BytesIO()
+        rgba.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return albedo_png_bytes
+
+
+def _match_saturation(target_png_bytes: bytes, reference_png_bytes: bytes) -> bytes:
+    """Match mean HSV saturation of target to reference. Real-ESRGAN tends
+    to desaturate; this restores Morrowind's painted-art saturation."""
+    try:
+        from PIL import Image, ImageEnhance
+        import io
+    except ImportError:
+        return target_png_bytes
+    try:
+        ref = Image.open(io.BytesIO(reference_png_bytes)).convert("HSV")
+        tgt = Image.open(io.BytesIO(target_png_bytes)).convert("RGB")
+
+        ref_s = list(ref.split()[1].getdata())
+        ref_mean = sum(ref_s) / max(1, len(ref_s)) / 255.0
+
+        tgt_hsv = tgt.convert("HSV")
+        tgt_s = list(tgt_hsv.split()[1].getdata())
+        tgt_mean = sum(tgt_s) / max(1, len(tgt_s)) / 255.0
+        if tgt_mean < 0.01:
+            return target_png_bytes
+
+        ratio = max(0.5, min(2.0, ref_mean / tgt_mean))
+        enhanced = ImageEnhance.Color(tgt).enhance(ratio)
+        out = io.BytesIO()
+        enhanced.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return target_png_bytes
+
+
+def _sharpen_and_renormalize_normal(normal_png_bytes: bytes) -> bytes:
+    """Apply unsharp mask to XY then renormalize Z so the normal stays a
+    unit vector. Recovers contrast lost in pix2pix's compression."""
+    try:
+        from PIL import Image, ImageFilter
+        import io, math
+    except ImportError:
+        return normal_png_bytes
+    try:
+        n = Image.open(io.BytesIO(normal_png_bytes)).convert("RGB")
+        # Sharpen the whole RGB then rebuild Z from sharpened XY so the
+        # vector length stays 1.
+        sharpened = n.filter(ImageFilter.UnsharpMask(radius=1.5, percent=70, threshold=2))
+        r, g, b = sharpened.split()
+        r_data = list(r.getdata())
+        g_data = list(g.getdata())
+        out_b = []
+        for i in range(len(r_data)):
+            x = (r_data[i] / 255.0) * 2.0 - 1.0
+            y = (g_data[i] / 255.0) * 2.0 - 1.0
+            zsq = max(0.0, 1.0 - x*x - y*y)
+            z = math.sqrt(zsq)
+            out_b.append(int((z * 0.5 + 0.5) * 255.0))
+        b_new = Image.new("L", b.size)
+        b_new.putdata(out_b)
+        result = Image.merge("RGB", (r, g, b_new))
+        out = io.BytesIO()
+        result.save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return normal_png_bytes
+
+
 def infer_prompt_hint(filename: str) -> str:
     """Derive a short keyword from the texture filename so the AI knows what
     kind of surface to synthesise (rock, dirt, wood, fabric, metal...)."""
     stem = Path(filename).stem.lower()
-    table = {
-        "weathered red brick wall": ("brick", "firebrick"),
-        "rough stone wall":         ("imp_wall", "_wall_imp", "stonewall"),
-        "rock":   ("rock", "_r_", "_rk_"),
-        "dirt":   ("dirt", "earth", "_e_", "_d_"),
-        "grass":  ("grass", "moss", "lawn"),
-        "sand":   ("sand", "beach"),
-        "wood":   ("wood", "plank", "log", "tree"),
-        "fabric": ("cloth", "fab", "carpet", "rug"),
-        "metal":  ("metal", "iron", "steel", "bronze", "weapon", "armor"),
-        "stone":  ("stone", "wall", "marble", "tile"),
-    }
-    for hint, keys in table.items():
+    # Order matters: longest / most specific keys first so we don't fall
+    # through to a generic match.
+    table = (
+        ("weathered red brick wall", ("brick", "firebrick")),
+        ("rough stone wall",         ("imp_wall", "_wall_imp", "stonewall")),
+        ("dwemer brushed brass",     ("dwrv", "dwemer", "dwe_")),
+        ("daedric obsidian metal",   ("daed", "daedric")),
+        ("ebony polished black",     ("ebony",)),
+        ("glass-like crystalline",   ("glass",)),
+        ("volcanic ash",             ("ash", "ashland")),
+        ("lava molten rock glowing", ("lava", "magma")),
+        ("snow ice crystal",         ("ice", "snow_ice", "frost")),
+        ("silt sand muddy",          ("silt", "mudflats")),
+        ("bone weathered",           ("bone", "skull", "skel")),
+        ("gold coin metallic",       ("coin", "gold_", "_gold")),
+        ("rock", ("rock", "_r_", "_rk_")),
+        ("dirt", ("dirt", "earth", "_e_", "_d_")),
+        ("grass", ("grass", "moss", "lawn")),
+        ("sand", ("sand", "beach")),
+        ("wood", ("wood", "plank", "log")),
+        ("fabric", ("cloth", "fab", "carpet", "rug", "tapestry")),
+        ("metal", ("metal", "iron", "steel", "bronze", "weapon", "armor")),
+        ("stone", ("stone", "wall", "marble", "tile")),
+    )
+    for hint, keys in table:
         if any(k in stem for k in keys):
             return hint
     return "natural surface"

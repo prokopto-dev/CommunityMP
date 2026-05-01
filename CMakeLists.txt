@@ -47,6 +47,20 @@ option(BUILD_OPENCS_TESTS       "Build OpenMW Construction Set tests" OFF)
 option(BUILD_OPENMW_TESTS       "Build OpenMW tests" OFF)
 option(PRECOMPILE_HEADERS_WITH_MSVC "Precompile most common used headers with MSVC (alternative to ccache)" ON)
 
+# Physics backend selection. Compile-time only — pas de toggle runtime.
+# 'bullet' (default) preserves vanilla behaviour. 'jolt' compiles
+# JoltPhysics from extern/JoltPhysics and routes the simulation through
+# the Jolt backend. Bullet stays linked unconditionally because
+# components/detournavigator and components/bullethelpers consume
+# btCollisionShape directly to feed Recast — Jolt only replaces the
+# active simulation, not the shape data source.
+set(OPENMW_PHYSICS_BACKEND "bullet" CACHE STRING "Physics simulation backend (bullet|jolt)")
+set_property(CACHE OPENMW_PHYSICS_BACKEND PROPERTY STRINGS bullet jolt)
+if(NOT OPENMW_PHYSICS_BACKEND MATCHES "^(bullet|jolt)$")
+    message(FATAL_ERROR "OPENMW_PHYSICS_BACKEND must be 'bullet' or 'jolt' (got '${OPENMW_PHYSICS_BACKEND}')")
+endif()
+message(STATUS "Physics backend: ${OPENMW_PHYSICS_BACKEND}")
+
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
 
 if (BUILD_LAUNCHER OR BUILD_OPENCS OR BUILD_WIZARD OR BUILD_OPENCS_TESTS)
@@ -444,6 +458,40 @@ if(OPENMW_USE_SYSTEM_BULLET)
     else()
         message(FATAL_ERROR "Bullet does not uses double precision")
     endif()
+endif()
+
+# Jolt Physics — only compiled when -DOPENMW_PHYSICS_BACKEND=jolt is passed.
+# Sourced from extern/JoltPhysics submodule. We pin double-precision and
+# disable the test framework / samples so the build stays minimal.
+if(OPENMW_PHYSICS_BACKEND STREQUAL "jolt")
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/extern/JoltPhysics/Jolt/Jolt.cmake")
+        message(FATAL_ERROR
+            "JoltPhysics submodule is missing. Run: "
+            "git submodule update --init --recursive extern/JoltPhysics")
+    endif()
+    set(DOUBLE_PRECISION ON CACHE BOOL "" FORCE)
+    set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "" FORCE)
+    set(CROSS_PLATFORM_DETERMINISTIC OFF CACHE BOOL "" FORCE)
+    set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+    set(OBJECT_LAYER_BITS 16 CACHE STRING "" FORCE)
+    set(USE_AVX2 OFF CACHE BOOL "" FORCE)  # Apple Silicon = ARM, no AVX
+    set(USE_SSE4_1 OFF CACHE BOOL "" FORCE)
+    set(USE_SSE4_2 OFF CACHE BOOL "" FORCE)
+    set(USE_F16C OFF CACHE BOOL "" FORCE)
+    set(USE_LZCNT OFF CACHE BOOL "" FORCE)
+    set(USE_BMI1 OFF CACHE BOOL "" FORCE)
+    set(USE_FMADD OFF CACHE BOOL "" FORCE)
+    set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+    set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+    set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+    add_subdirectory(extern/JoltPhysics/Build Jolt EXCLUDE_FROM_ALL)
+    set(JOLT_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/extern/JoltPhysics")
+    add_compile_definitions(OPENMW_PHYSICS_BACKEND_JOLT=1)
+    message(STATUS "Built JoltPhysics for OpenMW physics backend")
+else()
+    add_compile_definitions(OPENMW_PHYSICS_BACKEND_BULLET=1)
 endif()
 
 if (NOT WIN32 AND BUILD_WIZARD) # windows users can just run the morrowind installer
