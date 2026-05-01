@@ -26,7 +26,7 @@ Jolt.
 | 5 | Jolt-side world bootstrap (BroadPhaseLayers, ObjectLayers) | ✅ done |
 | 6a | Shape converter — primitive Bullet shapes | ✅ done |
 | 6b1 | Shape converter — compound | ✅ done |
-| 6b2 | Shape converter — triangle mesh | ⏳ |
+| 6b2 | Shape converter — triangle mesh | ✅ done |
 | 6c | Height fields + water + addObject wiring | ⏳ |
 | 7 | Actor controller (`CharacterVirtual` ↔ MovementSolver) | ⏳ |
 | 8 | Projectiles + raycasts + sphere casts | ⏳ |
