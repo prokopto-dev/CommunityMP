@@ -491,6 +491,71 @@ def already_done(out_dir: Path, src: Path, root: Path) -> bool:
     return (base.parent / (base.name + "_n.png")).exists()
 
 
+_FLORA_SUBSTRINGS = (
+    "flora", "plant", "mushroom", "fung", "shroom",
+    "tree", "bush", "fern", "vine", "weed", "grass",
+    "flower", "kelp", "seaweed", "lichen", "moss",
+    "leaf", "leaves", "frond", "blossom",
+    # Morrowind-specific flora
+    "kresh", "kollop", "wickwheat", "corkbulb", "marshmerrow",
+    "gold_kanet", "roobrush", "saltrice", "comberry", "chokeweed",
+    "hackle-lo", "stoneflower", "trama", "hist", "russula",
+    "bittergreen", "willow_flower", "violet_coprinus", "luminous_russula",
+    "bungler", "emperor_parasol", "muck",
+)
+
+
+def is_flora(src: Path) -> bool:
+    """Heuristic: does this texture depict flora (plants / mushrooms / grass)?
+    These typically have alpha-tested masks; they don't roundtrip cleanly
+    through the pix2pix PBR model and aren't where parallax / specular shows
+    its value anyway."""
+    stem = src.stem.lower()
+    return any(s in stem for s in _FLORA_SUBSTRINGS)
+
+
+def has_meaningful_alpha(src: Path) -> bool:
+    """Return True if the source texture carries a real transparency mask.
+    Uses ImageMagick `identify` so DDS/TGA/PNG all work. A texture is treated
+    as transparent if `%[opaque]` reports false AND the alpha channel is not
+    flat (Pillow check on a PNG round-trip — guards against DDS files that
+    advertise an alpha channel filled with 255)."""
+    import shutil, subprocess
+    bin_ = shutil.which("magick") or shutil.which("convert")
+    if bin_ is None:
+        return False  # can't tell — be permissive
+    try:
+        # First a cheap probe: opaque flag.
+        ident = shutil.which("magick")
+        if ident is not None:
+            probe = subprocess.run([ident, "identify", "-format", "%[opaque]", str(src)],
+                                   capture_output=True, text=True, timeout=10)
+        else:
+            probe = subprocess.run([bin_, "-format", "%[opaque]", "identify", str(src)],
+                                   capture_output=True, text=True, timeout=10)
+        if probe.returncode == 0 and probe.stdout.strip().lower() == "true":
+            return False
+        # Confirm by sniffing the alpha histogram on a PNG round-trip — DDS
+        # often reports non-opaque even when alpha is uniformly 255.
+        png = subprocess.run([bin_, str(src), "png:-"],
+                             capture_output=True, timeout=15)
+        if png.returncode != 0 or not png.stdout:
+            return False
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(png.stdout))
+            if img.mode not in ("RGBA", "LA", "PA"):
+                return False
+            a = img.convert("RGBA").split()[-1]
+            lo, hi = a.getextrema()
+            return lo < 250  # any non-trivial transparency
+        except Exception:
+            return True  # decoded as transparent earlier — believe it
+    except Exception:
+        return False
+
+
 def _convert_to_dds(out_dir: Path, src: Path, root: Path):
     """Convert the four PNGs of a pack to DDS (DXT1 for albedo, DXT5 for
     the rest) so OpenMW picks them up via VFS for meshes pointing at the
@@ -562,6 +627,10 @@ def main():
     p.add_argument("--dry-run",  action="store_true", help="list inputs, don't call API")
     p.add_argument("--upscale",  type=int, default=1, help="upscale factor before PBR (1=off, 4=Real-ESRGAN 4x)")
     p.add_argument("--dds",      action="store_true", help="convert outputs to DXT-compressed DDS via ImageMagick")
+    p.add_argument("--skip-transparent", action="store_true",
+                   help="skip textures whose alpha channel encodes a mask (foliage, ironwork, glass)")
+    p.add_argument("--skip-flora", action="store_true",
+                   help="skip plant / mushroom / tree / grass textures by filename")
     args = p.parse_args()
 
     if not args.input.is_dir():
@@ -580,8 +649,16 @@ def main():
     provider = make_provider(args.provider, upscale=args.upscale)
     print(f"Provider: {provider.name}, upscale: {args.upscale}x, inputs: {len(inputs)}")
 
+    skipped_alpha = 0
+    skipped_flora = 0
     for i, src in enumerate(inputs, 1):
         if already_done(args.output, src, args.input):
+            continue
+        if args.skip_flora and is_flora(src):
+            skipped_flora += 1
+            continue
+        if args.skip_transparent and has_meaningful_alpha(src):
+            skipped_alpha += 1
             continue
         hint = infer_prompt_hint(src.name)
         try:
@@ -595,6 +672,11 @@ def main():
         except Exception as e:
             print(f"[{i}/{len(inputs)}] {src.name}  FAILED: {e}", file=sys.stderr)
             time.sleep(2)
+
+    if args.skip_transparent and skipped_alpha:
+        print(f"Skipped {skipped_alpha} texture(s) with mask/transparency")
+    if args.skip_flora and skipped_flora:
+        print(f"Skipped {skipped_flora} flora texture(s)")
 
 
 if __name__ == "__main__":
