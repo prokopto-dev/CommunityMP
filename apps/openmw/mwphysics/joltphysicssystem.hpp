@@ -234,6 +234,12 @@ namespace MWPhysics
 
         // Per-actor character controllers (phase 7).
         std::unordered_map<const MWWorld::LiveCellRefBase*, std::unique_ptr<JoltActor>> mActors;
+
+        // Per-frame velocity queue for actors. Cleared at the end of
+        // each stepSimulation. Mirrors PhysicsSystem's behaviour:
+        // queueObjectMovement overwrites prior entries; the queue
+        // is "valid until the next stepSimulation".
+        std::unordered_map<const MWWorld::LiveCellRefBase*, osg::Vec3f> mQueuedMovement;
     };
 }
 

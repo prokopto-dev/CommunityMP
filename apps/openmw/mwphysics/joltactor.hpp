@@ -42,11 +42,15 @@ namespace MWPhysics
         // World-space centre of the collision capsule.
         osg::Vec3f getPosition() const;
 
-        // Phase 7d wires these. For now they return defaults so
-        // callers (AI / camera) don't crash before phase 7 is done.
         bool isOnGround() const { return mIsOnGround; }
 
         JPH::CharacterVirtual* getCharacter() { return mCharacter.get(); }
+
+        // Refresh cached state from the underlying CharacterVirtual.
+        // Called after every ExtendedUpdate by JoltPhysicsSystem so
+        // const accessors (isOnGround / getPosition) don't have to
+        // round-trip into Jolt.
+        void refreshState();
 
     private:
         MWWorld::Ptr mPtr;

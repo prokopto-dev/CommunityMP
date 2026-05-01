@@ -74,6 +74,13 @@ namespace MWPhysics
         const JPH::RVec3 p = mCharacter->GetPosition();
         return osg::Vec3f(p.GetX(), p.GetY(), p.GetZ());
     }
+
+    void JoltActor::refreshState()
+    {
+        if (!mCharacter)
+            return;
+        mIsOnGround = mCharacter->IsSupported();
+    }
 }
 
 #endif

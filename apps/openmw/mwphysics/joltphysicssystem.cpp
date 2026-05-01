@@ -23,6 +23,8 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/vfs/manager.hpp>
 
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
 #include "../mwworld/class.hpp"
 
 #include "joltactor.hpp"
@@ -415,17 +417,55 @@ namespace MWPhysics
         if (skipSimulation || dt <= 0.0f)
             return;
 
-        // Phase 5: empty-world tick. Phase 7 will route the queued
-        // movement and actor controllers through here. The single-
-        // collision-step + single sub-step config is what
-        // Jolt::HelloWorld uses; it's a fine starting point until we
-        // bench against Bullet under the phase-12 rig.
+        // 1. Drain the per-actor velocity queue into each
+        //    CharacterVirtual. Re-queuing the same actor between
+        //    ticks would have already overwritten in the map.
+        for (auto& [ref, actor] : mActors)
+        {
+            const auto qit = mQueuedMovement.find(ref);
+            const osg::Vec3f vel = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
+            if (auto* cv = actor->getCharacter())
+                cv->SetLinearVelocity(JPH::Vec3(vel.x(), vel.y(), vel.z()));
+        }
+
+        // 2. Tick the rigid-body world (objects, projectiles, water
+        //    sensor). Single integration substep for now; phase 12
+        //    benches whether MW's clock granularity wants more.
         constexpr int collisionSteps = 1;
         mJoltSystem->Update(dt, collisionSteps, mTempAllocator.get(), mJobSystem.get());
+
+        // 3. Tick each character. ExtendedUpdate handles its own
+        //    sub-stepping, slope sliding, stick-to-floor, and
+        //    walk-stairs heuristics inside Jolt.
+        const JPH::Vec3 gravity = mJoltSystem->GetGravity();
+        const JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+        const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
+        const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
+        const JPH::BodyFilter bodyFilter; // accept all (no per-body exclusions yet)
+        const JPH::ShapeFilter shapeFilter; // accept all
+        for (auto& [_, actor] : mActors)
+        {
+            if (auto* cv = actor->getCharacter())
+            {
+                cv->ExtendedUpdate(dt, gravity, updateSettings,
+                    bpFilter, objFilter, bodyFilter, shapeFilter, *mTempAllocator);
+            }
+            actor->refreshState();
+        }
+
+        // 4. Movement queue is "valid until the next stepSimulation"
+        //    per the API contract.
+        mQueuedMovement.clear();
     }
-    // moveActors: phase 5 has no actors yet, so apply-positions is
-    // trivially a no-op. Phase 7 implements actor controllers.
-    void JoltPhysicsSystem::moveActors() {}
+    void JoltPhysicsSystem::moveActors()
+    {
+        auto world = MWBase::Environment::get().getWorld();
+        for (auto& [_, actor] : mActors)
+        {
+            world->moveObject(actor->getPtr(), actor->getPosition(),
+                /*movePhysics*/ false, /*moveToActive*/ false);
+        }
+    }
     bool JoltPhysicsSystem::toggleCollisionMode() { notImplemented("toggleCollisionMode"); }
     void JoltPhysicsSystem::debugDraw() { notImplemented("debugDraw"); }
 
@@ -502,13 +542,11 @@ namespace MWPhysics
         notImplemented("getBoundingBox");
     }
 
-    void JoltPhysicsSystem::queueObjectMovement(const MWWorld::Ptr&, const osg::Vec3f&)
+    void JoltPhysicsSystem::queueObjectMovement(const MWWorld::Ptr& ptr, const osg::Vec3f& velocity)
     {
-        notImplemented("queueObjectMovement");
+        mQueuedMovement[ptr.mRef] = velocity;
     }
-    // No-op until phase 7 wires actor controllers; lets engine startup
-    // calls clear an (empty) queue without crashing.
-    void JoltPhysicsSystem::clearQueuedMovement() {}
+    void JoltPhysicsSystem::clearQueuedMovement() { mQueuedMovement.clear(); }
 
     bool JoltPhysicsSystem::isActorStandingOn(const MWWorld::Ptr&, const MWWorld::ConstPtr&) const
     {
