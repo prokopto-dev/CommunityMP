@@ -598,18 +598,26 @@ namespace MWPhysics
             return;
 
         // 1. Drain the per-actor velocity queue into each
-        //    CharacterVirtual. Re-queuing the same actor between
-        //    ticks would have already overwritten in the map.
+        //    CharacterVirtual.
         //
-        // Gravity caveat: ExtendedUpdate integrates gravity into the
-        // CharacterVirtual's stored linear velocity each frame. Game
-        // input arrives as a horizontal "desired motion" vector with
-        // Z=0 (or Z=jumpImpulse on the jump tick). Wholesale
-        // SetLinearVelocity(x, y, 0) wipes out the gravity-accumulated
-        // fall speed, leaving the actor floating. Preserve the
-        // existing Z component when input Z is zero so gravity keeps
-        // accumulating; only honour input Z when the gameplay layer
-        // explicitly drives it (jump impulse, scripted teleport).
+        // Gravity is the caller's responsibility for CharacterVirtual:
+        // Update / ExtendedUpdate consume mLinearVelocity to compute
+        // position deltas and read the ground state, but they do NOT
+        // write `gravity * dt` back into mLinearVelocity. We have to
+        // do the accumulation here, mirroring the
+        // CharacterVirtualTest sample shipped with Jolt.
+        //
+        // Per-frame Z velocity policy:
+        //   - if gameplay drove an explicit Z (jump impulse, scripted
+        //     teleport): use it as-is, then add gravity*dt for this
+        //     step's contribution;
+        //   - else if on ground: clamp Z to 0 (the floor absorbed the
+        //     prior fall speed) before adding gravity*dt — keeps the
+        //     stationary case stable and avoids runaway downward
+        //     accumulation while standing;
+        //   - else (airborne): preserve the prior frame's Z (fall arc)
+        //     and add gravity*dt.
+        const JPH::Vec3 stepGravity = mJoltSystem->GetGravity();
         for (auto& [ref, actor] : mActors)
         {
             auto* cv = actor->getCharacter();
@@ -618,7 +626,16 @@ namespace MWPhysics
             const auto qit = mQueuedMovement.find(ref);
             const osg::Vec3f vel = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
             const JPH::Vec3 currentVel = cv->GetLinearVelocity();
-            const float zVel = (vel.z() != 0.0f) ? vel.z() : currentVel.GetZ();
+            const bool onGround
+                = cv->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround;
+            float zVel;
+            if (vel.z() != 0.0f)
+                zVel = vel.z();
+            else if (onGround)
+                zVel = 0.0f;
+            else
+                zVel = currentVel.GetZ();
+            zVel += stepGravity.GetZ() * dt;
             cv->SetLinearVelocity(JPH::Vec3(vel.x(), vel.y(), zVel));
         }
 
