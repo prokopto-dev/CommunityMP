@@ -231,7 +231,13 @@ namespace MWPhysics
         // base classes — these accessors stay valid.
         virtual Actor* getActor(const MWWorld::Ptr& ptr) = 0;
         virtual const Actor* getActor(const MWWorld::ConstPtr& ptr) const = 0;
-        virtual const Object* getObject(const MWWorld::ConstPtr& ptr) const = 0;
+        // Returns IPhysicsObject so the Jolt path can hand back a
+        // navigator-friendly view of its statics without needing to
+        // construct a Bullet-flavoured Object. Callers only use the
+        // virtuals declared on IPhysicsObject (getShapeInstance,
+        // getTransform, getPtr) — verified by grep across mwworld /
+        // mwmechanics / mwrender.
+        virtual const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const = 0;
         virtual Projectile* getProjectile(int projectileId) const = 0;
 
         // ----- Concretely Bullet-flavoured but architecturally shared --

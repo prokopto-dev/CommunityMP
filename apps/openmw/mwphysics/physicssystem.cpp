@@ -216,9 +216,9 @@ namespace MWPhysics
                     ignoreList.push_back(actor->getCollisionObject());
                 else
                 {
-                    const Object* object = getObject(ptr);
-                    if (object)
-                        ignoreList.push_back(object->getCollisionObject());
+                    auto it = mObjects.find(ptr.mRef);
+                    if (it != mObjects.end())
+                        ignoreList.push_back(it->second->getCollisionObject());
                 }
             }
         }
@@ -330,9 +330,10 @@ namespace MWPhysics
 
     osg::BoundingBox PhysicsSystem::getBoundingBox(const MWWorld::ConstPtr& object) const
     {
-        const Object* physobject = getObject(object);
-        if (!physobject)
+        const auto it = mObjects.find(object.mRef);
+        if (it == mObjects.end())
             return osg::BoundingBox();
+        const Object* physobject = it->second.get();
         btVector3 min, max;
         mTaskScheduler->getAabb(physobject->getCollisionObject(), min, max);
         return osg::BoundingBox(Misc::Convert::toOsg(min), Misc::Convert::toOsg(max));
@@ -496,7 +497,7 @@ namespace MWPhysics
         return nullptr;
     }
 
-    const Object* PhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
+    const IPhysicsObject* PhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
     {
         ObjectMap::const_iterator found = mObjects.find(ptr.mRef);
         if (found != mObjects.end())

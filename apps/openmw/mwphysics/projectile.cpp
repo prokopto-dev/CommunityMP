@@ -86,7 +86,10 @@ namespace MWPhysics
             const Actor* actor = mPhysics->getActor(caster);
             if (actor)
                 return actor->getCollisionObject();
-            const Object* object = mPhysics->getObject(caster);
+            // PhysicsSystem (Bullet path) always stores `Object`-derived
+            // entries; the IPhysicsObject return type is the abstract
+            // base shared with the Jolt path.
+            const auto* object = static_cast<const Object*>(mPhysics->getObject(caster));
             if (object)
                 return object->getCollisionObject();
             return nullptr;

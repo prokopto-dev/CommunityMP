@@ -201,7 +201,7 @@ namespace MWPhysics
 
         Actor* getActor(const MWWorld::Ptr& ptr) override;
         const Actor* getActor(const MWWorld::ConstPtr& ptr) const override;
-        const Object* getObject(const MWWorld::ConstPtr& ptr) const override;
+        const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const override;
         Projectile* getProjectile(int projectileId) const override;
 
         Resource::BulletShapeManager* getShapeManager() override;
@@ -272,7 +272,7 @@ namespace MWPhysics
         // The animated entry doubles as the IPhysicsObject the
         // navigator consumes - storing the Ptr inline lets getPtr()
         // be O(1) without round-tripping the engine.
-        class AnimatedObjectEntry final : public IPhysicsObject
+        class JoltObjectEntry final : public IPhysicsObject
         {
         public:
             osg::ref_ptr<Resource::BulletShapeInstance> mShapeInstance;
@@ -293,7 +293,7 @@ namespace MWPhysics
             MWWorld::Ptr getPtr() const override { return mPtr; }
             btTransform getTransform() const override;
         };
-        std::unordered_map<const MWWorld::LiveCellRefBase*, AnimatedObjectEntry> mAnimatedObjectEntries;
+        std::unordered_map<const MWWorld::LiveCellRefBase*, JoltObjectEntry> mObjectEntries;
     };
 }
 

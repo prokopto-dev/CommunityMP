@@ -182,7 +182,7 @@ namespace MWPhysics
         Actor* getActor(const MWWorld::Ptr& ptr) override;
         const Actor* getActor(const MWWorld::ConstPtr& ptr) const override;
 
-        const Object* getObject(const MWWorld::ConstPtr& ptr) const override;
+        const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const override;
 
         Projectile* getProjectile(int projectileId) const override;
 

@@ -1088,7 +1088,7 @@ namespace MWWorld
             if (movePhysics)
             {
                 mPhysics->updatePosition(newPtr);
-                if (const MWPhysics::Object* object = mPhysics->getObject(newPtr))
+                if (const MWPhysics::IPhysicsObject* object = mPhysics->getObject(newPtr))
                     updateNavigatorObject(*object);
             }
         }

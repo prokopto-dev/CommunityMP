@@ -202,7 +202,7 @@ namespace MWPhysics
         mObjectBodies.clear();
         mHeightFieldBodies.clear();
         mProjectileBodies.clear();
-        mAnimatedObjectEntries.clear();
+        mObjectEntries.clear();
         mActors.clear(); // CharacterVirtual destructors run before
                          // mJoltSystem so they can deregister cleanly.
 
@@ -305,19 +305,17 @@ namespace MWPhysics
         mObjectBodies.emplace(ptr.mRef, id);
         mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), ptr);
 
-        // Phase 10a: track animated entries so
-        // updateAnimatedCollisionShape can rebuild the runtime
-        // shape from the (live) BulletShapeInstance.
-        if (shapeInstance->isAnimated())
-        {
-            AnimatedObjectEntry e;
-            e.mShapeInstance = shapeInstance;
-            e.mBodyId = id;
-            e.mPtr = ptr;
-            e.mLastPosition = JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]);
-            e.mLastRotation = JPH::Quat(rotation.x(), rotation.y(), rotation.z(), rotation.w());
-            mAnimatedObjectEntries.emplace(ptr.mRef, std::move(e));
-        }
+        // Always store an entry — getObject() returns it for the
+        // navigator's recast feed (statics, doors, animated objects),
+        // and updateAnimatedCollisionShape uses the shape-instance
+        // pointer to rebuild the Jolt shape on animated objects only.
+        JoltObjectEntry e;
+        e.mShapeInstance = shapeInstance;
+        e.mBodyId = id;
+        e.mPtr = ptr;
+        e.mLastPosition = JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]);
+        e.mLastRotation = JPH::Quat(rotation.x(), rotation.y(), rotation.z(), rotation.w());
+        mObjectEntries.emplace(ptr.mRef, std::move(e));
     }
     void JoltPhysicsSystem::addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh)
     {
@@ -410,7 +408,7 @@ namespace MWPhysics
             bi.RemoveBody(it->second);
             bi.DestroyBody(it->second);
             mObjectBodies.erase(it);
-            mAnimatedObjectEntries.erase(ptr.mRef);
+            mObjectEntries.erase(ptr.mRef);
         }
         else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
         {
@@ -464,7 +462,7 @@ namespace MWPhysics
             mJoltSystem->GetBodyInterface().SetRotation(it->second, jrot,
                 JPH::EActivation::DontActivate);
         }
-        if (auto eit = mAnimatedObjectEntries.find(ptr.mRef); eit != mAnimatedObjectEntries.end())
+        if (auto eit = mObjectEntries.find(ptr.mRef); eit != mObjectEntries.end())
         {
             eit->second.mLastRotation = jrot;
             eit->second.mChanged = true;
@@ -489,7 +487,7 @@ namespace MWPhysics
             if (auto* cv = ait->second->getCharacter())
                 cv->SetPosition(jpos);
         }
-        if (auto eit = mAnimatedObjectEntries.find(ptr.mRef); eit != mAnimatedObjectEntries.end())
+        if (auto eit = mObjectEntries.find(ptr.mRef); eit != mObjectEntries.end())
         {
             eit->second.mLastPosition = jpos;
             eit->second.mChanged = true;
@@ -969,10 +967,10 @@ namespace MWPhysics
         // child transforms haven't actually changed; for now we
         // unconditionally rebuild on call, matching the Bullet
         // path's "trust the caller's hint" behaviour.
-        const auto it = mAnimatedObjectEntries.find(object.mRef);
-        if (it == mAnimatedObjectEntries.end())
+        const auto it = mObjectEntries.find(object.mRef);
+        if (it == mObjectEntries.end())
             return;
-        AnimatedObjectEntry& entry = it->second;
+        JoltObjectEntry& entry = it->second;
         if (!entry.mShapeInstance || !entry.mShapeInstance->mCollisionShape)
             return;
 
@@ -1013,12 +1011,18 @@ namespace MWPhysics
 
     Actor* JoltPhysicsSystem::getActor(const MWWorld::Ptr&) { return nullptr; }
     const Actor* JoltPhysicsSystem::getActor(const MWWorld::ConstPtr&) const { return nullptr; }
-    const Object* JoltPhysicsSystem::getObject(const MWWorld::ConstPtr&) const { return nullptr; }
+    const IPhysicsObject* JoltPhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
+    {
+        const auto it = mObjectEntries.find(ptr.mRef);
+        if (it == mObjectEntries.end())
+            return nullptr;
+        return &it->second;
+    }
     Projectile* JoltPhysicsSystem::getProjectile(int) const { return nullptr; }
 
     Resource::BulletShapeManager* JoltPhysicsSystem::getShapeManager() { return mShapeManager.get(); }
     float JoltPhysicsSystem::getPhysicsDt() const { return mPhysicsDt; }
-    btTransform JoltPhysicsSystem::AnimatedObjectEntry::getTransform() const
+    btTransform JoltPhysicsSystem::JoltObjectEntry::getTransform() const
     {
         // Translate the cached Jolt pose into the navigator's
         // expected btTransform. Cached values are refreshed on each
@@ -1032,10 +1036,15 @@ namespace MWPhysics
 
     std::vector<std::pair<const IPhysicsObject*, bool>> JoltPhysicsSystem::getAnimatedObjects() const
     {
+        // Filter to truly animated entries — the navigator uses this
+        // to decide whether to refresh navmesh tiles, so statics
+        // (which never change shape) shouldn't pollute the list.
         std::vector<std::pair<const IPhysicsObject*, bool>> out;
-        out.reserve(mAnimatedObjectEntries.size());
-        for (const auto& [_, entry] : mAnimatedObjectEntries)
-            out.emplace_back(&entry, entry.mChanged);
+        for (const auto& [_, entry] : mObjectEntries)
+        {
+            if (entry.mShapeInstance && entry.mShapeInstance->isAnimated())
+                out.emplace_back(&entry, entry.mChanged);
+        }
         return out;
     }
 }
