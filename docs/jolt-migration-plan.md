@@ -36,7 +36,8 @@ Jolt.
 | 7f | Vanilla parity tuning (slope, water, stuck recovery) | ⏳ |
 | 8a | Spatial queries (castRay, castSphere, getLineOfSight, traceDown) + projectile bodies | ✅ done |
 | 8b | Hit normal extraction in castRay/castSphere | ✅ done |
-| 8c | UserData -> Ptr resolution + ignore/target filters | ⏳ |
+| 8c | Body owner map + castRay ignore filter + mHitObject (objects) | ✅ done |
+| 8c′ | Owner-map for actors + projectiles, sphere-cast filter, target list | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
 | 10 | Animated/skinned shape sync | ⏳ |
 | 11 | Lua API surface audit | ⏳ |
