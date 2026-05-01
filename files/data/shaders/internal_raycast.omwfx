@@ -137,6 +137,29 @@ uniform_float uVolumetricFogScattering {
     min = 0.0;
     max = 1.0;
 }
+uniform_bool uEyeAdaptation {
+    default = false;
+}
+uniform_float uEyeAdaptationTarget {
+    default = 0.45;
+    min = 0.05;
+    max = 1.0;
+}
+uniform_float uEyeAdaptationMin {
+    default = 0.85;
+    min = 0.1;
+    max = 1.0;
+}
+uniform_float uEyeAdaptationMax {
+    default = 1.4;
+    min = 1.0;
+    max = 4.0;
+}
+uniform_float uEyeAdaptationStrength {
+    default = 0.25;
+    min = 0.0;
+    max = 1.0;
+}
 uniform_float uSunHaloRadius {
     default = 0.18;
     min = 0.01;
@@ -445,6 +468,42 @@ fragment main {
         col = mix(col, deep, fogAmount * uUnderwaterTint);
 
         return col;
+    }
+
+    // -------------------------------------------------------------------
+    // Eye adaptation (auto-exposure)
+    // -------------------------------------------------------------------
+    // Estimates the average luminance of the visible scene by sampling
+    // omw_GetLastShader at a 4x4 grid, then derives an exposure multiplier
+    // that pushes the mean luminance toward uEyeAdaptationTarget. Clamped
+    // to [min, max] and mixed with 1.0 by uEyeAdaptationStrength so the
+    // user can dial in how aggressive the adaptation is.
+    // No temporal smoothing here — the natural smoothness of luminance
+    // sampling at large radii prevents most flicker; for frame-by-frame
+    // smoothing we would need a persistent UBO field which omwfx doesn't
+    // expose to user techniques.
+    vec3 applyEyeAdaptation(vec3 col)
+    {
+        if (!uEyeAdaptation) return col;
+
+        float lum = 0.0;
+        // 4x4 grid centred over the screen, weighted by gaussian-like falloff
+        // toward the edges (centre matters more than corners).
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                vec2 sUV = (vec2(float(i), float(j)) + 0.5) * 0.25;
+                vec3 s = omw_GetLastShader(sUV).rgb;
+                lum += dot(s, vec3(0.2126, 0.7152, 0.0722));
+            }
+        }
+        lum /= 16.0;
+        lum = max(lum, 0.001);
+
+        float exposure = uEyeAdaptationTarget / lum;
+        exposure = clamp(exposure, uEyeAdaptationMin, uEyeAdaptationMax);
+        return col * mix(1.0, exposure, uEyeAdaptationStrength);
     }
 
     // -------------------------------------------------------------------
@@ -767,6 +826,9 @@ fragment main {
         // Underwater overlay (caustics + scattering) applied last so it
         // tints everything including SSR/halo contributions.
         base = applyUnderwater(base, omw_TexCoord);
+        // Eye adaptation: applied on the fully composited image so the
+        // exposure estimate sees the same lighting the player sees.
+        base = applyEyeAdaptation(base);
         omw_FragColor = vec4(base + halo + rays, col.a);
     }
 }
