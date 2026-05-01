@@ -18,19 +18,21 @@ const float VISIBILITY = 2500.0;
 const float VISIBILITY_DEPTH = VISIBILITY * 1.5;
 const float DEPTH_FADE = 0.15;
 
-const vec2 BIG_WAVES = vec2(0.1, 0.1); // strength of big waves
-const vec2 MID_WAVES = vec2(0.1, 0.1); // strength of middle sized waves
-const vec2 MID_WAVES_RAIN = vec2(0.2, 0.2);
-const vec2 SMALL_WAVES = vec2(0.1, 0.1); // strength of small waves
-const vec2 SMALL_WAVES_RAIN = vec2(0.3, 0.3);
+const vec2 BIG_WAVES = vec2(0.18, 0.18);   // boosted: visible swell rolling across the water
+const vec2 MID_WAVES = vec2(0.20, 0.20);   // boosted: mid-frequency wave pattern
+const vec2 MID_WAVES_RAIN = vec2(0.35, 0.35);
+const vec2 SMALL_WAVES = vec2(0.28, 0.28); // boosted: more visible texture
+const vec2 SMALL_WAVES_RAIN = vec2(0.50, 0.50);
+const vec2 TINY_WAVES = vec2(0.22, 0.22);  // high-frequency wind ripples
+const vec2 MICRO_WAVES = vec2(0.10, 0.10); // micro-glint frequency
 
-const float WAVE_CHOPPYNESS = 0.05;                // wave choppyness
+const float WAVE_CHOPPYNESS = 0.12;                // sharper crests, Gerstner-like
 const float WAVE_SCALE = 75.0;                     // overall wave scale
 
-const float BUMP = 0.06;                           // pushed further: glassy mirror surface
-const float BUMP_RAIN = 1.0;                       // rain stays choppy but pulled in
-const float REFL_BUMP = 0.012;                     // reflection essentially undistorted
-const float REFR_BUMP = 0.012;                     // refraction essentially undistorted
+const float BUMP = 0.30;                           // boosted: visible waves while staying reflective
+const float BUMP_RAIN = 1.4;                       // rainy weather chops it up significantly
+const float REFL_BUMP = 0.05;                      // reflection slightly distorted (still readable)
+const float REFR_BUMP = 0.04;                      // refraction barely distorted
 
 #if @sunlightScattering
 const float SCATTER_AMOUNT = 0.3;                  // amount of sunlight scattering
@@ -110,6 +112,11 @@ void main(void)
     vec3 normal3 = 2.0 * texture2D(normalMap,normalCoords(UV, 0.5,  0.09, waterTimer,  0.03,   0.04,  normal2)).rgb - 1.0;
     vec3 normal4 = 2.0 * texture2D(normalMap,normalCoords(UV, 1.0,  0.4,  waterTimer, -0.02,   0.1,   normal3)).rgb - 1.0;
     vec3 normal5 = 2.0 * texture2D(normalMap,normalCoords(UV, 2.0,  0.7,  waterTimer,  0.1,   -0.06,  normal4)).rgb - 1.0;
+    // Two new high-frequency octaves: tiny wind ripples (~scale 4) and
+    // micro-glint chop (~scale 8). Move faster than the larger waves so
+    // the surface always looks "alive" even when the camera is still.
+    vec3 normal6 = 2.0 * texture2D(normalMap,normalCoords(UV, 4.0,  1.6,  waterTimer, -0.18,   0.22, normal5)).rgb - 1.0;
+    vec3 normal7 = 2.0 * texture2D(normalMap,normalCoords(UV, 8.0,  3.2,  waterTimer,  0.31,  -0.28, normal6)).rgb - 1.0;
 
     vec4 rainRipple;
 
@@ -123,7 +130,9 @@ void main(void)
     float distToCenter = length(rippleMapUV - vec2(0.5));
     float blendClose = smoothstep(0.001, 0.02, distToCenter);
     float blendFar = 1.0 - smoothstep(0.3, 0.4, distToCenter);
-    float distortionLevel = 2.0;
+    // Player/physics interaction ripples — boosted so the player wading
+    // through water leaves a clearly visible wake.
+    float distortionLevel = 5.0;
     rippleAdd += distortionLevel * vec3(texture2D(rippleMap, rippleMapUV).ba * blendFar * blendClose, 0.0);
 
     vec2 bigWaves = BIG_WAVES;
@@ -132,7 +141,8 @@ void main(void)
     float bump = mix(BUMP,BUMP_RAIN,rainIntensity);
 
     vec3 normal = (normal0 * bigWaves.x + normal1 * bigWaves.y + normal2 * midWaves.x +
-                   normal3 * midWaves.y + normal4 * smallWaves.x + normal5 * smallWaves.y + rippleAdd);
+                   normal3 * midWaves.y + normal4 * smallWaves.x + normal5 * smallWaves.y +
+                   normal6 * TINY_WAVES.x + normal7 * MICRO_WAVES.x + rippleAdd);
     normal = normalize(vec3(-normal.x * bump, -normal.y * bump, normal.z));
 
     vec3 sunWorldDir = normalize((gl_ModelViewMatrixInverse * vec4(lcalcPosition(0).xyz, 0.0)).xyz);
@@ -144,11 +154,11 @@ void main(void)
     // fresnel
     float ior = (cameraPos.z>0.0)?(1.333/1.0):(1.0/1.333); // air to water; water to air
     float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
-    // Mirror bias: lift the fresnel curve so that even normal-incidence
-    // angles reflect strongly (90% min when looking straight down). Pure
-    // physical fresnel would be ~2% for water at normal incidence — fine
-    // for realism, but the user wants a glassy mirror feel.
-    fresnel = mix(0.92, 1.0, fresnel);
+    // Reflection bias: lift the fresnel curve so the water is clearly
+    // reflective at all angles, but not a chrome mirror. Pure physical
+    // fresnel for water at normal incidence would be ~2% — too low to
+    // feel reflective. We split the difference at 45%.
+    fresnel = mix(0.45, 1.0, fresnel);
 
     vec2 screenCoordsOffset = normal.xy * REFL_BUMP;
 #if @waterRefraction
@@ -185,14 +195,28 @@ void main(void)
         float stepLen = SSR_MAX_LENGTH / float(SSR_STEPS);
 
         // Bayer 4x4 dither to break banding.
-        ivec2 px = ivec2(gl_FragCoord.xy);
-        const float bayerTab[16] = float[16](
-             0.0625, 0.5625, 0.1875, 0.6875,
-             0.8125, 0.3125, 0.9375, 0.4375,
-             0.2500, 0.7500, 0.1250, 0.6250,
-             1.0000, 0.5000, 0.8750, 0.3750
-        );
-        float dither = bayerTab[(px.y & 3) * 4 + (px.x & 3)];
+        // GLSL 120 has no bitwise '&' on ints; use mod() instead.
+        // We also avoid float[16] array literals (also a 130+ thing) by
+        // unrolling a small lookup with mix().
+        float fxm = mod(gl_FragCoord.x, 4.0);
+        float fym = mod(gl_FragCoord.y, 4.0);
+        // 4x4 Bayer pattern, computed in-line as a 2D function.
+        // Source values in [0..15], normalised to [0..1).
+        float row0 = mix(mix(0.0,  8.0, step(0.5, fxm)),
+                         mix(2.0, 10.0, step(2.5, fxm)),
+                         step(1.5, fxm));
+        float row1 = mix(mix(12.0, 4.0, step(0.5, fxm)),
+                         mix(14.0, 6.0, step(2.5, fxm)),
+                         step(1.5, fxm));
+        float row2 = mix(mix(3.0, 11.0, step(0.5, fxm)),
+                         mix(1.0,  9.0, step(2.5, fxm)),
+                         step(1.5, fxm));
+        float row3 = mix(mix(15.0, 7.0, step(0.5, fxm)),
+                         mix(13.0, 5.0, step(2.5, fxm)),
+                         step(1.5, fxm));
+        float dither = mix(mix(row0, row1, step(0.5, fym)),
+                           mix(row2, row3, step(2.5, fym)),
+                           step(1.5, fym)) / 16.0;
 
         vec2 ssrHitUV = vec2(-1.0);
         for (int i = 1; i <= SSR_STEPS; ++i)
@@ -226,7 +250,7 @@ void main(void)
             vec2 edgeFade = vec2(0.5) - abs(ssrHitUV - vec2(0.5));
             float edgeMask = clamp(min(edgeFade.x, edgeFade.y) * 6.0, 0.0, 1.0);
             vec3 ssrColor = sampleReflectionMap(ssrHitUV).rgb;
-            reflection = mix(planeRefl, ssrColor, edgeMask * 0.85);
+            reflection = mix(planeRefl, ssrColor, edgeMask * 0.55);
         }
         else
         {
@@ -243,7 +267,12 @@ void main(void)
     // specular
     const float SPEC_MAGIC = 1.55; // from the original blender shader, changing it makes the spec vanish or become too bright
 
-    vec3 specNormal = normalize(vec3(normal.x * SPEC_BUMPINESS, normal.y * SPEC_BUMPINESS, normal.z));
+    // Specular normal gets full contribution of the high-frequency octaves
+    // so the sun glints sparkle on micro-chop even while the reflection
+    // path stays mirror-flat (governed by 'normal' / 'bump').
+    vec3 specBase = normal0 * 0.05 + normal2 * 0.10 + normal4 * 0.20
+                  + normal5 * 0.20 + normal6 * 0.50 + normal7 * 0.50;
+    vec3 specNormal = normalize(vec3(-specBase.x * SPEC_BUMPINESS, -specBase.y * SPEC_BUMPINESS, specBase.z));
     vec3 viewReflectDir = reflect(viewDir, specNormal);
     float phongTerm = max(dot(viewReflectDir, sunWorldDir), 0.0);
     float specular = pow(atan(phongTerm * SPEC_MAGIC), SPEC_HARDNESS) * SPEC_BRIGHTNESS;
