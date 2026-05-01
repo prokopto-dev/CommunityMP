@@ -38,7 +38,7 @@ Jolt.
 | 8b | Hit normal extraction in castRay/castSphere | ✅ done |
 | 8c | Body owner map + castRay ignore filter + mHitObject (objects) | ✅ done |
 | 8c′ | Owner-map for projectiles + sphere-cast ignore filter | ✅ done |
-| 8d | mInnerBodyShape on JoltActor (actors visible to ray casts) | ⏳ |
+| 8d | mInnerBodyShape on JoltActor (actors visible to ray casts) | ✅ done |
 | 8e | `targets` parameter + collision mask plumbing | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
 | 10 | Animated/skinned shape sync | ⏳ |
