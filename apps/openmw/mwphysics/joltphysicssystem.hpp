@@ -240,6 +240,12 @@ namespace MWPhysics
         // queueObjectMovement overwrites prior entries; the queue
         // is "valid until the next stepSimulation".
         std::unordered_map<const MWWorld::LiveCellRefBase*, osg::Vec3f> mQueuedMovement;
+
+        // Projectiles (phase 8). Same int-id identity scheme as
+        // PhysicsSystem so mwworld/projectilemanager doesn't need
+        // to learn a new key type.
+        std::unordered_map<int, JPH::BodyID> mProjectileBodies;
+        int mNextProjectileId = 0;
     };
 }
 

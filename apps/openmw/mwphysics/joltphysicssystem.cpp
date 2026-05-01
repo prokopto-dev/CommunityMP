@@ -10,9 +10,15 @@
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/RegisterTypes.h>
 
@@ -178,9 +184,15 @@ namespace MWPhysics
                 bi.RemoveBody(id);
                 bi.DestroyBody(id);
             }
+            for (auto& [_, id] : mProjectileBodies)
+            {
+                bi.RemoveBody(id);
+                bi.DestroyBody(id);
+            }
         }
         mObjectBodies.clear();
         mHeightFieldBodies.clear();
+        mProjectileBodies.clear();
         mActors.clear(); // CharacterVirtual destructors run before
                          // mJoltSystem so they can deregister cleanly.
 
@@ -300,12 +312,54 @@ namespace MWPhysics
         auto actor = std::make_unique<JoltActor>(ptr, halfExtents, position, *mJoltSystem);
         mActors.emplace(ptr.mRef, std::move(actor));
     }
-    int JoltPhysicsSystem::addProjectile(const MWWorld::Ptr&, const osg::Vec3f&, VFS::Path::NormalizedView, bool)
+    int JoltPhysicsSystem::addProjectile(
+        const MWWorld::Ptr& /*caster*/, const osg::Vec3f& position,
+        VFS::Path::NormalizedView mesh, bool computeRadius)
     {
-        notImplemented("addProjectile");
+        float radius = 1.0f;
+        if (computeRadius)
+        {
+            osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(mesh);
+            if (shapeInstance)
+                radius = shapeInstance->mCollisionBox.mExtents.length() * 0.5f;
+        }
+
+        // Sensor body — we want the projectile to detect collisions
+        // (so the projectile manager can dispatch hit logic) without
+        // physically pushing actors out of the way.
+        const auto shape = JPH::RefConst<JPH::Shape>(new JPH::SphereShape(radius));
+        JPH::BodyCreationSettings bcs(shape,
+            JPH::RVec3(position.x(), position.y(), position.z()),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Kinematic,
+            JoltLayers::MOVING);
+        bcs.mIsSensor = true;
+        const JPH::BodyID id
+            = mJoltSystem->GetBodyInterface().CreateAndAddBody(bcs, JPH::EActivation::Activate);
+
+        const int newId = ++mNextProjectileId;
+        mProjectileBodies.emplace(newId, id);
+        return newId;
     }
-    void JoltPhysicsSystem::setCaster(int, const MWWorld::Ptr&) { notImplemented("setCaster"); }
-    void JoltPhysicsSystem::removeProjectile(int) { notImplemented("removeProjectile"); }
+
+    void JoltPhysicsSystem::setCaster(int /*projectileId*/, const MWWorld::Ptr& /*caster*/)
+    {
+        // Phase 8b: the caster Ptr lives on the projectile so hit
+        // resolution can attribute damage. UserData on the body is
+        // the natural store; hooked up alongside the per-body Ptr
+        // resolution work.
+    }
+
+    void JoltPhysicsSystem::removeProjectile(int projectileId)
+    {
+        const auto it = mProjectileBodies.find(projectileId);
+        if (it == mProjectileBodies.end())
+            return;
+        auto& bi = mJoltSystem->GetBodyInterface();
+        bi.RemoveBody(it->second);
+        bi.DestroyBody(it->second);
+        mProjectileBodies.erase(it);
+    }
     void JoltPhysicsSystem::remove(const MWWorld::Ptr& ptr)
     {
         if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
@@ -470,19 +524,85 @@ namespace MWPhysics
     void JoltPhysicsSystem::debugDraw() { notImplemented("debugDraw"); }
 
     RayCastingResult JoltPhysicsSystem::castRay(
-        const osg::Vec3f&, const osg::Vec3f&, const std::vector<MWWorld::ConstPtr>&,
-        const std::vector<MWWorld::Ptr>&, int, int) const
+        const osg::Vec3f& from, const osg::Vec3f& to,
+        const std::vector<MWWorld::ConstPtr>& /*ignore*/,
+        const std::vector<MWWorld::Ptr>& /*targets*/, int /*mask*/, int /*group*/) const
     {
-        notImplemented("castRay");
+        // Phase 8a: ignore lists, target restrictions, and the
+        // collision mask are not yet honoured. Once bodies carry
+        // UserData (per-body MWWorld::Ptr resolution, phase 8b)
+        // we'll wire a custom BodyFilter and ObjectLayerFilter that
+        // implements those exclusions.
+        RayCastingResult result;
+        result.mHit = false;
+
+        const JPH::Vec3 dir(to.x() - from.x(), to.y() - from.y(), to.z() - from.z());
+        const JPH::RRayCast ray(JPH::RVec3(from.x(), from.y(), from.z()), dir);
+
+        JPH::RayCastResult hit;
+        const bool didHit = mJoltSystem->GetNarrowPhaseQuery().CastRay(ray, hit);
+        if (didHit)
+        {
+            result.mHit = true;
+            const float f = hit.mFraction;
+            result.mHitPos = osg::Vec3f(
+                from.x() + f * (to.x() - from.x()),
+                from.y() + f * (to.y() - from.y()),
+                from.z() + f * (to.z() - from.z()));
+            // Normal extraction needs a body lock - phase 8b adds it.
+            result.mHitNormal = osg::Vec3f();
+            // mHitObject left as default MWWorld::Ptr() until phase
+            // 8b wires UserData -> Ptr resolution.
+        }
+        return result;
     }
+
     RayCastingResult JoltPhysicsSystem::castSphere(
-        const osg::Vec3f&, const osg::Vec3f&, float, int, int) const
+        const osg::Vec3f& from, const osg::Vec3f& to, float radius,
+        int /*mask*/, int /*group*/) const
     {
-        notImplemented("castSphere");
+        RayCastingResult result;
+        result.mHit = false;
+
+        const JPH::Vec3 direction(to.x() - from.x(), to.y() - from.y(), to.z() - from.z());
+        const JPH::RShapeCast cast(new JPH::SphereShape(radius), JPH::Vec3::sReplicate(1.0f),
+            JPH::RMat44::sTranslation(JPH::RVec3(from.x(), from.y(), from.z())), direction);
+
+        // Closest-hit collector — first impact wins.
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        const JPH::ShapeCastSettings settings;
+        mJoltSystem->GetNarrowPhaseQuery().CastShape(
+            cast, settings, JPH::RVec3::sZero(), collector);
+
+        if (collector.HadHit())
+        {
+            result.mHit = true;
+            const float f = collector.mHit.mFraction;
+            result.mHitPos = osg::Vec3f(
+                from.x() + f * (to.x() - from.x()),
+                from.y() + f * (to.y() - from.y()),
+                from.z() + f * (to.z() - from.z()));
+            result.mHitNormal = osg::Vec3f();
+        }
+        return result;
     }
-    bool JoltPhysicsSystem::getLineOfSight(const MWWorld::ConstPtr&, const MWWorld::ConstPtr&) const
+
+    bool JoltPhysicsSystem::getLineOfSight(const MWWorld::ConstPtr& a1, const MWWorld::ConstPtr& a2) const
     {
-        notImplemented("getLineOfSight");
+        // Cast a ray between the two actors' eye positions; LoS holds
+        // if nothing's in the way. Eye height = top of the actor's
+        // collision capsule.
+        const auto getEye = [this](const MWWorld::ConstPtr& p) -> osg::Vec3f {
+            const ESM::Position& pos = p.getRefData().getPosition();
+            osg::Vec3f origin(pos.pos[0], pos.pos[1], pos.pos[2]);
+            const auto it = mActors.find(p.mRef);
+            if (it != mActors.end())
+                origin.z() += it->second->getHalfExtents().z();
+            return origin;
+        };
+        const RayCastingResult result = castRay(getEye(a1), getEye(a2), {}, {},
+            CollisionType_World | CollisionType_HeightMap | CollisionType_Door, 0xff);
+        return !result.mHit;
     }
 
     std::vector<MWWorld::Ptr> JoltPhysicsSystem::getCollisions(const MWWorld::ConstPtr&, int, int) const
@@ -493,9 +613,15 @@ namespace MWPhysics
     {
         notImplemented("getCollisionsPoints");
     }
-    osg::Vec3f JoltPhysicsSystem::traceDown(const MWWorld::Ptr&, const osg::Vec3f&, float)
+    osg::Vec3f JoltPhysicsSystem::traceDown(
+        const MWWorld::Ptr& /*ptr*/, const osg::Vec3f& position, float maxHeight)
     {
-        notImplemented("traceDown");
+        // Drop a ray straight down. Returns where it hit ground, or
+        // (position - maxHeight*Z) if the ray escapes to free space.
+        const osg::Vec3f to(position.x(), position.y(), position.z() - maxHeight);
+        const RayCastingResult hit = castRay(position, to, {}, {},
+            CollisionType_World | CollisionType_HeightMap, 0xff);
+        return hit.mHit ? hit.mHitPos : to;
     }
 
     bool JoltPhysicsSystem::isOnGround(const MWWorld::Ptr& ptr)
