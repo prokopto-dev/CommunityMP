@@ -192,6 +192,16 @@ target_link_libraries(openmw-lib
     components
 )
 
+# When OPENMW_PHYSICS_BACKEND=jolt, link Jolt and add its include
+# directory so the joltphysicssystem / joltactor / joltshapeconverter
+# translation units can find <Jolt/Jolt.h>. The build with
+# OPENMW_PHYSICS_BACKEND=bullet (default) skips this entirely; the
+# .cpp files compile to empty TUs there.
+if(OPENMW_PHYSICS_BACKEND STREQUAL "jolt")
+    target_include_directories(openmw-lib SYSTEM PRIVATE ${JOLT_INCLUDE_DIR})
+    target_link_libraries(openmw-lib Jolt)
+endif()
+
 if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
     target_precompile_headers(openmw-lib PRIVATE
         <boost/program_options/options_description.hpp>
