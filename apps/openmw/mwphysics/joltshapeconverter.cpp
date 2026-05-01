@@ -5,17 +5,22 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
 #include <BulletCollision/CollisionShapes/btBoxShape.h>
+#include <BulletCollision/CollisionShapes/btBvhTriangleMeshShape.h>
 #include <BulletCollision/CollisionShapes/btCapsuleShape.h>
 #include <BulletCollision/CollisionShapes/btCollisionShape.h>
 #include <BulletCollision/CollisionShapes/btCompoundShape.h>
+#include <BulletCollision/CollisionShapes/btConcaveShape.h>
 #include <BulletCollision/CollisionShapes/btCylinderShape.h>
 #include <BulletCollision/CollisionShapes/btSphereShape.h>
 #include <LinearMath/btQuaternion.h>
 #include <LinearMath/btTransform.h>
+
+#include <components/bullethelpers/processtrianglecallback.hpp>
 
 #include <components/debug/debuglog.hpp>
 
@@ -102,6 +107,50 @@ namespace MWPhysics
 
     namespace
     {
+        // Triangle mesh: walk the Bullet shape's processAllTriangles
+        // and append each triangle's vertices + indices into the
+        // Jolt-side buffers. Bullet's processAllTriangles emits
+        // triangles in arbitrary order without a vertex de-dup pass;
+        // we don't dedupe either because Jolt's MeshShape internally
+        // builds its own BVH and a one-time per-load duplication is
+        // cheap compared to the full-cell load cost.
+        JPH::RefConst<JPH::Shape> convertTriangleMesh(const btBvhTriangleMeshShape* mesh)
+        {
+            JPH::VertexList vertices;
+            JPH::IndexedTriangleList triangles;
+
+            auto callback = BulletHelpers::makeProcessTriangleCallback(
+                [&](btVector3* tri, int /*partId*/, int /*triIndex*/) {
+                    const JPH::uint32 base = static_cast<JPH::uint32>(vertices.size());
+                    vertices.emplace_back(JPH::Float3(tri[0].x(), tri[0].y(), tri[0].z()));
+                    vertices.emplace_back(JPH::Float3(tri[1].x(), tri[1].y(), tri[1].z()));
+                    vertices.emplace_back(JPH::Float3(tri[2].x(), tri[2].y(), tri[2].z()));
+                    triangles.emplace_back(base, base + 1, base + 2);
+                });
+
+            // Pass a maximally permissive AABB so the BVH visits all
+            // triangles (we want the whole mesh, not a subset).
+            const btScalar inf = std::numeric_limits<btScalar>::max();
+            const btVector3 aabbMin(-inf, -inf, -inf);
+            const btVector3 aabbMax(inf, inf, inf);
+            const_cast<btBvhTriangleMeshShape*>(mesh)->processAllTriangles(&callback, aabbMin, aabbMax);
+
+            if (triangles.empty())
+            {
+                Log(Debug::Warning) << "Jolt MeshShape: source had zero triangles";
+                return nullptr;
+            }
+
+            JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+            const auto result = settings.Create();
+            if (result.HasError())
+            {
+                Log(Debug::Warning) << "Jolt MeshShape rejected: " << result.GetError();
+                return nullptr;
+            }
+            return result.Get();
+        }
+
         // Compound shapes hold N child shapes each with a local
         // transform. Convert recursively. If a child fails to
         // convert (unsupported type), drop it with a warning rather
@@ -158,9 +207,10 @@ namespace MWPhysics
                 return convertCylinder(static_cast<const btCylinderShape*>(shape));
             case COMPOUND_SHAPE_PROXYTYPE:
                 return convertCompound(static_cast<const btCompoundShape*>(shape));
+            case TRIANGLE_MESH_SHAPE_PROXYTYPE:
+                return convertTriangleMesh(static_cast<const btBvhTriangleMeshShape*>(shape));
             default:
-                // Triangle mesh (phase 6b2), height field (phase 6c)
-                // land here for now.
+                // Height field (phase 6c) lands here for now.
                 Log(Debug::Warning) << "Jolt shape converter: unsupported Bullet shape type "
                                     << t << " — collision will be missing";
                 return nullptr;
