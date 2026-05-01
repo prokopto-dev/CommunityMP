@@ -13,10 +13,6 @@ uniform_float uContactShadowsLength {
     max = 1.0;
     step = 0.02;
 }
-// Parallax mapping depth — mirrored each frame to the scene-root
-// 'parallaxScale' / 'parallaxBias' uniforms by RenderingManager so
-// objects.frag's POM step picks them up live. The technique itself
-// doesn't sample these.
 uniform_float uParallaxScale {
     default = 0.04;
     min = 0.0;
