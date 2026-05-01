@@ -5,16 +5,21 @@
 
 #if OPENMW_PHYSICS_USES_JOLT
 
+#include <Jolt/Jolt.h>
+#include <Jolt/Core/JobSystem.h>
+#include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+
 #include <memory>
 
+#include <osg/Group>
 #include <osg/ref_ptr>
 
 #include "iphysicsbackend.hpp"
-
-namespace osg
-{
-    class Group;
-}
 
 namespace Resource
 {
@@ -24,6 +29,71 @@ namespace Resource
 
 namespace MWPhysics
 {
+    // Jolt object layers — coarse grouping that mirrors OpenMW's
+    // CollisionType well enough for broadphase. Static world chunks
+    // (terrain, walls, closed doors) live in NON_MOVING; everything
+    // that needs an integrator (actors, projectiles, animated doors)
+    // lives in MOVING. Phase 6 may split further if the broadphase
+    // tree shape proves unbalanced.
+    namespace JoltLayers
+    {
+        static constexpr JPH::ObjectLayer NON_MOVING = 0;
+        static constexpr JPH::ObjectLayer MOVING = 1;
+        static constexpr JPH::uint NUM_LAYERS = 2;
+    }
+
+    namespace JoltBroadPhaseLayers
+    {
+        static constexpr JPH::BroadPhaseLayer NON_MOVING(0);
+        static constexpr JPH::BroadPhaseLayer MOVING(1);
+        static constexpr JPH::uint NUM_LAYERS = 2;
+    }
+
+    // Implements ObjectLayer <-> BroadPhaseLayer mapping for Jolt's
+    // broadphase. Single instance owned by JoltPhysicsSystem.
+    class JoltBPLayerInterface final : public JPH::BroadPhaseLayerInterface
+    {
+    public:
+        JoltBPLayerInterface();
+        JPH::uint GetNumBroadPhaseLayers() const override { return JoltBroadPhaseLayers::NUM_LAYERS; }
+        JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override;
+#if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
+        const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override;
+#endif
+
+    private:
+        JPH::BroadPhaseLayer mObjectToBroadPhase[JoltLayers::NUM_LAYERS];
+    };
+
+    class JoltObjectLayerPairFilter final : public JPH::ObjectLayerPairFilter
+    {
+    public:
+        bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override;
+    };
+
+    class JoltObjectVsBroadPhaseLayerFilter final : public JPH::ObjectVsBroadPhaseLayerFilter
+    {
+    public:
+        bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override;
+    };
+
+    // Minimal contact listener — just reports collisions to OpenMW's
+    // collision callbacks. Phase 7 grows this for the actor controller.
+    class JoltContactListener final : public JPH::ContactListener
+    {
+    public:
+        JPH::ValidateResult OnContactValidate(const JPH::Body&, const JPH::Body&, JPH::RVec3Arg,
+            const JPH::CollideShapeResult&) override
+        {
+            return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+        }
+        void OnContactAdded(const JPH::Body&, const JPH::Body&, const JPH::ContactManifold&,
+            JPH::ContactSettings&) override {}
+        void OnContactPersisted(const JPH::Body&, const JPH::Body&, const JPH::ContactManifold&,
+            JPH::ContactSettings&) override {}
+        void OnContactRemoved(const JPH::SubShapeIDPair&) override {}
+    };
+
     // Skeleton implementation of IPhysicsBackend backed by Jolt
     // Physics. Phase 4 of the migration: every method here throws
     // std::logic_error so the dispatch path can be exercised before
@@ -129,6 +199,19 @@ namespace MWPhysics
         osg::ref_ptr<osg::Group> mParentNode;
         std::unique_ptr<Resource::BulletShapeManager> mShapeManager;
         float mPhysicsDt;
+
+        // Jolt subsystems (phase 5). Allocated in the constructor,
+        // released in the destructor in reverse order. JPH::Factory
+        // is a singleton — a static guard ensures it's stood up at
+        // most once per process even if multiple JoltPhysicsSystem
+        // instances are created.
+        std::unique_ptr<JPH::TempAllocator> mTempAllocator;
+        std::unique_ptr<JPH::JobSystem> mJobSystem;
+        JoltBPLayerInterface mBroadPhaseLayerInterface;
+        JoltObjectLayerPairFilter mObjectLayerPairFilter;
+        JoltObjectVsBroadPhaseLayerFilter mObjectVsBroadPhaseLayerFilter;
+        JoltContactListener mContactListener;
+        std::unique_ptr<JPH::PhysicsSystem> mJoltSystem;
     };
 }
 
