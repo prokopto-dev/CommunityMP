@@ -9,7 +9,10 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLockInterface.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
@@ -545,14 +548,22 @@ namespace MWPhysics
         {
             result.mHit = true;
             const float f = hit.mFraction;
-            result.mHitPos = osg::Vec3f(
-                from.x() + f * (to.x() - from.x()),
-                from.y() + f * (to.y() - from.y()),
-                from.z() + f * (to.z() - from.z()));
-            // Normal extraction needs a body lock - phase 8b adds it.
-            result.mHitNormal = osg::Vec3f();
+            const JPH::RVec3 hitPos = ray.GetPointOnRay(f);
+            result.mHitPos = osg::Vec3f(hitPos.GetX(), hitPos.GetY(), hitPos.GetZ());
+
+            // Lock the hit body for read so we can ask it for the
+            // world-space surface normal at the hit point. The lock
+            // scope is tight (single read); the per-tick contention
+            // budget here is fine.
+            JPH::BodyLockRead lock(mJoltSystem->GetBodyLockInterface(), hit.mBodyID);
+            if (lock.Succeeded())
+            {
+                const JPH::Vec3 n = lock.GetBody().GetWorldSpaceSurfaceNormal(
+                    hit.mSubShapeID2, hitPos);
+                result.mHitNormal = osg::Vec3f(n.GetX(), n.GetY(), n.GetZ());
+            }
             // mHitObject left as default MWWorld::Ptr() until phase
-            // 8b wires UserData -> Ptr resolution.
+            // 8c wires UserData -> Ptr resolution.
         }
         return result;
     }
@@ -582,7 +593,11 @@ namespace MWPhysics
                 from.x() + f * (to.x() - from.x()),
                 from.y() + f * (to.y() - from.y()),
                 from.z() + f * (to.z() - from.z()));
-            result.mHitNormal = osg::Vec3f();
+            // Cast normal: ShapeCast hits expose mPenetrationAxis
+            // pointing into the swept shape; flip for the standard
+            // outward-from-surface convention.
+            const JPH::Vec3 n = -collector.mHit.mPenetrationAxis.NormalizedOr(JPH::Vec3::sZero());
+            result.mHitNormal = osg::Vec3f(n.GetX(), n.GetY(), n.GetZ());
         }
         return result;
     }
