@@ -27,7 +27,7 @@ Jolt.
 | 6a | Shape converter — primitive Bullet shapes | ✅ done |
 | 6b1 | Shape converter — compound | ✅ done |
 | 6b2 | Shape converter — triangle mesh | ✅ done |
-| 6c | Height fields + water + addObject wiring | ⏳ |
+| 6c | Height fields + water + addObject wiring | ✅ done |
 | 7 | Actor controller (`CharacterVirtual` ↔ MovementSolver) | ⏳ |
 | 8 | Projectiles + raycasts + sphere casts | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
