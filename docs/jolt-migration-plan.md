@@ -41,6 +41,7 @@ Jolt.
 | 8d | mInnerBodyShape on JoltActor (actors visible to ray casts) | ✅ done |
 | 8e | All remaining `IPhysicsBackend` stubs (updatePtr/Pos/Rot, BBox, etc.) | ✅ done |
 | 9 | Detour bridge — verified inert under Jolt (Bullet stays as Recast feeder) | ✅ done |
+| 11 | Lua API audit — verified routes through `RayCastingInterface` (no code change) | ✅ done |
 | 10 | Animated/skinned shape sync | ⏳ |
 | 11 | Lua API surface audit | ⏳ |
 | 12 | Bench + correctness regression suite | ⏳ |
