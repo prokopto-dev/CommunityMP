@@ -1397,7 +1397,7 @@ namespace MWWorld
     }
 
     void World::updateNavigatorObject(
-        const MWPhysics::Object& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
+        const MWPhysics::IPhysicsObject& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
     {
         if (object.getShapeInstance()->mVisualCollisionType != Resource::VisualCollisionType::None)
             return;

@@ -162,7 +162,7 @@ namespace MWPhysics
 
         Resource::BulletShapeManager* getShapeManager() override;
         float getPhysicsDt() const override { return mPhysicsDt; }
-        std::vector<std::pair<const Object*, bool>> getAnimatedObjects() const override;
+        std::vector<std::pair<const IPhysicsObject*, bool>> getAnimatedObjects() const override;
 
         void enableWater(float height) override;
         void setWaterHeight(float height) override;

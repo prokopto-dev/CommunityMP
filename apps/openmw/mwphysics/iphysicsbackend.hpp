@@ -73,6 +73,7 @@ namespace MWPhysics
 {
     class Actor;
     class HeightField;
+    class IPhysicsObject;
     class Object;
     class Projectile;
     struct ContactPoint;
@@ -250,8 +251,9 @@ namespace MWPhysics
         // since last frame" flag. Used by the navigator to refresh
         // navmesh tiles when an animated collider has moved.
         // Replaces the template forEachAnimatedObject so the surface
-        // can sit on a virtual.
-        virtual std::vector<std::pair<const Object*, bool>> getAnimatedObjects() const = 0;
+        // can sit on a virtual. Returns IPhysicsObject so both the
+        // Bullet Object and the Jolt JoltObject can fit through.
+        virtual std::vector<std::pair<const IPhysicsObject*, bool>> getAnimatedObjects() const = 0;
     };
 }
 

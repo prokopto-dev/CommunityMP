@@ -883,10 +883,11 @@ namespace MWPhysics
             mDebugDrawer->addCollision(Misc::Convert::toBullet(position), Misc::Convert::toBullet(normal));
     }
 
-    std::vector<std::pair<const Object*, bool>> PhysicsSystem::getAnimatedObjects() const
+    std::vector<std::pair<const IPhysicsObject*, bool>> PhysicsSystem::getAnimatedObjects() const
     {
-        std::vector<std::pair<const Object*, bool>> out;
+        std::vector<std::pair<const IPhysicsObject*, bool>> out;
         out.reserve(mAnimatedObjects.size());
+        // Object inherits IPhysicsObject — implicit upcast.
         for (const auto& [object, changed] : mAnimatedObjects)
             out.emplace_back(object, changed);
         return out;

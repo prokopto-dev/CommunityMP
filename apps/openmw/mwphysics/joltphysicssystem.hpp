@@ -204,7 +204,7 @@ namespace MWPhysics
 
         Resource::BulletShapeManager* getShapeManager() override;
         float getPhysicsDt() const override;
-        std::vector<std::pair<const Object*, bool>> getAnimatedObjects() const override;
+        std::vector<std::pair<const IPhysicsObject*, bool>> getAnimatedObjects() const override;
 
     private:
         Resource::ResourceSystem* mResourceSystem;

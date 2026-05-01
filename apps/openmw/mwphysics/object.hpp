@@ -1,6 +1,7 @@
 #ifndef OPENMW_MWPHYSICS_OBJECT_H
 #define OPENMW_MWPHYSICS_OBJECT_H
 
+#include "iphysicsobject.hpp"
 #include "ptrholder.hpp"
 
 #include <LinearMath/btTransform.h>
@@ -26,19 +27,22 @@ namespace MWPhysics
         ScriptedCollisionType_Player = 2
     };
 
-    class Object final : public PtrHolder
+    class Object final : public PtrHolder, public IPhysicsObject
     {
     public:
         Object(const MWWorld::Ptr& ptr, osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance, osg::Quat rotation,
             int collisionType, PhysicsTaskScheduler* scheduler);
         ~Object() override;
 
-        const Resource::BulletShapeInstance* getShapeInstance() const;
+        const Resource::BulletShapeInstance* getShapeInstance() const override;
+        // PtrHolder::getPtr returns a const Ptr&; IPhysicsObject wants
+        // a value. Forward through.
+        MWWorld::Ptr getPtr() const override { return PtrHolder::getPtr(); }
         void setScale(float scale);
         void setRotation(osg::Quat quat);
         void updatePosition();
         void commitPositionChange();
-        btTransform getTransform() const;
+        btTransform getTransform() const override;
         /// Return solid flag. Not used by the object itself, true by default.
         bool isSolid() const;
         void setSolid(bool solid);

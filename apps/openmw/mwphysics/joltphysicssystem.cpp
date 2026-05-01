@@ -962,7 +962,15 @@ namespace MWPhysics
 
     Resource::BulletShapeManager* JoltPhysicsSystem::getShapeManager() { return mShapeManager.get(); }
     float JoltPhysicsSystem::getPhysicsDt() const { return mPhysicsDt; }
-    std::vector<std::pair<const Object*, bool>> JoltPhysicsSystem::getAnimatedObjects() const { return {}; }
+    std::vector<std::pair<const IPhysicsObject*, bool>> JoltPhysicsSystem::getAnimatedObjects() const
+    {
+        // Phase 10b: still empty under Jolt - JoltObject (the
+        // navigator-friendly entry that mAnimatedObjectEntries
+        // would expose) lands in 10c. The bodies do get their
+        // shapes refreshed via updateAnimatedCollisionShape, only
+        // the navmesh-tile refresh is gated.
+        return {};
+    }
 }
 
 #endif // OPENMW_PHYSICS_USES_JOLT

@@ -71,6 +71,7 @@ namespace ToUTF8
 namespace MWPhysics
 {
     class IPhysicsBackend;
+    class IPhysicsObject;
     class Object;
 }
 
@@ -172,7 +173,7 @@ namespace MWWorld
         void updateNavigator();
 
         void updateNavigatorObject(
-            const MWPhysics::Object& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard = nullptr);
+            const MWPhysics::IPhysicsObject& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard = nullptr);
 
         void ensureNeededRecords();
 
