@@ -49,6 +49,7 @@
 #include <vector>
 
 #include <osg/BoundingBox>
+#include <osg/Object>
 #include <osg/Quat>
 #include <osg/Stats>
 #include <osg/Timer>
@@ -73,10 +74,15 @@ namespace MWPhysics
     // PhysicsSystem; every call must be safe from the main game
     // thread. Callbacks run on the physics task scheduler thread —
     // see mtphysics.hpp for the threading contract.
-    class IPhysicsBackend
+    //
+    // Inherits RayCastingInterface so castRay / castSphere /
+    // getLineOfSight are part of the same vtable — that's already the
+    // shape PhysicsSystem speaks today, and it lets a single override
+    // in the concrete impl satisfy both abstractions without diamond.
+    class IPhysicsBackend : public RayCastingInterface
     {
     public:
-        virtual ~IPhysicsBackend() = default;
+        ~IPhysicsBackend() override = default;
 
         // ----- Identity --------------------------------------------------
         // Returns "Bullet" or "Jolt". Used in the F3 stats overlay and
@@ -137,19 +143,9 @@ namespace MWPhysics
         virtual void debugDraw() = 0;
 
         // ----- Spatial queries -----------------------------------------
-        // Ray and sphere casts. RayCastingResult.mHitObject is an
-        // MWWorld::Ptr — physics-library-agnostic. The signature
-        // matches RayCastingInterface verbatim so PhysicsSystem can
-        // satisfy both bases with the same override (phase 3c).
-        virtual RayCastingResult castRay(const osg::Vec3f& from, const osg::Vec3f& to,
-            const std::vector<MWWorld::ConstPtr>& ignore = {}, const std::vector<MWWorld::Ptr>& targets = {},
-            int mask = CollisionType_Default, int group = 0xff) const = 0;
-
-        virtual RayCastingResult castSphere(const osg::Vec3f& from, const osg::Vec3f& to, float radius,
-            int mask = CollisionType_Default, int group = 0xff) const = 0;
-
-        virtual bool getLineOfSight(const MWWorld::ConstPtr& actor1, const MWWorld::ConstPtr& actor2) const = 0;
-
+        // castRay / castSphere / getLineOfSight come from
+        // RayCastingInterface — see raycasting.hpp.
+        //
         // Returns the list of MWWorld::Ptrs whose collision objects
         // overlap `ptr`. The Ptrs are physics-library-agnostic;
         // ContactPoint also speaks in MWWorld::Ptr / osg::Vec3f.

@@ -21,6 +21,8 @@
 #include "../mwworld/ptr.hpp"
 
 #include "collisiontype.hpp"
+#include "iphysicsbackend.hpp"
+#include "physicsbackend.hpp"
 #include "raycasting.hpp"
 
 namespace osg
@@ -149,11 +151,14 @@ namespace MWPhysics
     using ProjectileSimulation = SimulationImpl<Projectile, ProjectileFrameData>;
     using Simulation = std::variant<ActorSimulation, ProjectileSimulation>;
 
-    class PhysicsSystem : public RayCastingInterface
+    class PhysicsSystem : public IPhysicsBackend
     {
     public:
         PhysicsSystem(Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode);
-        virtual ~PhysicsSystem();
+        ~PhysicsSystem() override;
+
+        // IPhysicsBackend identity (compile-time fixed for this impl).
+        std::string_view name() const override { return physicsBackendName(); }
 
         Resource::BulletShapeManager* getShapeManager();
 
@@ -284,7 +289,12 @@ namespace MWPhysics
         bool isAreaOccupiedByOtherActor(
             const MWWorld::LiveCellRefBase* actor, const osg::Vec3f& position, float radius) const;
 
-        void reportStats(unsigned int frameNumber, osg::Stats& stats) const;
+        void reportStats(unsigned int frameNumber, osg::Stats& stats) const override;
+
+        // IPhysicsBackend public signature: takes osg::Vec3f so the
+        // interface stays Bullet-type-free. The internal projectile
+        // path keeps a btVector3 overload for convenience.
+        void reportCollision(const osg::Vec3f& position, const osg::Vec3f& normal) override;
         void reportCollision(const btVector3& position, const btVector3& normal);
 
         float mPhysicsDt;

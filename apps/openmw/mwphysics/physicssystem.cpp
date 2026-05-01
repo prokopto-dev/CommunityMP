@@ -877,6 +877,12 @@ namespace MWPhysics
             mDebugDrawer->addCollision(position, normal);
     }
 
+    void PhysicsSystem::reportCollision(const osg::Vec3f& position, const osg::Vec3f& normal)
+    {
+        if (mDebugDrawEnabled)
+            mDebugDrawer->addCollision(Misc::Convert::toBullet(position), Misc::Convert::toBullet(normal));
+    }
+
     ActorFrameData::ActorFrameData(
         Actor& actor, bool inert, bool waterCollision, float slowFall, float waterlevel, bool isPlayer)
         : mPosition()
