@@ -16,6 +16,7 @@
 #include <BulletCollision/CollisionShapes/btCompoundShape.h>
 #include <BulletCollision/CollisionShapes/btConcaveShape.h>
 #include <BulletCollision/CollisionShapes/btCylinderShape.h>
+#include <BulletCollision/CollisionShapes/btScaledBvhTriangleMeshShape.h>
 #include <BulletCollision/CollisionShapes/btSphereShape.h>
 #include <LinearMath/btQuaternion.h>
 #include <LinearMath/btTransform.h>
@@ -114,7 +115,13 @@ namespace MWPhysics
         // we don't dedupe either because Jolt's MeshShape internally
         // builds its own BVH and a one-time per-load duplication is
         // cheap compared to the full-cell load cost.
-        JPH::RefConst<JPH::Shape> convertTriangleMesh(const btBvhTriangleMeshShape* mesh)
+        //
+        // Accepts both btBvhTriangleMeshShape (raw BVH mesh) and
+        // btScaledBvhTriangleMeshShape (BVH mesh + local scale). The
+        // scaled wrapper's processAllTriangles applies the scale per
+        // triangle before invoking the callback, so the same code
+        // path works for both — they share btConcaveShape as parent.
+        JPH::RefConst<JPH::Shape> convertTriangleMesh(const btConcaveShape* mesh)
         {
             JPH::VertexList vertices;
             JPH::IndexedTriangleList triangles;
@@ -133,7 +140,7 @@ namespace MWPhysics
             const btScalar inf = std::numeric_limits<btScalar>::max();
             const btVector3 aabbMin(-inf, -inf, -inf);
             const btVector3 aabbMax(inf, inf, inf);
-            const_cast<btBvhTriangleMeshShape*>(mesh)->processAllTriangles(&callback, aabbMin, aabbMax);
+            const_cast<btConcaveShape*>(mesh)->processAllTriangles(&callback, aabbMin, aabbMax);
 
             if (triangles.empty())
             {
@@ -208,7 +215,8 @@ namespace MWPhysics
             case COMPOUND_SHAPE_PROXYTYPE:
                 return convertCompound(static_cast<const btCompoundShape*>(shape));
             case TRIANGLE_MESH_SHAPE_PROXYTYPE:
-                return convertTriangleMesh(static_cast<const btBvhTriangleMeshShape*>(shape));
+            case SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE:
+                return convertTriangleMesh(static_cast<const btConcaveShape*>(shape));
             default:
                 // Height field (phase 6c) lands here for now.
                 Log(Debug::Warning) << "Jolt shape converter: unsupported Bullet shape type "
