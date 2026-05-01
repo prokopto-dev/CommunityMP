@@ -29,6 +29,7 @@
 #include <components/shader/removedalphafunc.hpp>
 #include <components/shader/shadermanager.hpp>
 
+#include <components/settings/shadermanager.hpp>
 #include <components/settings/values.hpp>
 
 #include <components/sceneutil/cullsafeboundsvisitor.hpp>
@@ -86,6 +87,30 @@
 
 namespace MWRender
 {
+    // Mirrors the F2 internal_raycast technique's uParallaxScale /
+    // uParallaxBias slider values into the scene-root osg::Uniforms
+    // that compatibility/objects.frag reads. Lets the user tune POM
+    // depth live without quitting to edit settings.cfg. ShaderManager
+    // is a singleton so the callback doesn't need any extra state.
+    class ParallaxSliderUpdater : public osg::NodeCallback
+    {
+    public:
+        void operator()(osg::Node* node, osg::NodeVisitor* nv) override
+        {
+            if (auto* ss = node->getStateSet())
+            {
+                auto& sm = Settings::ShaderManager::get();
+                if (auto v = sm.getValue<float>("internal_raycast", "uParallaxScale"))
+                    if (auto* u = ss->getUniform("parallaxScale"))
+                        u->set(*v);
+                if (auto v = sm.getValue<float>("internal_raycast", "uParallaxBias"))
+                    if (auto* u = ss->getUniform("parallaxBias"))
+                        u->set(*v);
+            }
+            traverse(node, nv);
+        }
+    };
+
     class PreloadCommonAssetsWorkItem : public SceneUtil::WorkItem
     {
     public:
@@ -222,6 +247,7 @@ namespace MWRender
 
         globalDefines["forcePPL"] = Settings::shaders().mForcePerPixelLighting ? "1" : "0";
         globalDefines["grassWind"] = Settings::shaders().mGrassWind ? "1" : "0";
+        globalDefines["pbrSpecular"] = Settings::shaders().mPbrSpecular ? "1" : "0";
         globalDefines["clamp"] = Settings::shaders().mClampLighting ? "1" : "0";
         globalDefines["preLightEnv"] = Settings::shaders().mApplyLightingToEnvironmentMaps ? "1" : "0";
         globalDefines["classicFalloff"] = Settings::shaders().mClassicFalloff ? "1" : "0";
@@ -283,6 +309,7 @@ namespace MWRender
 
         mStateUpdater = new SceneUtil::StateUpdater();
         sceneRoot->addUpdateCallback(mStateUpdater);
+        sceneRoot->addUpdateCallback(new ParallaxSliderUpdater());
 
         mSharedUniformStateUpdater = new SceneUtil::SharedUniformStateUpdater(Settings::fog().mSkyBlendingStart);
         rootNode->addUpdateCallback(mSharedUniformStateUpdater);

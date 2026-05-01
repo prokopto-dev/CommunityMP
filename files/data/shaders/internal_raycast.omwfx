@@ -13,6 +13,22 @@ uniform_float uContactShadowsLength {
     max = 1.0;
     step = 0.02;
 }
+// Parallax mapping depth — mirrored each frame to the scene-root
+// 'parallaxScale' / 'parallaxBias' uniforms by RenderingManager so
+// objects.frag's POM step picks them up live. The technique itself
+// doesn't sample these.
+uniform_float uParallaxScale {
+    default = 0.04;
+    min = 0.0;
+    max = 0.5;
+    step = 0.01;
+}
+uniform_float uParallaxBias {
+    default = -0.02;
+    min = -0.25;
+    max = 0.25;
+    step = 0.01;
+}
 uniform_float uContactShadowsThickness {
     default = 0.005;
     min = 0.0;
@@ -338,7 +354,15 @@ fragment main {
 
         vec2 delta = ssEnd - ssStart;
         int steps = uContactShadowsSteps;
-        float dither = bayer4x4(gl_FragCoord.xy);
+        // World-space dither: the previous bayer4x4(gl_FragCoord.xy)
+        // re-rolled per pixel as the camera moved, which made the
+        // contact-shadow noise crawl across geometry and read as a
+        // shadow that "followed" the camera. Hashing the reconstructed
+        // world position pins the pattern to the surface, so static
+        // geometry shows static dither even under camera motion.
+        vec3 originWS = (omw.invViewMatrix * vec4(origin, 1.0)).xyz;
+        float dither = fract(sin(dot(originWS.xyz,
+            vec3(12.9898, 78.233, 37.719))) * 43758.5453);
         float occluded = 0.0;
 
         for (int i = 1; i <= steps; ++i)
@@ -386,7 +410,12 @@ fragment main {
         vec2 uvRadius = vec2(pxRadius) / res;
 
         int samples = uSsaoSamples;
-        float dither = bayer4x4(gl_FragCoord.xy);
+        // World-anchored dither — same reasoning as contactShadow: a
+        // gl_FragCoord-based pattern crawls with the camera and looks
+        // like a moving shadow on static geometry.
+        vec3 originWS = (omw.invViewMatrix * vec4(origin, 1.0)).xyz;
+        float dither = fract(sin(dot(originWS.xyz,
+            vec3(12.9898, 78.233, 37.719))) * 43758.5453);
         float ao = 0.0;
         const float TWO_PI = 6.2831853;
 
