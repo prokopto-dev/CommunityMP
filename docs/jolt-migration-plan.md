@@ -34,7 +34,8 @@ Jolt.
 | 7d | state queries (isOnGround, position, half extents) | ✅ done |
 | 7e | `queueObjectMovement` + `moveActors` | ✅ done |
 | 7f | Vanilla parity tuning (slope, water, stuck recovery) | ⏳ |
-| 8 | Projectiles + raycasts + sphere casts | ⏳ |
+| 8a | Spatial queries (castRay, castSphere, getLineOfSight, traceDown) + projectile bodies | ✅ done |
+| 8b | UserData -> Ptr resolution + ignore/target filters + hit normals | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
 | 10 | Animated/skinned shape sync | ⏳ |
 | 11 | Lua API surface audit | ⏳ |
