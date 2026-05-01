@@ -30,6 +30,7 @@
 #include <components/resource/bulletshape.hpp>
 #include <components/resource/bulletshapemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -137,8 +138,13 @@ namespace MWPhysics
         Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode)
         : mResourceSystem(resourceSystem)
         , mParentNode(std::move(parentNode))
+        , mShapeManager(std::make_unique<Resource::BulletShapeManager>(resourceSystem->getVFS(),
+              resourceSystem->getSceneManager(), resourceSystem->getNifFileManager(),
+              Settings::cells().mCacheExpiryDelay))
         , mPhysicsDt(kPhysicsDtDefault)
     {
+        mResourceSystem->addResourceManager(mShapeManager.get());
+
         initJoltGlobalsOnce();
 
         mTempAllocator = std::make_unique<JPH::TempAllocatorImpl>(kTempAllocatorBytes);
@@ -209,6 +215,9 @@ namespace MWPhysics
         mJoltSystem.reset();
         mJobSystem.reset();
         mTempAllocator.reset();
+
+        if (mShapeManager)
+            mResourceSystem->removeResourceManager(mShapeManager.get());
     }
 
     // --- Stubs --------------------------------------------------------
