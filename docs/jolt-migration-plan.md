@@ -22,7 +22,7 @@ Jolt.
 | 3c | `PhysicsSystem : public IPhysicsBackend` | ✅ done | commit `8997ef28ce` |
 | 3c | `override` cleanup (43 methods) | ✅ done | commit `699610e678` |
 | - | `extern/JoltPhysics` submodule | ✅ cloned | pinned at `04587a3e` |
-| 4 | `JoltPhysicsSystem` skeleton | ⏳ next |
+| 4 | `JoltPhysicsSystem` skeleton + factory | ✅ done | this commit |
 | 5 | Jolt-side world bootstrap (BroadPhaseLayers, ObjectLayers) | ⏳ |
 | 6 | Static colliders (objects, height fields, water) | ⏳ |
 | 7 | Actor controller (`CharacterVirtual` ↔ MovementSolver) | ⏳ |
@@ -322,9 +322,10 @@ serving role.
 ## Reference — current commit chain
 
 ```
-699610e678 Jolt phase 3c follow-up: add override on PhysicsSystem interface methods
-8997ef28ce Jolt phase 3c: PhysicsSystem inherits from IPhysicsBackend
-6d248e450b Jolt phase 3b: extend IPhysicsBackend to the full public surface
-2d67e3b331 Jolt phase 3a: add IPhysicsBackend interface header (additive, build-safe)
-1a74fc9236 PBR pipeline polish + Jolt Physics compile-time scaffold
+<phase 4 commit>     Jolt phase 4: JoltPhysicsSystem skeleton + factory + caller switchover
+699610e678          Jolt phase 3c follow-up: add override on PhysicsSystem interface methods
+8997ef28ce          Jolt phase 3c: PhysicsSystem inherits from IPhysicsBackend
+6d248e450b          Jolt phase 3b: extend IPhysicsBackend to the full public surface
+2d67e3b331          Jolt phase 3a: add IPhysicsBackend interface header (additive, build-safe)
+1a74fc9236          PBR pipeline polish + Jolt Physics compile-time scaffold
 ```
