@@ -217,6 +217,88 @@ class ReplicateProvider(Provider):
         raise RuntimeError(f"PBR generation failed: {last_err}")
 
 
+class MaterialMakerProvider(Provider):
+    """
+    midllle/material-maker on Replicate. Returns three real maps
+    (Normal, Roughness, Displacement) per call, in contrast to the
+    pix2pix path which produced near-flat normals and an alpha=1.0
+    "smoothness" that pinned shininess to 255. The model is built for
+    tiling textures, so we pass `seamless=True`. Cold start ~80s but
+    warm calls are 1-6s; full 65-texture batch ≈ 5 min.
+    """
+
+    name = "material-maker"
+    MODEL = ("midllle/material-maker:"
+             "92fb3df0bf2a5f3bb60af26366677e0a98866ea5b8b5aa4a229f98322118c74e")
+
+    def __init__(self, token: str, tile_size: int = 512, seamless: bool = True):
+        try:
+            import replicate  # type: ignore
+        except ImportError:
+            sys.exit("pip install replicate")
+        self.client = replicate.Client(api_token=token)
+        self.tile_size = tile_size
+        self.seamless = seamless
+
+    def generate(self, source_image_bytes: bytes, prompt_hint: str) -> PBRResult:
+        import urllib.request
+        # Material-maker doesn't reimagine the albedo, so we pass the
+        # source image straight through as the diffuse output.
+        albedo_bytes = source_image_bytes
+        data_uri = "data:image/png;base64," + base64.b64encode(albedo_bytes).decode()
+
+        last_err = None
+        for attempt in range(3):
+            try:
+                outputs = self.client.run(self.MODEL, input={
+                    "input_image": data_uri,
+                    "tile_size": self.tile_size,
+                    "seamless": self.seamless,
+                    "mirror": False,
+                    "replicate": False,
+                    "ishiiruka": False,
+                    "ishiiruka_texture_encoder": False,
+                })
+                break
+            except Exception as e:
+                last_err = e
+                msg = str(e).lower()
+                if "throttled" in msg or "rate limit" in msg:
+                    time.sleep(11)
+                    continue
+                if attempt + 1 == 3:
+                    raise
+                time.sleep(2)
+        else:
+            raise RuntimeError(f"material-maker failed: {last_err}")
+
+        # Outputs are filename-tagged: ..._Normal.png / ..._Roughness.png / ..._Displacement.png
+        def fetch(item) -> bytes:
+            url = str(item.url) if hasattr(item, "url") else str(item)
+            with urllib.request.urlopen(url) as r:
+                return r.read()
+
+        normal_b = roughness_b = displacement_b = None
+        for o in outputs:
+            url = str(o.url) if hasattr(o, "url") else str(o)
+            if "Normal" in url:
+                normal_b = fetch(o)
+            elif "Rough" in url:
+                roughness_b = fetch(o)
+            elif "Displacement" in url or "Height" in url:
+                displacement_b = fetch(o)
+
+        if normal_b is None:
+            raise RuntimeError(f"no Normal in output URLs: {outputs}")
+
+        return PBRResult(
+            albedo=albedo_bytes,
+            normal=normal_b,
+            specular=displacement_b,  # 'specular' slot historically holds height
+            roughness=roughness_b,
+        )
+
+
 class StabilityProvider(Provider):
     """Stability AI direct REST API (image-to-image)."""
 
@@ -456,6 +538,11 @@ def make_provider(name: str, upscale: int = 1) -> Provider:
         if not token:
             sys.exit("set REPLICATE_API_TOKEN")
         return ReplicateProvider(token, upscale=upscale)
+    if name == "material-maker":
+        token = os.getenv("REPLICATE_API_TOKEN")
+        if not token:
+            sys.exit("set REPLICATE_API_TOKEN")
+        return MaterialMakerProvider(token)
     if name == "stability":
         key = os.getenv("STABILITY_API_KEY")
         if not key:
@@ -468,7 +555,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--input",  type=Path, required=True, help="root dir of diffuse textures")
     p.add_argument("--output", type=Path, required=True, help="output dir for PBR packs")
-    p.add_argument("--provider", choices=("replicate", "stability"), default="replicate")
+    p.add_argument("--provider", choices=("replicate", "material-maker", "stability"),
+                   default="replicate")
     p.add_argument("--filter",   default="*.dds", help="glob filter, e.g. '*.dds' or '**/*.png'")
     p.add_argument("--max",      type=int, default=0, help="limit count (0 = all)")
     p.add_argument("--dry-run",  action="store_true", help="list inputs, don't call API")
