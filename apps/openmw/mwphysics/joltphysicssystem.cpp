@@ -317,7 +317,7 @@ namespace MWPhysics
         mActors.emplace(ptr.mRef, std::move(actor));
     }
     int JoltPhysicsSystem::addProjectile(
-        const MWWorld::Ptr& /*caster*/, const osg::Vec3f& position,
+        const MWWorld::Ptr& caster, const osg::Vec3f& position,
         VFS::Path::NormalizedView mesh, bool computeRadius)
     {
         float radius = 1.0f;
@@ -343,6 +343,10 @@ namespace MWPhysics
 
         const int newId = ++mNextProjectileId;
         mProjectileBodies.emplace(newId, id);
+        // Owner is the caster — castRay's ignore list filters out
+        // the caster's own projectile so the shooter isn't auto-hit
+        // by a self-fired arrow.
+        mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), caster);
         return newId;
     }
 
@@ -360,6 +364,7 @@ namespace MWPhysics
         if (it == mProjectileBodies.end())
             return;
         auto& bi = mJoltSystem->GetBodyInterface();
+        mBodyOwners.erase(it->second.GetIndexAndSequenceNumber());
         bi.RemoveBody(it->second);
         bi.DestroyBody(it->second);
         mProjectileBodies.erase(it);
@@ -615,11 +620,16 @@ namespace MWPhysics
         const JPH::RShapeCast cast(new JPH::SphereShape(radius), JPH::Vec3::sReplicate(1.0f),
             JPH::RMat44::sTranslation(JPH::RVec3(from.x(), from.y(), from.z())), direction);
 
-        // Closest-hit collector — first impact wins.
+        // Closest-hit collector — first impact wins. Empty ignore
+        // list (the public castSphere API doesn't currently take one;
+        // this matches PhysicsSystem's behaviour).
         JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
         const JPH::ShapeCastSettings settings;
+        const std::vector<MWWorld::ConstPtr> emptyIgnore;
+        const JoltIgnoreFilter bodyFilter(mBodyOwners, emptyIgnore);
         mJoltSystem->GetNarrowPhaseQuery().CastShape(
-            cast, settings, JPH::RVec3::sZero(), collector);
+            cast, settings, JPH::RVec3::sZero(), collector,
+            JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
 
         if (collector.HadHit())
         {
