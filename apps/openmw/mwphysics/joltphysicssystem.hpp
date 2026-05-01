@@ -25,6 +25,8 @@
 
 #include "../mwworld/livecellref.hpp"
 
+#include "iphysicsobject.hpp"
+
 #include "iphysicsbackend.hpp"
 
 namespace Resource
@@ -267,11 +269,29 @@ namespace MWPhysics
         // until phase 10b promotes Object to an abstract base; the
         // navigator's "this changed" signal still works because the
         // Jolt body is updated in-place via SetShape.
-        struct AnimatedObjectEntry
+        // The animated entry doubles as the IPhysicsObject the
+        // navigator consumes - storing the Ptr inline lets getPtr()
+        // be O(1) without round-tripping the engine.
+        class AnimatedObjectEntry final : public IPhysicsObject
         {
+        public:
             osg::ref_ptr<Resource::BulletShapeInstance> mShapeInstance;
             JPH::BodyID mBodyId;
+            MWWorld::Ptr mPtr;
             bool mChanged = false;
+
+            // Snapshot of the Jolt body's position+rotation cached
+            // each time updateAnimatedCollisionShape rebuilds the
+            // shape, so getTransform() can answer without a lock.
+            JPH::RVec3 mLastPosition = JPH::RVec3::sZero();
+            JPH::Quat mLastRotation = JPH::Quat::sIdentity();
+
+            const Resource::BulletShapeInstance* getShapeInstance() const override
+            {
+                return mShapeInstance.get();
+            }
+            MWWorld::Ptr getPtr() const override { return mPtr; }
+            btTransform getTransform() const override;
         };
         std::unordered_map<const MWWorld::LiveCellRefBase*, AnimatedObjectEntry> mAnimatedObjectEntries;
     };
