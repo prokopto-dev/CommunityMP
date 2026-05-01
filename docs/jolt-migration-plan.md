@@ -37,7 +37,9 @@ Jolt.
 | 8a | Spatial queries (castRay, castSphere, getLineOfSight, traceDown) + projectile bodies | ✅ done |
 | 8b | Hit normal extraction in castRay/castSphere | ✅ done |
 | 8c | Body owner map + castRay ignore filter + mHitObject (objects) | ✅ done |
-| 8c′ | Owner-map for actors + projectiles, sphere-cast filter, target list | ⏳ |
+| 8c′ | Owner-map for projectiles + sphere-cast ignore filter | ✅ done |
+| 8d | mInnerBodyShape on JoltActor (actors visible to ray casts) | ⏳ |
+| 8e | `targets` parameter + collision mask plumbing | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
 | 10 | Animated/skinned shape sync | ⏳ |
 | 11 | Lua API surface audit | ⏳ |
