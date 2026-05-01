@@ -71,14 +71,21 @@ float parallaxSelfShadow(sampler2D heightMap, vec2 baseUV, vec3 lightTS,
     int numSamples = int(mix(float(maxSamples), float(maxSamples / 2),
                              clamp(lightTS.z, 0.0, 1.0)));
 
-    // Step in UV: the light's tangent xy direction, scaled so the full
-    // sweep walks `parallaxScale` worth of UV across all samples.
-    vec2 stepUV = (lightTS.xy / max(lightTS.z, 0.05))
-                  * parallaxScale * (1.0 / float(maxSamples));
-
-    // Height advances from receiverHeight up toward 1.0 (top of relief)
-    // over the full path length.
-    float stepHeight = (1.0 - receiverHeight) / float(maxSamples);
+    // Tangent-space ray: position(s) = receiver + lightTS * s. Walking
+    // `parallaxScale` worth of UV (so the march length matches the
+    // depth scale of the relief) means s = parallaxScale / |lightTS.xy|.
+    // The per-step UV walk and height climb fall out of that:
+    //   stepUV     = lightTS.xy * pathLen / N
+    //   stepHeight = lightTS.z  * pathLen / N
+    // When the sun is overhead (lightTS.xy ~ 0) lenXY is tiny and the
+    // height climb is huge — the ray clears all relief in one step
+    // and we early-out as fully lit. When the sun is grazing the
+    // height climb is small and the ray spends many samples near the
+    // surface where occlusion can actually happen.
+    float lenXY = max(length(lightTS.xy), 0.001);
+    float pathLen = parallaxScale / lenXY;
+    vec2 stepUV = lightTS.xy * (pathLen / float(maxSamples));
+    float stepHeight = lightTS.z * (pathLen / float(maxSamples));
 
     // Linear march to find the first sample above the ray. Uses
     // texture2D so the GPU's automatic mip selection (driven by
