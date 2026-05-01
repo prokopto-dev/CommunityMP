@@ -314,6 +314,14 @@ namespace MWPhysics
         const osg::Vec3f position(pos.pos[0], pos.pos[1], pos.pos[2]);
 
         auto actor = std::make_unique<JoltActor>(ptr, halfExtents, position, *mJoltSystem);
+        // Phase 8d: register the CharacterVirtual's inner body in
+        // the owner map so ray casts can resolve hits to this Ptr.
+        if (auto* cv = actor->getCharacter())
+        {
+            const JPH::BodyID innerId = cv->GetInnerBodyID();
+            if (!innerId.IsInvalid())
+                mBodyOwners.emplace(innerId.GetIndexAndSequenceNumber(), ptr);
+        }
         mActors.emplace(ptr.mRef, std::move(actor));
     }
     int JoltPhysicsSystem::addProjectile(
@@ -381,10 +389,14 @@ namespace MWPhysics
         }
         else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
         {
-            // JoltActor's destructor releases the CharacterVirtual;
-            // the inner body owned by the character is collected
-            // through that destruction path, no extra DestroyBody
-            // call needed here.
+            // Drop the owner-map entry before the JoltActor's
+            // destructor releases the CharacterVirtual + inner body.
+            if (auto* cv = ait->second->getCharacter())
+            {
+                const JPH::BodyID innerId = cv->GetInnerBodyID();
+                if (!innerId.IsInvalid())
+                    mBodyOwners.erase(innerId.GetIndexAndSequenceNumber());
+            }
             mActors.erase(ait);
         }
     }

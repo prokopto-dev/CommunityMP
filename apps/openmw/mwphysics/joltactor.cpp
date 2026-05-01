@@ -60,6 +60,14 @@ namespace MWPhysics
         // failure mode without ghost collisions.
         settings->mPredictiveContactDistance = 5.0f;
 
+        // Inner body — without this CharacterVirtual is "virtual" and
+        // doesn't appear in ray casts / sphere casts. Vanilla MW lets
+        // arrows / spells hit creatures, so we attach a kinematic
+        // body using the same shape so the spatial queries land.
+        settings->mInnerBodyShape = settings->mShape;
+        settings->mInnerBodyLayer = 1; // JoltLayers::MOVING — header
+                                       // include kept lean here.
+
         mCharacter = std::make_unique<JPH::CharacterVirtual>(settings,
             JPH::RVec3(position.x(), position.y(), position.z()),
             JPH::Quat::sIdentity(), &joltSystem);
