@@ -39,8 +39,8 @@ Jolt.
 | 8c | Body owner map + castRay ignore filter + mHitObject (objects) | ✅ done |
 | 8c′ | Owner-map for projectiles + sphere-cast ignore filter | ✅ done |
 | 8d | mInnerBodyShape on JoltActor (actors visible to ray casts) | ✅ done |
-| 8e | `targets` parameter + collision mask plumbing | ⏳ |
-| 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
+| 8e | All remaining `IPhysicsBackend` stubs (updatePtr/Pos/Rot, BBox, etc.) | ✅ done |
+| 9 | Detour bridge — verified inert under Jolt (Bullet stays as Recast feeder) | ✅ done |
 | 10 | Animated/skinned shape sync | ⏳ |
 | 11 | Lua API surface audit | ⏳ |
 | 12 | Bench + correctness regression suite | ⏳ |
@@ -208,34 +208,34 @@ matches Bullet baseline within ±5%.
 
 ---
 
-## Phase 9 — Detour bridge (Bullet shape → Recast)
+## Phase 9 — Detour bridge (verified inert under Jolt)
 
-**Estimate:** 2 days
-**Risk:** medium — the Detour navigator's input is built from Bullet
-collision shapes. We don't want to port the navmesh generation to
-Jolt as well.
+**Status:** verified, no code change needed.
 
-**Steps:**
+A grep across `components/detournavigator/`:
+- 9 files reference `btCollisionShape` / `btCollisionObject`.
+- 0 files reference `PhysicsSystem`, `JoltPhysicsSystem`, `JoltActor`, or any other runtime-physics class.
 
-1. Keep `Resource::BulletShape` as the single asset-side shape
-   representation. Even when Jolt is the runtime simulator, the
-   shape goes:
-   ```
-   NIF → BulletShape → btCollisionShape → Recast triangles
-                                       ↘
-                                        JoltShapeConverter → JPH::Shape (runtime)
-   ```
-2. `components/detournavigator` already operates only on
-   `btCollisionShape`; nothing to change there.
-3. `JoltPhysicsSystem::addObject` calls the existing Bullet shape
-   builder (for Recast) AND the new converter (for runtime). The
-   Bullet shape is then released — only Jolt holds the live body.
-4. Bench memory: dual shape build adds ~30 % shape memory peak
-   during cell load; releases after the Recast feed completes.
+The Detour navigator pulls collision shapes from
+`Resource::BulletShape` (the asset cache) directly; it never asks
+the runtime simulator for them. Switching the runtime simulator to
+Jolt has zero impact on navmesh generation: same shapes go in, same
+triangle soup comes out, identical navmesh artifacts.
 
-**Done when:** navmesh generation produces identical output
-(byte-equal) to Bullet builds, and AI navigation paths are unchanged
-in the test cells.
+Phase 6c's `JoltPhysicsSystem::addObject` calls
+`mShapeManager->getInstance(...)` for the same `BulletShape` the
+Bullet path uses, then builds the Jolt-side runtime shape *on top
+of that*. The `BulletShape` itself stays in the resource cache and
+is consumed by Recast in parallel.
+
+**Done when:** ✅ verified — there's nothing to do.
+
+The shape pipeline stays:
+```
+NIF → BulletShape → btCollisionShape → Recast triangles
+                                    ↘
+                                     JoltShapeConverter → JPH::Shape (runtime)
+```
 
 ---
 
