@@ -44,8 +44,10 @@
 // factory in physicsbackend.hpp returns the right concrete class
 // based on OPENMW_PHYSICS_USES_JOLT / _BULLET. No call site changes.
 
+#include <functional>
 #include <memory>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <osg/BoundingBox>
@@ -54,6 +56,11 @@
 #include <osg/Stats>
 #include <osg/Timer>
 #include <osg/Vec3f>
+
+namespace Resource
+{
+    class BulletShapeManager;
+}
 
 #include <components/vfs/pathutil.hpp>
 
@@ -69,6 +76,7 @@ namespace MWPhysics
     class Object;
     class Projectile;
     struct ContactPoint;
+    enum ScriptedCollisionType : char; // defined in object.hpp
 
     // Pure-virtual surface for the backend. Lifetime is owned by
     // PhysicsSystem; every call must be safe from the main game
@@ -183,6 +191,10 @@ namespace MWPhysics
         virtual void getActorsStandingOn(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& out) const = 0;
         virtual void getActorsCollidingWith(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& out) const = 0;
 
+        // Scripted collision query — returns whether `object` was hit
+        // this frame by something of `type` (Actor / Player / None).
+        virtual bool isObjectCollidingWith(const MWWorld::ConstPtr& object, ScriptedCollisionType type) const = 0;
+
         // Mark as non-solid so isOnSolidGround returns false for actors
         // standing on it. Used for trapdoors / lifts in motion.
         virtual void markAsNonSolid(const MWWorld::ConstPtr& ptr) = 0;
@@ -220,6 +232,26 @@ namespace MWPhysics
         virtual const Actor* getActor(const MWWorld::ConstPtr& ptr) const = 0;
         virtual const Object* getObject(const MWWorld::ConstPtr& ptr) const = 0;
         virtual Projectile* getProjectile(int projectileId) const = 0;
+
+        // ----- Concretely Bullet-flavoured but architecturally shared --
+        // BulletShapeManager hosts the asset-side shape cache (NIF ->
+        // btCollisionShape). It stays Bullet-typed even under Jolt
+        // because the navigator's Recast feed consumes
+        // btCollisionShape directly (see jolt-migration-plan.md
+        // phase 9). The Jolt impl owns its own BulletShapeManager
+        // for the same purpose.
+        virtual Resource::BulletShapeManager* getShapeManager() = 0;
+
+        // Internal physics tick rate (seconds). Read by worldimp's
+        // time accumulator. Constant for the lifetime of the impl.
+        virtual float getPhysicsDt() const = 0;
+
+        // Snapshot of the current animated objects with a "changed
+        // since last frame" flag. Used by the navigator to refresh
+        // navmesh tiles when an animated collider has moved.
+        // Replaces the template forEachAnimatedObject so the surface
+        // can sit on a virtual.
+        virtual std::vector<std::pair<const Object*, bool>> getAnimatedObjects() const = 0;
     };
 }
 

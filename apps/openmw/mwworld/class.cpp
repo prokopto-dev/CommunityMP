@@ -39,12 +39,12 @@ namespace MWWorld
     }
 
     void Class::insertObject(
-        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::PhysicsSystem& physics) const
+        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::IPhysicsBackend& physics) const
     {
     }
 
     void Class::insertObjectPhysics(
-        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::PhysicsSystem& physics) const
+        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::IPhysicsBackend& physics) const
     {
     }
 

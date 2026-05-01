@@ -160,7 +160,9 @@ namespace MWPhysics
         // IPhysicsBackend identity (compile-time fixed for this impl).
         std::string_view name() const override { return physicsBackendName(); }
 
-        Resource::BulletShapeManager* getShapeManager();
+        Resource::BulletShapeManager* getShapeManager() override;
+        float getPhysicsDt() const override { return mPhysicsDt; }
+        std::vector<std::pair<const Object*, bool>> getAnimatedObjects() const override;
 
         void enableWater(float height) override;
         void setWaterHeight(float height) override;
@@ -265,7 +267,7 @@ namespace MWPhysics
         void getActorsStandingOn(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& out) const override;
 
         /// Return true if an object of the given type has collided with this object
-        bool isObjectCollidingWith(const MWWorld::ConstPtr& object, ScriptedCollisionType type) const;
+        bool isObjectCollidingWith(const MWWorld::ConstPtr& object, ScriptedCollisionType type) const override;
 
         /// Get the handle of all actors colliding with \a object in this frame.
         void getActorsCollidingWith(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& out) const override;

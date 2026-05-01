@@ -70,6 +70,7 @@ namespace ToUTF8
 
 namespace MWPhysics
 {
+    class IPhysicsBackend;
     class Object;
 }
 
@@ -99,7 +100,11 @@ namespace MWWorld
         std::string mCurrentWorldSpace;
 
         std::unique_ptr<MWWorld::Player> mPlayer;
-        std::unique_ptr<MWPhysics::PhysicsSystem> mPhysics;
+        // Stored as the abstract base so the runtime simulator can be
+        // swapped between Bullet and Jolt at compile time
+        // (OPENMW_PHYSICS_BACKEND). The concrete impl is picked by
+        // MWPhysics::makePhysicsBackend.
+        std::unique_ptr<MWPhysics::IPhysicsBackend> mPhysics;
         std::unique_ptr<DetourNavigator::Navigator> mNavigator;
         std::unique_ptr<MWRender::RenderingManager> mRendering;
         std::unique_ptr<MWWorld::Scene> mWorldScene;

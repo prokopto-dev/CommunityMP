@@ -46,7 +46,7 @@ namespace MWClass
     }
 
     void Light::insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         MWWorld::LiveCellRef<ESM::Light>* ref = ptr.get<ESM::Light>();
         assert(ref->mBase != nullptr);
@@ -59,7 +59,7 @@ namespace MWClass
     }
 
     void Light::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         // TODO: add option somewhere to enable collision for placeable objects
         if ((ptr.get<ESM::Light>()->mBase->mData.mFlags & ESM::Light::Carry) == 0)

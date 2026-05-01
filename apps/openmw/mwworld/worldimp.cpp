@@ -89,7 +89,9 @@
 #include "../mwphysics/actor.hpp"
 #include "../mwphysics/collisiontype.hpp"
 #include "../mwphysics/object.hpp"
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
+#include "../mwphysics/physicsbackend.hpp"
+#include "../mwphysics/physicssystem.hpp" // ContactPoint definition
 
 #include "../mwsound/constants.hpp"
 
@@ -232,7 +234,7 @@ namespace MWWorld
     void World::init(Debug::Level maxRecastLogLevel, osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
         SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue)
     {
-        mPhysics = std::make_unique<MWPhysics::PhysicsSystem>(mResourceSystem, rootNode);
+        mPhysics = MWPhysics::makePhysicsBackend(mResourceSystem, rootNode);
 
         if (Settings::navigator().mEnable)
         {
@@ -1381,11 +1383,11 @@ namespace MWWorld
     {
         auto navigatorUpdateGuard = mNavigator->makeUpdateGuard();
 
-        mPhysics->forEachAnimatedObject([&](const auto& pair) {
-            const auto [object, changed] = pair;
+        for (const auto& [object, changed] : mPhysics->getAnimatedObjects())
+        {
             if (changed)
                 updateNavigatorObject(*object, navigatorUpdateGuard.get());
-        });
+        }
 
         for (const auto& door : mDoorStates)
             if (const auto object = mPhysics->getObject(door.first))
@@ -3083,7 +3085,7 @@ namespace MWWorld
 
     float World::getPhysicsFrameRateDt() const
     {
-        return mPhysics->mPhysicsDt;
+        return mPhysics->getPhysicsDt();
     }
 
     bool World::findInteriorPositionInWorldSpace(const MWWorld::CellStore* cell, osg::Vec3f& result)

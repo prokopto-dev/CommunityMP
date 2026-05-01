@@ -108,7 +108,7 @@ namespace
     static osg::ref_ptr<SceneUtil::PositionAttitudeTransform> pagedNode = new SceneUtil::PositionAttitudeTransform;
 
     void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const std::vector<ESM::RefNum>& pagedRefs,
-        MWPhysics::PhysicsSystem& physics, MWRender::RenderingManager& rendering)
+        MWPhysics::IPhysicsBackend& physics, MWRender::RenderingManager& rendering)
     {
         if (ptr.getRefData().getBaseNode() || physics.getActor(ptr))
         {
@@ -141,7 +141,7 @@ namespace
         MWBase::Environment::get().getLuaManager()->objectAddedToScene(ptr);
     }
 
-    void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const MWPhysics::PhysicsSystem& physics,
+    void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const MWPhysics::IPhysicsBackend& physics,
         float& lowestPoint, bool isInterior, DetourNavigator::Navigator& navigator,
         const DetourNavigator::UpdateGuard* navigatorUpdateGuard = nullptr)
     {
@@ -882,7 +882,7 @@ namespace MWWorld
         mLastPlayerPos = player.getRefData().getPosition().asVec3();
     }
 
-    Scene::Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::PhysicsSystem* physics,
+    Scene::Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::IPhysicsBackend* physics,
         DetourNavigator::Navigator& navigator)
         : mCurrentCell(nullptr)
         , mCellChanged(false)

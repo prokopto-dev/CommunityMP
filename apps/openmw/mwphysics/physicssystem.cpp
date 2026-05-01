@@ -883,6 +883,15 @@ namespace MWPhysics
             mDebugDrawer->addCollision(Misc::Convert::toBullet(position), Misc::Convert::toBullet(normal));
     }
 
+    std::vector<std::pair<const Object*, bool>> PhysicsSystem::getAnimatedObjects() const
+    {
+        std::vector<std::pair<const Object*, bool>> out;
+        out.reserve(mAnimatedObjects.size());
+        for (const auto& [object, changed] : mAnimatedObjects)
+            out.emplace_back(object, changed);
+        return out;
+    }
+
     ActorFrameData::ActorFrameData(
         Actor& actor, bool inert, bool waterCollision, float slowFall, float waterlevel, bool isPlayer)
         : mPosition()

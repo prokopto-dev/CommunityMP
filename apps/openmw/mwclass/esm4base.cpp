@@ -27,7 +27,7 @@ namespace MWClass
     }
 
     void ESM4Impl::insertObjectPhysics(
-        const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation, MWPhysics::PhysicsSystem& physics)
+        const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation, MWPhysics::IPhysicsBackend& physics)
     {
         physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::CollisionType_World);
     }

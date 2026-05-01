@@ -24,8 +24,20 @@
 #error "No physics backend selected — define OPENMW_PHYSICS_BACKEND_BULLET or OPENMW_PHYSICS_BACKEND_JOLT"
 #endif
 
+#include <memory>
+
+#include <osg/Group>
+#include <osg/ref_ptr>
+
+namespace Resource
+{
+    class ResourceSystem;
+}
+
 namespace MWPhysics
 {
+    class IPhysicsBackend;
+
     inline constexpr const char* physicsBackendName()
     {
 #if OPENMW_PHYSICS_USES_JOLT
@@ -34,6 +46,14 @@ namespace MWPhysics
         return "Bullet";
 #endif
     }
+
+    // Single entry point for picking the runtime simulator. Defined
+    // in physicsbackend.cpp so the header stays free of heavy
+    // includes (PhysicsSystem / JoltPhysicsSystem). Returns
+    // PhysicsSystem under bullet builds, JoltPhysicsSystem under
+    // jolt builds.
+    std::unique_ptr<IPhysicsBackend> makePhysicsBackend(
+        Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode);
 }
 
 #endif
