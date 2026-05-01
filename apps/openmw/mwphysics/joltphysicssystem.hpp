@@ -31,6 +31,7 @@ namespace Resource
 {
     class ResourceSystem;
     class BulletShapeManager;
+    class BulletShapeInstance;
 }
 
 namespace MWPhysics
@@ -254,6 +255,25 @@ namespace MWPhysics
         // ignore lists. Empty Ptr for environmental bodies (water,
         // height fields) - those just won't match any ignore.
         std::unordered_map<JPH::uint32, MWWorld::Ptr> mBodyOwners;
+
+        // Phase 10a: animated objects need their JPH::Shape rebuilt
+        // when the underlying btCompoundShape's child transforms
+        // change. We keep the BulletShapeInstance alive (osg::ref_ptr
+        // bumps the cache reference) so updateAnimatedCollisionShape
+        // can re-run the converter on demand. The bool tracks
+        // whether the navmesh navigator should refresh on next
+        // tick (mirrors PhysicsSystem's mAnimatedObjects semantics).
+        // The public-API Object* return path stays empty under Jolt
+        // until phase 10b promotes Object to an abstract base; the
+        // navigator's "this changed" signal still works because the
+        // Jolt body is updated in-place via SetShape.
+        struct AnimatedObjectEntry
+        {
+            osg::ref_ptr<Resource::BulletShapeInstance> mShapeInstance;
+            JPH::BodyID mBodyId;
+            bool mChanged = false;
+        };
+        std::unordered_map<const MWWorld::LiveCellRefBase*, AnimatedObjectEntry> mAnimatedObjectEntries;
     };
 }
 

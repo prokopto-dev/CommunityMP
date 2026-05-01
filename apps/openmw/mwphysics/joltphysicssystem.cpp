@@ -196,6 +196,7 @@ namespace MWPhysics
         mObjectBodies.clear();
         mHeightFieldBodies.clear();
         mProjectileBodies.clear();
+        mAnimatedObjectEntries.clear();
         mActors.clear(); // CharacterVirtual destructors run before
                          // mJoltSystem so they can deregister cleanly.
 
@@ -294,6 +295,13 @@ namespace MWPhysics
             = mJoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
         mObjectBodies.emplace(ptr.mRef, id);
         mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), ptr);
+
+        // Phase 10a: track animated entries so
+        // updateAnimatedCollisionShape can rebuild the runtime
+        // shape from the (live) BulletShapeInstance.
+        if (shapeInstance->isAnimated())
+            mAnimatedObjectEntries.emplace(ptr.mRef,
+                AnimatedObjectEntry{ shapeInstance, id, false });
     }
     void JoltPhysicsSystem::addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh)
     {
@@ -386,6 +394,7 @@ namespace MWPhysics
             bi.RemoveBody(it->second);
             bi.DestroyBody(it->second);
             mObjectBodies.erase(it);
+            mAnimatedObjectEntries.erase(ptr.mRef);
         }
         else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
         {
@@ -892,12 +901,33 @@ namespace MWPhysics
         // ground-contact data is available.
     }
 
-    void JoltPhysicsSystem::updateAnimatedCollisionShape(const MWWorld::Ptr& /*object*/)
+    void JoltPhysicsSystem::updateAnimatedCollisionShape(const MWWorld::Ptr& object)
     {
-        // Phase 10 rebuilds the JPH::Shape from the latest skinned
-        // vertex positions. For now the static shape captured at
-        // addObject time stays - matches the Bullet path's behaviour
-        // for non-animated entries.
+        // Phase 10a: rebuild the runtime JPH::Shape from the
+        // BulletShapeInstance's current state. The Bullet shape
+        // itself is animated by mwworld's per-frame OSG -> Bullet
+        // transform writeback; we read the up-to-date Bullet shape
+        // here and feed it through the converter.
+        //
+        // Phase 10b will skip the rebuild when the Bullet shape's
+        // child transforms haven't actually changed; for now we
+        // unconditionally rebuild on call, matching the Bullet
+        // path's "trust the caller's hint" behaviour.
+        const auto it = mAnimatedObjectEntries.find(object.mRef);
+        if (it == mAnimatedObjectEntries.end())
+            return;
+        AnimatedObjectEntry& entry = it->second;
+        if (!entry.mShapeInstance || !entry.mShapeInstance->mCollisionShape)
+            return;
+
+        JPH::RefConst<JPH::Shape> joltShape
+            = convertBulletShape(entry.mShapeInstance->mCollisionShape.get());
+        if (!joltShape)
+            return;
+
+        mJoltSystem->GetBodyInterface().SetShape(entry.mBodyId, joltShape.GetPtr(),
+            /*inUpdateMassProperties*/ false, JPH::EActivation::DontActivate);
+        entry.mChanged = true;
     }
 
     bool JoltPhysicsSystem::isAreaOccupiedByOtherActor(
