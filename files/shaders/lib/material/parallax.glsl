@@ -130,7 +130,7 @@ float parallaxSelfShadow(sampler2D heightMap, vec2 baseUV, vec3 lightTS,
         float midI = (lo + hi) * 0.5;
         vec2 uvM = baseUV + stepUV * midI;
         float rayH = receiverHeight + stepHeight * midI;
-        float sampleH = texture2DLod(heightMap, uvM, mip).a;
+        float sampleH = texture2D(heightMap, uvM).a;
 
         if (sampleH > rayH)
         {
