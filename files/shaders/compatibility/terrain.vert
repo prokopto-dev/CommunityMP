@@ -72,10 +72,33 @@ float terrainFbm(vec2 p)
 }
 #endif
 
+#if @grassWind
+uniform float osg_SimulationTime;
+uniform float grassWindAmplitude;
+uniform float grassWindSpeed;
+uniform float grassWindFrequency;
+uniform vec2 grassWindDir;
+#endif
+
 void main(void)
 {
     vec4 modelVertex = gl_Vertex;
     vec3 displacedNormal = gl_Normal.xyz;
+
+#if @grassWind
+    // Grass mask from vertex colour. Morrowind paints grass-textured terrain
+    // patches with a green-dominant colour; reading gl_Color.g vs the other
+    // channels gives a free per-vertex grass weight.
+    float grassMask = clamp(gl_Color.g - 0.55 * (gl_Color.r + gl_Color.b) * 0.5, 0.0, 1.0);
+    grassMask = grassMask * grassMask;
+    // Travelling wave along grassWindDir; phase advances with simulation
+    // time so the lawn ripples continuously even when the player stands
+    // still. Two octaves for richer motion.
+    float phase = dot(modelVertex.xy, grassWindDir) * grassWindFrequency
+                + osg_SimulationTime * grassWindSpeed;
+    float wave = sin(phase) + 0.4 * sin(phase * 2.13 + 1.7);
+    modelVertex.z += wave * grassWindAmplitude * grassMask;
+#endif
 #if @terrainDisplacement
     // Software fallback for hardware tessellation. Adds procedural relief at
     // existing terrain vertices. Combined with CPU-side mesh densification

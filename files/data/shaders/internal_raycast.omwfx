@@ -5,16 +5,19 @@ uniform_int uContactShadowsSteps {
     default = 12;
     min = 4;
     max = 64;
+    step = 1;
 }
 uniform_float uContactShadowsLength {
     default = 0.05;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_float uContactShadowsThickness {
     default = 0.005;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_bool uSsao {
     default = false;
@@ -23,16 +26,19 @@ uniform_float uSsaoRadius {
     default = 80.0;
     min = 0.05;
     max = 1024.0;
+    step = 30;
 }
 uniform_float uSsaoStrength {
     default = 1.0;
     min = 0.0;
     max = 4.0;
+    step = 0.1;
 }
 uniform_int uSsaoSamples {
     default = 8;
     min = 2;
     max = 32;
+    step = 1;
 }
 uniform_bool uSunHalo {
     default = true;
@@ -44,21 +50,25 @@ uniform_int uWorldSSRSteps {
     default = 16;
     min = 4;
     max = 64;
+    step = 1;
 }
 uniform_float uWorldSSRStrength {
     default = 0.6;
     min = 0.0;
     max = 2.0;
+    step = 0.05;
 }
 uniform_float uWorldSSRSmoothness {
     default = 0.7;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_float uWetness {
     default = 0.4;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_bool uGodRays {
     default = true;
@@ -67,16 +77,19 @@ uniform_int uGodRaysSteps {
     default = 32;
     min = 8;
     max = 96;
+    step = 1;
 }
 uniform_float uGodRaysDecay {
     default = 0.96;
     min = 0.5;
     max = 1.0;
+    step = 0.01;
 }
 uniform_float uGodRaysIntensity {
     default = 0.6;
     min = 0.0;
     max = 4.0;
+    step = 0.1;
 }
 uniform_bool uUnderwaterEffects {
     default = true;
@@ -85,21 +98,25 @@ uniform_float uCausticsStrength {
     default = 0.45;
     min = 0.0;
     max = 2.0;
+    step = 0.05;
 }
 uniform_float uCausticsScale {
     default = 0.06;
     min = 0.005;
     max = 0.5;
+    step = 0.01;
 }
 uniform_float uUnderwaterTint {
     default = 0.6;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_float uUnderwaterFogDistance {
     default = 2400.0;
     min = 100.0;
     max = 16000.0;
+    step = 400;
 }
 uniform_bool uAtmoScatter {
     default = true;
@@ -108,11 +125,64 @@ uniform_float uAtmoIntensity {
     default = 0.8;
     min = 0.0;
     max = 3.0;
+    step = 0.08;
 }
 uniform_float uAtmoSunSize {
     default = 350.0;
     min = 50.0;
     max = 2000.0;
+    step = 50;
+}
+uniform_bool uVolumetricClouds {
+    default = false;
+}
+uniform_float uCloudCoverage {
+    default = 0.45;
+    min = 0.0;
+    max = 1.0;
+    step = 0.02;
+}
+uniform_float uCloudDensity {
+    default = 0.6;
+    min = 0.0;
+    max = 2.0;
+    step = 0.05;
+}
+uniform_int uCloudMarchSteps {
+    default = 24;
+    min = 8;
+    max = 64;
+    step = 1;
+}
+uniform_int uCloudLightSteps {
+    default = 4;
+    min = 1;
+    max = 16;
+    step = 1;
+}
+uniform_float uCloudHeight {
+    default = 4500.0;
+    min = 500.0;
+    max = 20000.0;
+    step = 500;
+}
+uniform_float uCloudThickness {
+    default = 1800.0;
+    min = 200.0;
+    max = 8000.0;
+    step = 200;
+}
+uniform_float uCloudScale {
+    default = 0.00012;
+    min = 0.00001;
+    max = 0.001;
+    step = 2e-05;
+}
+uniform_float uCloudSpeed {
+    default = 12.0;
+    min = 0.0;
+    max = 200.0;
+    step = 5;
 }
 uniform_bool uVolumetricFog {
     default = true;
@@ -121,21 +191,25 @@ uniform_int uVolumetricFogSteps {
     default = 24;
     min = 4;
     max = 96;
+    step = 1;
 }
 uniform_float uVolumetricFogDensity {
     default = 0.00018;
     min = 0.0;
     max = 0.005;
+    step = 0.0001;
 }
 uniform_float uVolumetricFogHeightFalloff {
     default = 0.0009;
     min = 0.0;
     max = 0.01;
+    step = 0.0002;
 }
 uniform_float uVolumetricFogScattering {
     default = 0.5;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_bool uEyeAdaptation {
     default = false;
@@ -144,31 +218,37 @@ uniform_float uEyeAdaptationTarget {
     default = 0.45;
     min = 0.05;
     max = 1.0;
+    step = 0.02;
 }
 uniform_float uEyeAdaptationMin {
     default = 0.85;
     min = 0.1;
     max = 1.0;
+    step = 0.02;
 }
 uniform_float uEyeAdaptationMax {
     default = 1.4;
     min = 1.0;
     max = 4.0;
+    step = 0.08;
 }
 uniform_float uEyeAdaptationStrength {
     default = 0.25;
     min = 0.0;
     max = 1.0;
+    step = 0.02;
 }
 uniform_float uSunHaloRadius {
     default = 0.18;
     min = 0.01;
     max = 0.5;
+    step = 0.01;
 }
 uniform_float uSunHaloIntensity {
     default = 1.2;
     min = 0.0;
     max = 6.0;
+    step = 0.1;
 }
 
 fragment main {
@@ -187,6 +267,24 @@ fragment main {
         vec4 ndc = vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
         vec4 view = omw_InvProjectionMatrix() * ndc;
         return view.xyz / view.w;
+    }
+
+    // Forward-declared noise helpers (used by clouds / caustics / fbm).
+    vec2 hash22(vec2 p)
+    {
+        p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+        return -1.0 + 2.0 * fract(sin(p) * 43758.5453);
+    }
+
+    float gradNoise(vec2 p)
+    {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(dot(hash22(i + vec2(0, 0)), f - vec2(0, 0)),
+                       dot(hash22(i + vec2(1, 0)), f - vec2(1, 0)), u.x),
+                   mix(dot(hash22(i + vec2(0, 1)), f - vec2(0, 1)),
+                       dot(hash22(i + vec2(1, 1)), f - vec2(1, 1)), u.x), u.y);
     }
 
     // Bayer 4x4 dither matrix to break up banding in the raymarch.
@@ -221,11 +319,18 @@ fragment main {
 
         vec3 origin = viewPosFromUV(uv);
         // Bias along view-space normal to avoid self-shadowing.
+        // Larger bias kills the "shadow per edge" artefact that arises when
+        // depth discontinuities are misread as occluders by the raymarche.
         vec3 n = omw_GetNormals(uv);
-        origin += n * 0.5;
+        origin += n * 4.0;
 
         // Project a step into clip space to convert into screen-space delta.
-        vec3 endVS = origin + sunVS * (uContactShadowsLength * length(origin) * 4.0);
+        // Fixed world-space length (cm Morrowind units) so shadows have a
+        // consistent footprint regardless of distance — previous formula
+        // scaled by length(origin), creating runaway shadows that filled
+        // half the screen when the player rotated the camera.
+        float worldLength = uContactShadowsLength * 600.0;
+        vec3 endVS = origin + sunVS * worldLength;
         vec4 clipS = omw_ProjectionMatrix() * vec4(origin, 1.0);
         vec4 clipE = omw_ProjectionMatrix() * vec4(endVS, 1.0);
         vec2 ssStart = (clipS.xy / clipS.w) * 0.5 + 0.5;
@@ -244,18 +349,22 @@ fragment main {
                 break;
             // Reconstruct sampled position and compare with our ray's z.
             vec3 sampled = viewPosFromUV(sUV);
-            vec3 rayVS = origin + sunVS * (uContactShadowsLength * length(origin) * 4.0 * t);
+            vec3 rayVS = origin + sunVS * (worldLength * t);
             float diff = sampled.z - rayVS.z;
-            // OpenGL view-space: smaller (more negative) z = farther.
-            // Occluded when sampled is closer to camera than the ray AND
-            // the gap is within the configured thickness.
-            if (diff > 0.0 && diff < uContactShadowsThickness * omw.far)
+            // Tighter thickness window: depth discontinuities at silhouette
+            // edges otherwise read as occluders. Lower bound rejects almost-
+            // matched depths (the surface itself, slightly biased).
+            float thickness = uContactShadowsThickness * omw.far;
+            float minThickness = thickness * 0.05;
+            if (diff > minThickness && diff < thickness)
             {
                 occluded = 1.0;
                 break;
             }
         }
-        return 1.0 - occluded;
+        // Soft mix: full occlusion would crush all detail; let the base
+        // shadowing breathe through at 30% even on a hit.
+        return 1.0 - occluded * 0.7;
     }
 
     // -------------------------------------------------------------------
@@ -350,6 +459,108 @@ fragment main {
     }
 
     // -------------------------------------------------------------------
+    // Volumetric clouds with self-shadowing
+    // -------------------------------------------------------------------
+    // Raymarches the view ray through a thin slab between altitude
+    // [uCloudHeight, uCloudHeight + uCloudThickness]. Density at each
+    // sample is derived from a 3D-ish FBM (we layer four 2D noise
+    // octaves slid by simulationTime to fake 3D motion). For each dense
+    // step a *secondary* raymarche toward the sun computes how much
+    // light made it through the cloud above the sample point, giving
+    // self-shadowing without storing a 3D volume.
+    float cloudDensity(vec3 p)
+    {
+        // Slab-aligned coordinates in the [0..1] vertical band.
+        float t = clamp((p.z - uCloudHeight) / uCloudThickness, 0.0, 1.0);
+        // Vertical density envelope: low at edges, peak around 60% up.
+        float vEnv = smoothstep(0.0, 0.25, t) * smoothstep(1.0, 0.75, t);
+
+        vec2 wind = vec2(omw.simulationTime * uCloudSpeed,
+                         omw.simulationTime * uCloudSpeed * 0.6);
+        vec2 uv = p.xy * uCloudScale + wind * uCloudScale;
+
+        // Layered FBM with vertical-shifted octaves (cheap 3D feel).
+        float n = 0.0;
+        float amp = 0.5;
+        float freq = 1.0;
+        for (int i = 0; i < 4; ++i)
+        {
+            n += amp * gradNoise(uv * freq + vec2(t * 4.0 * float(i), 0.0));
+            freq *= 2.13;
+            amp *= 0.5;
+        }
+        n = n * 0.5 + 0.5;
+
+        // Coverage threshold turns the noise into puffy cloud bodies.
+        float cov = clamp(n - (1.0 - uCloudCoverage), 0.0, 1.0);
+        return cov * vEnv * uCloudDensity;
+    }
+
+    float cloudLightTransmittance(vec3 p, vec3 sunDir)
+    {
+        int steps = uCloudLightSteps;
+        float stepLen = uCloudThickness * 0.4 / float(steps);
+        float opticalDepth = 0.0;
+        for (int i = 1; i <= steps; ++i)
+        {
+            vec3 sp = p + sunDir * (float(i) * stepLen);
+            opticalDepth += cloudDensity(sp) * stepLen;
+        }
+        return exp(-opticalDepth * 1.2);
+    }
+
+    vec3 volumetricClouds(vec2 uv, vec3 viewDirWS, vec3 sunDirWS, vec3 skyBackground)
+    {
+        if (!uVolumetricClouds) return skyBackground;
+        if (viewDirWS.z <= 0.02) return skyBackground; // looking down: no clouds
+
+        vec3 origin = omw.eyePos.xyz;
+        // Intersect view ray with the cloud slab vertically.
+        float t0 = (uCloudHeight - origin.z) / max(viewDirWS.z, 0.001);
+        float t1 = (uCloudHeight + uCloudThickness - origin.z) / max(viewDirWS.z, 0.001);
+        float tEnter = max(0.0, min(t0, t1));
+        float tExit  = max(t0, t1);
+        if (tExit <= tEnter) return skyBackground;
+        // Cap distance: don't march past 80km (~horizon).
+        tExit = min(tExit, tEnter + 80000.0);
+
+        int steps = uCloudMarchSteps;
+        float stepLen = (tExit - tEnter) / float(steps);
+        float dither = bayer4x4(gl_FragCoord.xy);
+
+        vec3 sunCol = omw.sunColor.rgb;
+        vec3 ambient = mix(vec3(0.55, 0.65, 0.78), vec3(0.18, 0.22, 0.30),
+                           smoothstep(0.0, -0.2, sunDirWS.z));
+
+        // Henyey-Greenstein with anisotropy biased forward (clouds glow
+        // around the sun direction).
+        float g = 0.4;
+        float cosA = dot(viewDirWS, sunDirWS);
+        float hg = (1.0 - g * g) /
+                   (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * cosA, 1.5));
+
+        float transmittance = 1.0;
+        vec3 scattered = vec3(0.0);
+
+        for (int i = 0; i < steps; ++i)
+        {
+            float t = tEnter + (float(i) + dither) * stepLen;
+            vec3 p = origin + viewDirWS * t;
+            float density = cloudDensity(p);
+            if (density > 0.001)
+            {
+                float lightT = cloudLightTransmittance(p, sunDirWS);
+                vec3 inscatter = (sunCol * hg * lightT + ambient * 0.4) * density * stepLen;
+                scattered += inscatter * transmittance;
+                transmittance *= exp(-density * stepLen * 1.5);
+                if (transmittance < 0.01) break;
+            }
+        }
+
+        return skyBackground * transmittance + scattered;
+    }
+
+    // -------------------------------------------------------------------
     // Atmospheric Rayleigh+Mie scattering (sky tint)
     // -------------------------------------------------------------------
     // Replaces the flat OpenMW sky color on sky pixels with a procedural
@@ -409,23 +620,6 @@ fragment main {
     // tint+fog the scene as the depth increases. Caustics modulate by sky
     // luminance so they vanish in covered areas (no sun ray reaches the
     // bottom). Animated by omw.simulationTime via the "omw" UBO.
-    vec2 hash22(vec2 p)
-    {
-        p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-        return -1.0 + 2.0 * fract(sin(p) * 43758.5453);
-    }
-
-    float gradNoise(vec2 p)
-    {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        vec2 u = f * f * (3.0 - 2.0 * f);
-        return mix(mix(dot(hash22(i + vec2(0, 0)), f - vec2(0, 0)),
-                       dot(hash22(i + vec2(1, 0)), f - vec2(1, 0)), u.x),
-                   mix(dot(hash22(i + vec2(0, 1)), f - vec2(0, 1)),
-                       dot(hash22(i + vec2(1, 1)), f - vec2(1, 1)), u.x), u.y);
-    }
-
     float caustics(vec2 p, float t)
     {
         // Two rotated noise layers add a "rippling cell" pattern that mimics
@@ -787,7 +981,7 @@ fragment main {
             vec3 skyCol = col.rgb;
 
             // Atmospheric Rayleigh+Mie tint on sky pixels (skipped underwater).
-            if (uAtmoScatter && !bool(omw.isUnderwater))
+            if (!bool(omw.isUnderwater))
             {
                 // Reconstruct world-space view direction from screen UV.
                 vec4 ndc = vec4(omw_TexCoord * 2.0 - 1.0, 1.0, 1.0);
@@ -795,11 +989,17 @@ fragment main {
                 vec3 viewDirVS = normalize(viewH.xyz / viewH.w);
                 vec3 viewDirWS = (omw.invViewMatrix * vec4(viewDirVS, 0.0)).xyz;
                 vec3 sunDirWS = normalize(omw.sunPos.xyz);
-                vec3 atmo = atmoSky(viewDirWS, sunDirWS, uAtmoIntensity);
-                // Blend with existing sky so OpenMW weather effects (clouds,
-                // night moons) are not erased. Heavier blend toward zenith.
-                float blend = clamp(viewDirWS.z * 0.7 + 0.3, 0.4, 0.95);
-                skyCol = mix(col.rgb, atmo, blend);
+
+                if (uAtmoScatter)
+                {
+                    vec3 atmo = atmoSky(viewDirWS, sunDirWS, uAtmoIntensity);
+                    // Blend with existing sky so OpenMW weather effects (clouds,
+                    // night moons) are not erased. Heavier blend toward zenith.
+                    float blend = clamp(viewDirWS.z * 0.7 + 0.3, 0.4, 0.95);
+                    skyCol = mix(col.rgb, atmo, blend);
+                }
+                // Volumetric clouds layered on top of the atmospheric sky.
+                skyCol = volumetricClouds(omw_TexCoord, viewDirWS, sunDirWS, skyCol);
             }
             // Underwater fog/tint applies on top (the "sky" seen from below).
             skyCol = applyUnderwater(skyCol, omw_TexCoord);
@@ -834,10 +1034,9 @@ fragment main {
 }
 
 technique {
-    description = "Internal screen-space contact shadows + SSAO for OpenMW";
+    description = "Boosted: contact shadows, SSAO, halo, SSR, wetness, god rays, atmosphere, vol fog/clouds, eye adaptation";
     version = "1.0";
     author = "OpenMW";
     passes = main;
-    flags = hidden;
     pass_normals = true;
 }

@@ -167,6 +167,33 @@ namespace MWRender
         sceneRoot->setLightingMask(Mask_Lighting);
         mSceneRoot = sceneRoot;
         sceneRoot->setStartLight(1);
+
+        // Push parallax depth/bias as global uniforms — read by
+        // lib/material/parallax.glsl in every shader that includes it
+        // (terrain, objects, BS). Live updates flow through the same
+        // setting value so the user can tweak from the Settings menu.
+        sceneRoot->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("parallaxScale", Settings::shaders().mParallaxScale.get()));
+        sceneRoot->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("parallaxBias", Settings::shaders().mParallaxBias.get()));
+
+        // Grass wind uniforms (read by compatibility/terrain.vert when the
+        // grassWind global define is "1"). osg_SimulationTime is auto-pushed
+        // by OSG and doesn't need a manual uniform here.
+        sceneRoot->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("grassWindAmplitude", Settings::shaders().mGrassWindAmplitude.get()));
+        sceneRoot->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("grassWindSpeed", Settings::shaders().mGrassWindSpeed.get()));
+        sceneRoot->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("grassWindFrequency", Settings::shaders().mGrassWindFrequency.get()));
+        {
+            const osg::Vec2f& d = Settings::shaders().mGrassWindDir.get();
+            // Normalise so amplitude is consistent regardless of input scale.
+            osg::Vec2f n = d;
+            float len = std::max(0.001f, n.length());
+            n /= len;
+            sceneRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("grassWindDir", n));
+        }
         sceneRoot->setNodeMask(Mask_Scene);
         sceneRoot->setName("Scene Root");
 
@@ -194,6 +221,7 @@ namespace MWRender
             globalDefines[itr->first] = itr->second;
 
         globalDefines["forcePPL"] = Settings::shaders().mForcePerPixelLighting ? "1" : "0";
+        globalDefines["grassWind"] = Settings::shaders().mGrassWind ? "1" : "0";
         globalDefines["clamp"] = Settings::shaders().mClampLighting ? "1" : "0";
         globalDefines["preLightEnv"] = Settings::shaders().mApplyLightingToEnvironmentMaps ? "1" : "0";
         globalDefines["classicFalloff"] = Settings::shaders().mClassicFalloff ? "1" : "0";

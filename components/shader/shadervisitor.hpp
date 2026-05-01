@@ -106,6 +106,12 @@ namespace Shader
 
             bool mSoftParticles;
 
+            // Per-mesh parallax scale override resolved from the diffuse
+            // map filename against [Shaders] parallax overrides. If not
+            // negative, pushed as a local 'parallaxScale' uniform on the
+            // stateset, replacing the global value.
+            float mParallaxScaleOverride;
+
             // the Node that requested these requirements
             osg::Node* mNode;
         };

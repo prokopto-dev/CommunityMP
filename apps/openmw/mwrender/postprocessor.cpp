@@ -190,13 +190,24 @@ namespace MWRender
         distortion->setLocked(true);
         mInternalTechniques.push_back(std::move(distortion));
 
-        // Internal raycast technique: contact shadows + SSAO. Loaded
-        // unconditionally so its uniforms are bound; the technique itself
-        // checks uContactShadows / uSsao and short-circuits if both are off.
+        // Boosted-rendering technique: contact shadows, SSAO, halo, SSR,
+        // wetness, god rays, atmosphere, volumetric fog/clouds, eye
+        // adaptation. Marked internal+locked so it can't be removed from
+        // the chain via the HUD, but the underlying .omwfx no longer has
+        // `flags = hidden` so the F2 HUD lists it and exposes its
+        // uniforms (sliders/checkboxes) for live tweaking. loadChain()
+        // copies mInternalTechniques into mTechniques on each refresh, so
+        // pushing here (vs into mTechniques directly) survives the
+        // settings-driven chain reload.
         if (Settings::raytracing().mContactShadows || Settings::raytracing().mSsao)
         {
             auto raycast = loadTechnique("internal_raycast");
-            raycast->setInternal(true);
+            // Locked so the user can't remove it from the chain via the
+            // HUD (it's load-bearing for our gameplay-affecting effects),
+            // but NOT setInternal — internal technique uniforms appear to
+            // be filtered out of the HUD's detail panel. We rely on
+            // loadChain() picking it up because we register it in
+            // mInternalTechniques (which is iterated in loadChain).
             raycast->setLocked(true);
             mInternalTechniques.push_back(std::move(raycast));
         }

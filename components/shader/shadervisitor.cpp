@@ -35,8 +35,60 @@
 #include "removedalphafunc.hpp"
 #include "shadermanager.hpp"
 
+#include <components/settings/values.hpp>
+
 namespace Shader
 {
+    namespace
+    {
+        // Parses [Shaders] parallax overrides at first call. Format:
+        //   pattern1=0.08;pattern2=0.02;...
+        // Comparison is case-insensitive substring match against the
+        // diffuse map's filename.
+        const std::vector<std::pair<std::string, float>>& parallaxOverrides()
+        {
+            static const std::vector<std::pair<std::string, float>> map = []() {
+                std::vector<std::pair<std::string, float>> out;
+                const std::string& raw = Settings::shaders().mParallaxOverrides.get();
+                std::string entry;
+                std::stringstream ss(raw);
+                while (std::getline(ss, entry, ';'))
+                {
+                    auto eq = entry.find('=');
+                    if (eq == std::string::npos) continue;
+                    std::string key = entry.substr(0, eq);
+                    std::string val = entry.substr(eq + 1);
+                    // strip whitespace
+                    auto trim = [](std::string& s) {
+                        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+                        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+                    };
+                    trim(key); trim(val);
+                    if (key.empty()) continue;
+                    try
+                    {
+                        out.emplace_back(Misc::StringUtils::lowerCase(key), std::stof(val));
+                    }
+                    catch (...) { /* ignore malformed */ }
+                }
+                return out;
+            }();
+            return map;
+        }
+
+        float lookupParallaxOverride(const std::string& diffuseFilename)
+        {
+            if (diffuseFilename.empty()) return -1.0f;
+            const std::string lower = Misc::StringUtils::lowerCase(diffuseFilename);
+            for (const auto& [pattern, value] : parallaxOverrides())
+            {
+                if (lower.find(pattern) != std::string::npos)
+                    return value;
+            }
+            return -1.0f;
+        }
+    }
+
     /**
      * Miniature version of osg::StateSet used to track state added by the shader visitor which should be ignored when
      * it's applied a second time, and removed when shaders are removed.
@@ -187,6 +239,7 @@ namespace Shader
         , mReconstructNormalZ(false)
         , mTexStageRequiringTangents(-1)
         , mSoftParticles(false)
+        , mParallaxScaleOverride(-1.0f)
         , mNode(nullptr)
     {
     }
@@ -352,6 +405,15 @@ namespace Shader
                                     mRequirements.back().mTexStageRequiringTangents = unit;
                                 }
                                 diffuseMap = texture;
+                                // Resolve per-mesh parallax override now that
+                                // we know the diffuse texture's filename.
+                                if (texture->getImage(0))
+                                {
+                                    const std::string& fn = texture->getImage(0)->getFileName();
+                                    float ov = lookupParallaxOverride(fn);
+                                    if (ov >= 0.0f)
+                                        mRequirements.back().mParallaxScaleOverride = ov;
+                                }
                             }
                             else if (texName == "specularMap")
                                 specularMap = texture;
@@ -734,6 +796,15 @@ namespace Shader
         {
             writableStateSet->addUniform(new osg::Uniform(name.c_str(), unit), osg::StateAttribute::ON);
             addedState->addUniform(name);
+        }
+
+        // Per-mesh parallax depth override.
+        if (reqs.mParallaxScaleOverride >= 0.0f)
+        {
+            writableStateSet->addUniform(
+                new osg::Uniform("parallaxScale", reqs.mParallaxScaleOverride),
+                osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+            addedState->addUniform("parallaxScale");
         }
 
         if (!addedState->empty())
