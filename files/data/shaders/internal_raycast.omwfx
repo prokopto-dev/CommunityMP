@@ -114,6 +114,29 @@ uniform_float uAtmoSunSize {
     min = 50.0;
     max = 2000.0;
 }
+uniform_bool uVolumetricFog {
+    default = true;
+}
+uniform_int uVolumetricFogSteps {
+    default = 24;
+    min = 4;
+    max = 96;
+}
+uniform_float uVolumetricFogDensity {
+    default = 0.00018;
+    min = 0.0;
+    max = 0.005;
+}
+uniform_float uVolumetricFogHeightFalloff {
+    default = 0.0009;
+    min = 0.0;
+    max = 0.01;
+}
+uniform_float uVolumetricFogScattering {
+    default = 0.5;
+    min = 0.0;
+    max = 1.0;
+}
 uniform_float uSunHaloRadius {
     default = 0.18;
     min = 0.01;
@@ -425,6 +448,68 @@ fragment main {
     }
 
     // -------------------------------------------------------------------
+    // Volumetric fog 3D (height-modulated, sun-scattered)
+    // -------------------------------------------------------------------
+    // Raymarches through the view ray and integrates Beer-Lambert extinction
+    // against an exponential height-fog density. At each step we evaluate
+    // an in-scattering term using the Henyey-Greenstein phase function with
+    // the sun direction, so the fog is brighter when looking toward the sun
+    // (god-ray-like volumetric haze independent of geometry occlusion).
+    vec3 volumetricFog(vec3 col, vec2 uv)
+    {
+        if (!uVolumetricFog) return col;
+
+        vec3 worldPos = omw_GetWorldPosFromUV(uv);
+        vec3 eye = omw.eyePos.xyz;
+        vec3 dir = worldPos - eye;
+        float dist = length(dir);
+        if (dist < 1.0) return col;
+        dir /= dist;
+
+        // Don't march further than the visible surface, but cap so we don't
+        // do thousands of steps in a far skybox.
+        float maxLen = min(dist, 12000.0);
+        int steps = uVolumetricFogSteps;
+        float stepLen = maxLen / float(steps);
+
+        vec3 sunWS = normalize(omw.sunPos.xyz);
+        vec3 sunCol = omw.sunColor.rgb;
+
+        // Henyey-Greenstein phase: g = 0.5 favours mild forward scattering.
+        float g = uVolumetricFogScattering;
+        float cosTheta = dot(dir, sunWS);
+        float hg = (1.0 - g * g) /
+                   (4.0 * 3.14159265 * pow(1.0 + g * g - 2.0 * g * cosTheta, 1.5));
+
+        float dither = bayer4x4(gl_FragCoord.xy);
+        vec3 inscatter = vec3(0.0);
+        float transmittance = 1.0;
+        for (int i = 0; i < steps; ++i)
+        {
+            float t = (float(i) + dither) * stepLen;
+            vec3 p = eye + dir * t;
+            // Exponential height-fall density (denser near ground).
+            float h = max(0.0, p.z - omw.eyePos.z);
+            float densityHeight = exp(-uVolumetricFogHeightFalloff * max(p.z, 0.0));
+            float density = uVolumetricFogDensity * densityHeight;
+            float sigma = density;
+
+            // Local in-scattering: Henyey-Greenstein × sun light × density.
+            // Approximate sun visibility as 1 (no shadow march for cost).
+            vec3 stepInscat = sunCol * hg * sigma * stepLen * transmittance;
+            inscatter += stepInscat;
+
+            // Beer-Lambert extinction along the ray.
+            transmittance *= exp(-sigma * stepLen);
+            if (transmittance < 0.01) break;
+        }
+
+        // Fog colour: warm horizon × density. Mix base scene by transmittance,
+        // add inscattering on top.
+        return col * transmittance + inscatter;
+    }
+
+    // -------------------------------------------------------------------
     // Wet surface effect
     // -------------------------------------------------------------------
     // Tints surfaces facing up with a darkened, more-saturated look and
@@ -675,6 +760,10 @@ fragment main {
         base = applyWetness(base, omw_TexCoord);
         // SSR is mixed in additively-with-clamp; the .a holds the strength.
         base = mix(base, max(base, ssr.rgb), ssr.a);
+        // Volumetric fog before underwater so the fog stays in air, not
+        // doubling up with the underwater scattering tint.
+        if (!bool(omw.isUnderwater))
+            base = volumetricFog(base, omw_TexCoord);
         // Underwater overlay (caustics + scattering) applied last so it
         // tints everything including SSR/halo contributions.
         base = applyUnderwater(base, omw_TexCoord);
