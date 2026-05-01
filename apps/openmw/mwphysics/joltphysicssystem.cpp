@@ -9,11 +9,23 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <components/debug/debuglog.hpp>
+#include <components/misc/resourcehelpers.hpp>
+#include <components/resource/bulletshape.hpp>
 #include <components/resource/bulletshapemanager.hpp>
+#include <components/resource/resourcesystem.hpp>
+#include <components/vfs/manager.hpp>
+
+#include "../mwworld/class.hpp"
+
+#include "joltshapeconverter.hpp"
 
 namespace MWPhysics
 {
@@ -140,6 +152,33 @@ namespace MWPhysics
 
     JoltPhysicsSystem::~JoltPhysicsSystem()
     {
+        // Tear down active bodies before dropping the PhysicsSystem
+        // — Jolt asserts on destruction if any bodies are still
+        // tracked. Order: water, objects, height fields. (The maps
+        // would otherwise destruct in member-decl order which is
+        // also fine, but explicit drains read better.)
+        if (mJoltSystem)
+        {
+            auto& bi = mJoltSystem->GetBodyInterface();
+            if (!mWaterBody.IsInvalid())
+            {
+                bi.RemoveBody(mWaterBody);
+                bi.DestroyBody(mWaterBody);
+            }
+            for (auto& [_, id] : mObjectBodies)
+            {
+                bi.RemoveBody(id);
+                bi.DestroyBody(id);
+            }
+            for (auto& [_, id] : mHeightFieldBodies)
+            {
+                bi.RemoveBody(id);
+                bi.DestroyBody(id);
+            }
+        }
+        mObjectBodies.clear();
+        mHeightFieldBodies.clear();
+
         // Reverse-order teardown: PhysicsSystem first (it holds
         // references to layer interfaces / contact listener), then
         // job system, then temp allocator. Factory + types stay
@@ -156,13 +195,84 @@ namespace MWPhysics
     // mirrors IPhysicsBackend exactly. When phase 5 lands, this file
     // is the single place that gets edited per-method.
 
-    void JoltPhysicsSystem::enableWater(float) { notImplemented("enableWater"); }
-    void JoltPhysicsSystem::setWaterHeight(float) { notImplemented("setWaterHeight"); }
-    void JoltPhysicsSystem::disableWater() { notImplemented("disableWater"); }
-
-    void JoltPhysicsSystem::addObject(const MWWorld::Ptr&, VFS::Path::NormalizedView, osg::Quat, int)
+    void JoltPhysicsSystem::enableWater(float height)
     {
-        notImplemented("addObject");
+        if (!mWaterBody.IsInvalid())
+            disableWater();
+
+        // Water is a thin sensor body — actors don't collide with it,
+        // but ray queries can detect it for swim/buoyancy logic. A 1m
+        // thick box covering ±1e6 in xy is a generous approximation
+        // for an entire region's water plane.
+        constexpr float kHalfThickness = 50.0f;     // ~1 m total
+        constexpr float kHalfWidth = 1.0e6f;        // covers any cell
+        const auto shape = JPH::RefConst<JPH::Shape>(new JPH::BoxShape(
+            JPH::Vec3(kHalfWidth, kHalfWidth, kHalfThickness)));
+
+        JPH::BodyCreationSettings settings(shape,
+            JPH::RVec3(0.0f, 0.0f, height - kHalfThickness),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Static,
+            JoltLayers::NON_MOVING);
+        settings.mIsSensor = true;
+        mWaterBody = mJoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+    }
+
+    void JoltPhysicsSystem::setWaterHeight(float height)
+    {
+        if (mWaterBody.IsInvalid())
+        {
+            enableWater(height);
+            return;
+        }
+        // Move the existing sensor up/down to track the new level.
+        constexpr float kHalfThickness = 50.0f;
+        mJoltSystem->GetBodyInterface().SetPosition(
+            mWaterBody, JPH::RVec3(0.0f, 0.0f, height - kHalfThickness),
+            JPH::EActivation::DontActivate);
+    }
+
+    void JoltPhysicsSystem::disableWater()
+    {
+        if (mWaterBody.IsInvalid())
+            return;
+        auto& bi = mJoltSystem->GetBodyInterface();
+        bi.RemoveBody(mWaterBody);
+        bi.DestroyBody(mWaterBody);
+        mWaterBody = JPH::BodyID();
+    }
+
+    void JoltPhysicsSystem::addObject(
+        const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh, osg::Quat rotation, int /*collisionType*/)
+    {
+        // Skip postponed (e.g. world-load deferred) entries; matches
+        // PhysicsSystem's gate.
+        if (ptr.mRef->mData.mPhysicsPostponed)
+            return;
+
+        const VFS::Path::Normalized animationMesh = ptr.getClass().useAnim()
+            ? Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS())
+            : VFS::Path::Normalized(mesh);
+        osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance
+            = mShapeManager->getInstance(animationMesh);
+        if (!shapeInstance || !shapeInstance->mCollisionShape)
+            return;
+
+        JPH::RefConst<JPH::Shape> joltShape = convertBulletShape(shapeInstance->mCollisionShape.get());
+        if (!joltShape)
+            return; // converter logged the reason
+
+        // World position comes from the Ptr's cell ref; rotation is
+        // the caller's. Object is static (terrain-anchored).
+        const ESM::Position& pos = ptr.getRefData().getPosition();
+        JPH::BodyCreationSettings settings(joltShape,
+            JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]),
+            JPH::Quat(rotation.x(), rotation.y(), rotation.z(), rotation.w()),
+            JPH::EMotionType::Static,
+            JoltLayers::NON_MOVING);
+        const JPH::BodyID id
+            = mJoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+        mObjectBodies.emplace(ptr.mRef, id);
     }
     void JoltPhysicsSystem::addActor(const MWWorld::Ptr&, VFS::Path::NormalizedView) { notImplemented("addActor"); }
     int JoltPhysicsSystem::addProjectile(const MWWorld::Ptr&, const osg::Vec3f&, VFS::Path::NormalizedView, bool)
@@ -171,7 +281,17 @@ namespace MWPhysics
     }
     void JoltPhysicsSystem::setCaster(int, const MWWorld::Ptr&) { notImplemented("setCaster"); }
     void JoltPhysicsSystem::removeProjectile(int) { notImplemented("removeProjectile"); }
-    void JoltPhysicsSystem::remove(const MWWorld::Ptr&) { notImplemented("remove"); }
+    void JoltPhysicsSystem::remove(const MWWorld::Ptr& ptr)
+    {
+        if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
+        {
+            auto& bi = mJoltSystem->GetBodyInterface();
+            bi.RemoveBody(it->second);
+            bi.DestroyBody(it->second);
+            mObjectBodies.erase(it);
+        }
+        // Actors will join here in phase 7.
+    }
 
     void JoltPhysicsSystem::updatePtr(const MWWorld::Ptr&, const MWWorld::Ptr&) { notImplemented("updatePtr"); }
     void JoltPhysicsSystem::updateScale(const MWWorld::Ptr&) { notImplemented("updateScale"); }
@@ -179,12 +299,85 @@ namespace MWPhysics
     void JoltPhysicsSystem::updatePosition(const MWWorld::Ptr&) { notImplemented("updatePosition"); }
 
     void JoltPhysicsSystem::addHeightField(
-        const float*, int, int, int, int, float, float, const osg::Object*)
+        const float* heights, int x, int y, int size, int verts, float minH, float maxH,
+        const osg::Object* /*holdObject*/)
     {
-        notImplemented("addHeightField");
+        // Bullet's heightfield: heightStickWidth × heightStickLength
+        // grid, height samples are in the local frame's third axis
+        // (Z, upAxis=2). Cell footprint is `size` units, sampled at
+        // `verts × verts` grid points.
+        //
+        // Jolt's HeightFieldShape: samples form an XZ grid with
+        // heights along local +Y. Sample count must be a power of 2.
+        // To match MW's Z-up convention we wrap the shape in a
+        // RotatedTranslated that maps Jolt local Y -> world Z.
+        //
+        // Jolt requires sample count to be a power of 2; MW's
+        // (verts-1) is a power of 2 by construction (vanilla 64+1 =
+        // 65 sample points = 64-cell grid). HeightFieldShape's
+        // sample count parameter is the side length, so we pass
+        // verts directly and trust the upstream guarantee.
+        const float scaling = static_cast<float>(size) / static_cast<float>(verts - 1);
+
+        JPH::HeightFieldShapeSettings settings(heights,
+            JPH::Vec3(0.0f, 0.0f, 0.0f),
+            JPH::Vec3(scaling, 1.0f, scaling),
+            static_cast<JPH::uint32>(verts));
+        const auto baseResult = settings.Create();
+        if (baseResult.HasError())
+        {
+            Log(Debug::Warning) << "Jolt HeightFieldShape rejected: " << baseResult.GetError();
+            return;
+        }
+
+        // Rotate so the Jolt-local Y axis (height) becomes world Z.
+        // 90° around X axis: (x, y, z) -> (x, -z, y).
+        const JPH::Quat yToZ = JPH::Quat::sRotation(JPH::Vec3::sAxisX(), 0.5f * JPH::JPH_PI);
+        JPH::RotatedTranslatedShapeSettings rotSettings(JPH::Vec3::sZero(), yToZ, baseResult.Get().GetPtr());
+        const auto rotResult = rotSettings.Create();
+        if (rotResult.HasError())
+        {
+            Log(Debug::Warning) << "Jolt RotatedTranslated rejected: " << rotResult.GetError();
+            return;
+        }
+
+        // Position: cell-corner offset matching the Bullet path
+        // (BulletHelpers::getHeightfieldShift). MW cells are `size`
+        // units square, anchored at (x*size, y*size).
+        const float cx = static_cast<float>(x) * static_cast<float>(size);
+        const float cy = static_cast<float>(y) * static_cast<float>(size);
+        const float cz = 0.5f * (minH + maxH);
+
+        JPH::BodyCreationSettings bcs(rotResult.Get(),
+            JPH::RVec3(cx, cy, cz),
+            JPH::Quat::sIdentity(),
+            JPH::EMotionType::Static,
+            JoltLayers::NON_MOVING);
+        const JPH::BodyID id
+            = mJoltSystem->GetBodyInterface().CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
+        mHeightFieldBodies.emplace(std::make_pair(x, y), id);
     }
-    void JoltPhysicsSystem::removeHeightField(int, int) { notImplemented("removeHeightField"); }
-    const HeightField* JoltPhysicsSystem::getHeightField(int, int) const { notImplemented("getHeightField"); }
+
+    void JoltPhysicsSystem::removeHeightField(int x, int y)
+    {
+        auto it = mHeightFieldBodies.find(std::make_pair(x, y));
+        if (it == mHeightFieldBodies.end())
+            return;
+        auto& bi = mJoltSystem->GetBodyInterface();
+        bi.RemoveBody(it->second);
+        bi.DestroyBody(it->second);
+        mHeightFieldBodies.erase(it);
+    }
+
+    const HeightField* JoltPhysicsSystem::getHeightField(int /*x*/, int /*y*/) const
+    {
+        // The MWPhysics::HeightField type is Bullet-specific (wraps
+        // btHeightfieldTerrainShape). We don't construct one in the
+        // Jolt path; callers either accept nullptr (the existing
+        // PhysicsSystem path returns nullptr for unknown cells too)
+        // or reach for the BodyID-based queries that phase 8 adds.
+        return nullptr;
+    }
 
     void JoltPhysicsSystem::stepSimulation(
         float dt, bool skipSimulation, osg::Timer_t /*frameStart*/, unsigned int /*frameNumber*/, osg::Stats& /*stats*/)

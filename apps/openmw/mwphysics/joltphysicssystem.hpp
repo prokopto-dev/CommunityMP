@@ -8,16 +8,22 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/JobSystem.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
+#include <map>
 #include <memory>
+#include <unordered_map>
+#include <utility>
 
 #include <osg/Group>
 #include <osg/ref_ptr>
+
+#include "../mwworld/livecellref.hpp"
 
 #include "iphysicsbackend.hpp"
 
@@ -212,6 +218,14 @@ namespace MWPhysics
         JoltObjectVsBroadPhaseLayerFilter mObjectVsBroadPhaseLayerFilter;
         JoltContactListener mContactListener;
         std::unique_ptr<JPH::PhysicsSystem> mJoltSystem;
+
+        // Body bookkeeping. Keyed the same way PhysicsSystem keys
+        // mObjects (LiveCellRefBase*) and mHeightFields (cell x,y);
+        // makes the two implementations behaviour-compatible at the
+        // public API.
+        std::unordered_map<const MWWorld::LiveCellRefBase*, JPH::BodyID> mObjectBodies;
+        std::map<std::pair<int, int>, JPH::BodyID> mHeightFieldBodies;
+        JPH::BodyID mWaterBody;
     };
 }
 
