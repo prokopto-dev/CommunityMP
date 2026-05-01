@@ -24,7 +24,9 @@ Jolt.
 | - | `extern/JoltPhysics` submodule | ✅ cloned | pinned at `04587a3e` |
 | 4 | `JoltPhysicsSystem` skeleton + factory | ✅ done |
 | 5 | Jolt-side world bootstrap (BroadPhaseLayers, ObjectLayers) | ✅ done |
-| 6 | Static colliders (objects, height fields, water) | ⏳ |
+| 6a | Shape converter — primitive Bullet shapes | ✅ done |
+| 6b | Shape converter — compound + triangle mesh | ⏳ |
+| 6c | Height fields + water | ⏳ |
 | 7 | Actor controller (`CharacterVirtual` ↔ MovementSolver) | ⏳ |
 | 8 | Projectiles + raycasts + sphere casts | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
