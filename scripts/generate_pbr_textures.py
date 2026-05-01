@@ -80,31 +80,63 @@ class ReplicateProvider(Provider):
     """
 
     name = "replicate"
-    # Pinned version hash — Replicate refuses naked model paths for some
+    # Pinned version hashes — Replicate refuses naked model paths for some
     # community models, you must include the version.
     MODEL = "tommoore515/pix2pix_tf_albedo2pbrmaps:21bd96b6e69f40e54502d67798f9025ab9e4a9e08f2a1b51dde5131b129a825e"
+    UPSCALER = "nightmareai/real-esrgan:b3ef194191d13140337468c916c2c5b96dd0cb06dffc032a022a31807f6a5ea8"
 
-    def __init__(self, token: str):
+    def __init__(self, token: str, upscale: int = 1):
         try:
             import replicate  # type: ignore
         except ImportError:
             sys.exit("pip install replicate")
         self.client = replicate.Client(api_token=token)
+        self.upscale = max(1, upscale)
 
     def generate(self, source_image_bytes: bytes, prompt_hint: str) -> PBRResult:
-        # imagepath accepts a data URI; encode the source PNG inline.
-        data_uri = "data:image/png;base64," + base64.b64encode(source_image_bytes).decode()
+        # Optional upscale via real-esrgan before deriving PBR maps. The
+        # higher-res albedo gives the pix2pix model finer per-pixel detail
+        # to work with, so the resulting normal/height maps are sharper.
+        albedo_bytes = source_image_bytes
+        if self.upscale > 1:
+            albedo_bytes = self._run_upscale(albedo_bytes, scale=self.upscale)
+
+        data_uri = "data:image/png;base64," + base64.b64encode(albedo_bytes).decode()
 
         normal     = self._run_pix2pix("albedo2normal",     data_uri)
         height     = self._run_pix2pix("albedo2height",     data_uri)
         smoothness = self._run_pix2pix("albedo2smoothness", data_uri)
 
         return PBRResult(
-            albedo=source_image_bytes,   # we keep the original albedo as-is
+            albedo=albedo_bytes,
             normal=normal,
             specular=height,             # 'specular' slot reused for height map
             roughness=smoothness,
         )
+
+    def _run_upscale(self, image_bytes: bytes, scale: int = 4, max_retries: int = 3) -> bytes:
+        import urllib.request, time
+        data_uri = "data:image/png;base64," + base64.b64encode(image_bytes).decode()
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                output = self.client.run(
+                    self.UPSCALER,
+                    input={"image": data_uri, "scale": scale, "face_enhance": False},
+                )
+                url = str(output) if not isinstance(output, list) else str(output[0])
+                with urllib.request.urlopen(url) as resp:
+                    return resp.read()
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                if "throttled" in msg.lower() or "rate limit" in msg.lower():
+                    time.sleep(11)
+                    continue
+                if attempt + 1 == max_retries:
+                    raise
+                time.sleep(2)
+        raise RuntimeError(f"upscale failed: {last_err}")
 
     def _run_pix2pix(self, model_name: str, image_uri: str, max_retries: int = 3) -> bytes:
         import urllib.request, time
@@ -236,6 +268,34 @@ def already_done(out_dir: Path, src: Path, root: Path) -> bool:
     return (base.parent / (base.name + "_n.png")).exists()
 
 
+def _convert_to_dds(out_dir: Path, src: Path, root: Path):
+    """Convert the four PNGs of a pack to DDS (DXT1 for albedo, DXT5 for
+    the rest) so OpenMW picks them up via VFS for meshes pointing at the
+    original .dds filename."""
+    import shutil, subprocess
+    rel = src.relative_to(root)
+    base = (out_dir / rel).with_suffix("")
+    if shutil.which("magick") is None and shutil.which("convert") is None:
+        return
+    bin_ = shutil.which("magick") or shutil.which("convert")
+    pairs = [
+        (base.parent / (base.name + ".png"),    base.parent / (base.name + ".dds"),    "dxt1"),
+        (base.parent / (base.name + "_n.png"),  base.parent / (base.name + "_n.dds"),  "dxt5"),
+        (base.parent / (base.name + "_h.png"),  base.parent / (base.name + "_h.dds"),  "dxt5"),
+        (base.parent / (base.name + "_s.png"),  base.parent / (base.name + "_s.dds"),  "dxt5"),
+    ]
+    for png, dds, fmt in pairs:
+        if not png.exists():
+            continue
+        cmd = [bin_, str(png), "-define", f"dds:compression={fmt}",
+               "-define", "dds:mipmaps=true", str(dds)]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            print(f"  DDS conversion failed for {png.name}: {e.stderr.decode()[:120]}",
+                  file=sys.stderr)
+
+
 def save_pack(out_dir: Path, src: Path, root: Path, pack: PBRResult):
     rel = src.relative_to(root)
     base = (out_dir / rel).with_suffix("")
@@ -249,12 +309,12 @@ def save_pack(out_dir: Path, src: Path, root: Path, pack: PBRResult):
         (base.parent / (base.name + "_s.png")).write_bytes(pack.roughness)
 
 
-def make_provider(name: str) -> Provider:
+def make_provider(name: str, upscale: int = 1) -> Provider:
     if name == "replicate":
         token = os.getenv("REPLICATE_API_TOKEN")
         if not token:
             sys.exit("set REPLICATE_API_TOKEN")
-        return ReplicateProvider(token)
+        return ReplicateProvider(token, upscale=upscale)
     if name == "stability":
         key = os.getenv("STABILITY_API_KEY")
         if not key:
@@ -271,6 +331,8 @@ def main():
     p.add_argument("--filter",   default="*.dds", help="glob filter, e.g. '*.dds' or '**/*.png'")
     p.add_argument("--max",      type=int, default=0, help="limit count (0 = all)")
     p.add_argument("--dry-run",  action="store_true", help="list inputs, don't call API")
+    p.add_argument("--upscale",  type=int, default=1, help="upscale factor before PBR (1=off, 4=Real-ESRGAN 4x)")
+    p.add_argument("--dds",      action="store_true", help="convert outputs to DXT-compressed DDS via ImageMagick")
     args = p.parse_args()
 
     if not args.input.is_dir():
@@ -286,8 +348,8 @@ def main():
             print(src.relative_to(args.input), "->", infer_prompt_hint(src.name))
         return
 
-    provider = make_provider(args.provider)
-    print(f"Provider: {provider.name}, inputs: {len(inputs)}")
+    provider = make_provider(args.provider, upscale=args.upscale)
+    print(f"Provider: {provider.name}, upscale: {args.upscale}x, inputs: {len(inputs)}")
 
     for i, src in enumerate(inputs, 1):
         if already_done(args.output, src, args.input):
@@ -298,6 +360,8 @@ def main():
             t0 = time.time()
             pack = provider.generate(data, hint)
             save_pack(args.output, src, args.input, pack)
+            if args.dds:
+                _convert_to_dds(args.output, src, args.input)
             print(f"[{i}/{len(inputs)}] {src.name}  hint={hint}  {time.time()-t0:.1f}s")
         except Exception as e:
             print(f"[{i}/{len(inputs)}] {src.name}  FAILED: {e}", file=sys.stderr)
