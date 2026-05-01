@@ -72,15 +72,17 @@ class Provider:
 
 class ReplicateProvider(Provider):
     """
-    Calls Replicate.com which hosts many PBR-aware Stable Diffusion variants.
-    We use a simple text-to-PBR model as default; swap MODEL_VERSION for a
-    different one (e.g. 'cjwbw/stable-diffusion-v1-5' with ControlNet for
-    structure-preservation).
+    Pipeline using tommoore515/pix2pix_tf_albedo2pbrmaps — a TensorFlow
+    pix2pix trained on PBR materials. ~$0.001 per sub-model invocation,
+    ~2s per call. We chain 3 sub-models (normal, height, smoothness) to
+    derive the full PBR pack from the source albedo. Output preserves the
+    input texture's structure (vs SDXL which "reimagines" the surface).
     """
 
     name = "replicate"
-    # Tile-friendly text2img + ControlNet img2img model. Replace as needed.
-    MODEL_VERSION = "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
+    # Pinned version hash — Replicate refuses naked model paths for some
+    # community models, you must include the version.
+    MODEL = "tommoore515/pix2pix_tf_albedo2pbrmaps:21bd96b6e69f40e54502d67798f9025ab9e4a9e08f2a1b51dde5131b129a825e"
 
     def __init__(self, token: str):
         try:
@@ -90,30 +92,81 @@ class ReplicateProvider(Provider):
         self.client = replicate.Client(api_token=token)
 
     def generate(self, source_image_bytes: bytes, prompt_hint: str) -> PBRResult:
-        # Run the model 4 times — once per channel — to keep prompts focused.
-        # In practice you'd use a single PBR-out model; this is a baseline.
-        b64 = "data:image/png;base64," + base64.b64encode(source_image_bytes).decode()
-        common = {
-            "image": b64,
-            "prompt_strength": 0.55,
-            "num_inference_steps": 24,
-        }
+        # imagepath accepts a data URI; encode the source PNG inline.
+        data_uri = "data:image/png;base64," + base64.b64encode(source_image_bytes).decode()
 
-        albedo = self._run({**common, "prompt":
-            f"PBR albedo, diffuse only, no shadows, tileable, {prompt_hint}, 1024x1024"})
-        normal = self._run({**common, "prompt":
-            f"PBR normal map, OpenGL convention, blue base, tileable, {prompt_hint}, 1024x1024"})
-        specular = self._run({**common, "prompt":
-            f"PBR specular map, grayscale, tileable, {prompt_hint}, 1024x1024"})
-        return PBRResult(albedo=albedo, normal=normal, specular=specular)
+        normal     = self._run_pix2pix("albedo2normal",     data_uri)
+        height     = self._run_pix2pix("albedo2height",     data_uri)
+        smoothness = self._run_pix2pix("albedo2smoothness", data_uri)
 
-    def _run(self, inputs: dict) -> bytes:
-        outputs = self.client.run(self.MODEL_VERSION, input=inputs)
-        # outputs may be a list of URLs; fetch the first one as bytes.
-        import urllib.request
-        url = outputs[0] if isinstance(outputs, list) else outputs
-        with urllib.request.urlopen(str(url)) as resp:
-            return resp.read()
+        return PBRResult(
+            albedo=source_image_bytes,   # we keep the original albedo as-is
+            normal=normal,
+            specular=height,             # 'specular' slot reused for height map
+            roughness=smoothness,
+        )
+
+    def _run_pix2pix(self, model_name: str, image_uri: str, max_retries: int = 3) -> bytes:
+        import urllib.request, time
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                output = self.client.run(
+                    self.MODEL,
+                    input={"model": model_name, "imagepath": image_uri},
+                )
+                url = str(output) if not isinstance(output, list) else str(output[0])
+                with urllib.request.urlopen(url) as resp:
+                    return resp.read()
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                if "throttled" in msg.lower() or "rate limit" in msg.lower():
+                    time.sleep(11)
+                    continue
+                if attempt + 1 == max_retries:
+                    raise
+                time.sleep(2)
+        raise RuntimeError(f"pix2pix failed: {last_err}")
+
+    # Legacy helper kept for reference; not used by the pix2pix path.
+    def _run_pbr(self, inputs: dict, max_retries: int = 3) -> PBRResult:
+        # The PBR model returns a list of 7 file URLs (or FileOutput objects):
+        # [color, height, normal, roughness, ao, emissive, grid].
+        import random, urllib.request, time
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                ins = dict(inputs)
+                ins["seed"] = random.randint(1, 2**31 - 1)
+                outputs = self.client.run(self.MODEL_VERSION, input=ins)
+                if not isinstance(outputs, list) or len(outputs) < 4:
+                    raise RuntimeError(f"unexpected output shape: {type(outputs)}")
+                color_url    = str(outputs[0])
+                height_url   = str(outputs[1])
+                normal_url   = str(outputs[2])
+                roughness_url = str(outputs[3])
+                # ao_url     = str(outputs[4])  # we don't ship AO yet
+                # emissive   = str(outputs[5])  # nor emissive
+                def fetch(u: str) -> bytes:
+                    with urllib.request.urlopen(u) as resp:
+                        return resp.read()
+                return PBRResult(
+                    albedo=fetch(color_url),
+                    normal=fetch(normal_url),
+                    roughness=fetch(roughness_url),
+                    specular=fetch(height_url),  # repurpose 'specular' slot for height (saved as _s for now)
+                )
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                if "throttled" in msg.lower() or "rate limit" in msg.lower():
+                    time.sleep(11)
+                    continue
+                if attempt + 1 == max_retries:
+                    raise
+                time.sleep(2)
+        raise RuntimeError(f"PBR generation failed: {last_err}")
 
 
 class StabilityProvider(Provider):
@@ -156,14 +209,16 @@ def infer_prompt_hint(filename: str) -> str:
     kind of surface to synthesise (rock, dirt, wood, fabric, metal...)."""
     stem = Path(filename).stem.lower()
     table = {
-        "rock":   ("rock", "stone", "_r_", "_rk_"),
+        "weathered red brick wall": ("brick", "firebrick"),
+        "rough stone wall":         ("imp_wall", "_wall_imp", "stonewall"),
+        "rock":   ("rock", "_r_", "_rk_"),
         "dirt":   ("dirt", "earth", "_e_", "_d_"),
         "grass":  ("grass", "moss", "lawn"),
         "sand":   ("sand", "beach"),
         "wood":   ("wood", "plank", "log", "tree"),
         "fabric": ("cloth", "fab", "carpet", "rug"),
         "metal":  ("metal", "iron", "steel", "bronze", "weapon", "armor"),
-        "stone":  ("brick", "wall", "marble", "tile"),
+        "stone":  ("stone", "wall", "marble", "tile"),
     }
     for hint, keys in table.items():
         if any(k in stem for k in keys):
@@ -187,8 +242,11 @@ def save_pack(out_dir: Path, src: Path, root: Path, pack: PBRResult):
     base.parent.mkdir(parents=True, exist_ok=True)
     (base.parent / (base.name + ".png")).write_bytes(pack.albedo)
     (base.parent / (base.name + "_n.png")).write_bytes(pack.normal)
+    # 'specular' slot currently holds the height map for parallax.
     if pack.specular:
-        (base.parent / (base.name + "_s.png")).write_bytes(pack.specular)
+        (base.parent / (base.name + "_h.png")).write_bytes(pack.specular)
+    if pack.roughness:
+        (base.parent / (base.name + "_s.png")).write_bytes(pack.roughness)
 
 
 def make_provider(name: str) -> Provider:

@@ -78,6 +78,42 @@ uniform_float uGodRaysIntensity {
     min = 0.0;
     max = 4.0;
 }
+uniform_bool uUnderwaterEffects {
+    default = true;
+}
+uniform_float uCausticsStrength {
+    default = 0.45;
+    min = 0.0;
+    max = 2.0;
+}
+uniform_float uCausticsScale {
+    default = 0.06;
+    min = 0.005;
+    max = 0.5;
+}
+uniform_float uUnderwaterTint {
+    default = 0.6;
+    min = 0.0;
+    max = 1.0;
+}
+uniform_float uUnderwaterFogDistance {
+    default = 2400.0;
+    min = 100.0;
+    max = 16000.0;
+}
+uniform_bool uAtmoScatter {
+    default = true;
+}
+uniform_float uAtmoIntensity {
+    default = 0.8;
+    min = 0.0;
+    max = 3.0;
+}
+uniform_float uAtmoSunSize {
+    default = 350.0;
+    min = 50.0;
+    max = 2000.0;
+}
 uniform_float uSunHaloRadius {
     default = 0.18;
     min = 0.01;
@@ -268,6 +304,127 @@ fragment main {
     }
 
     // -------------------------------------------------------------------
+    // Atmospheric Rayleigh+Mie scattering (sky tint)
+    // -------------------------------------------------------------------
+    // Replaces the flat OpenMW sky color on sky pixels with a procedural
+    // Rayleigh+Mie scattered sky. Cheap analytic approximation:
+    //   - Zenith colour interpolates between deep blue (high sun) and
+    //     warm purple (sun near horizon).
+    //   - Horizon colour blends to orange/red as the sun lowers.
+    //   - Mie phase function adds the bright sun-disc glow + halo around
+    //     the sun direction.
+    // Mixed with the existing sky colour so weather effects remain visible.
+    vec3 atmoSky(vec3 viewDirWS, vec3 sunDirWS, float intensity)
+    {
+        // Sun height controls overall colour shift.
+        float sunY = clamp(sunDirWS.z, -0.2, 1.0);
+        float sunset = 1.0 - smoothstep(0.0, 0.35, sunY);
+
+        // Zenith blue → twilight purple.
+        vec3 zenithDay   = vec3(0.18, 0.42, 0.85);
+        vec3 zenithNight = vec3(0.05, 0.06, 0.18);
+        vec3 zenith = mix(zenithDay, zenithNight, smoothstep(0.0, -0.2, sunY));
+
+        // Horizon orange → cyan.
+        vec3 horizonDay    = vec3(0.78, 0.85, 0.92);
+        vec3 horizonSunset = vec3(1.05, 0.55, 0.30);
+        vec3 horizonNight  = vec3(0.12, 0.10, 0.18);
+        vec3 horizon = mix(horizonDay, horizonSunset, sunset);
+        horizon = mix(horizon, horizonNight, smoothstep(0.0, -0.2, sunY));
+
+        // Vertical gradient.
+        float h = clamp(viewDirWS.z, 0.0, 1.0);
+        float vGrad = pow(1.0 - h, 3.0);
+        vec3 sky = mix(zenith, horizon, vGrad);
+
+        // Rayleigh tint: low-altitude rays go through more atmosphere when
+        // looking toward the sun — boost warm tones in that direction.
+        float towardSun = clamp(dot(viewDirWS, sunDirWS), 0.0, 1.0);
+        sky += vec3(0.30, 0.10, 0.0) * pow(towardSun, 4.0) * sunset;
+
+        // Mie phase: bright forward scattering peak (the sun's glow halo).
+        float miePhase = pow(towardSun, 8.0) * 0.6
+                       + pow(towardSun, 32.0) * 1.4;
+        sky += omw.sunColor.rgb * miePhase * smoothstep(-0.1, 0.1, sunY);
+
+        // Sun disc itself.
+        float sunDot = dot(viewDirWS, sunDirWS);
+        float disc = smoothstep(0.9985, 1.0, sunDot);
+        sky += omw.sunColor.rgb * disc * 5.0;
+
+        return sky * intensity;
+    }
+
+    // -------------------------------------------------------------------
+    // Underwater caustics + light scattering
+    // -------------------------------------------------------------------
+    // When the camera is below the water surface, overlay an animated
+    // caustic pattern (procedural sum of two rotating cosine fields) and
+    // tint+fog the scene as the depth increases. Caustics modulate by sky
+    // luminance so they vanish in covered areas (no sun ray reaches the
+    // bottom). Animated by omw.simulationTime via the "omw" UBO.
+    vec2 hash22(vec2 p)
+    {
+        p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+        return -1.0 + 2.0 * fract(sin(p) * 43758.5453);
+    }
+
+    float gradNoise(vec2 p)
+    {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(dot(hash22(i + vec2(0, 0)), f - vec2(0, 0)),
+                       dot(hash22(i + vec2(1, 0)), f - vec2(1, 0)), u.x),
+                   mix(dot(hash22(i + vec2(0, 1)), f - vec2(0, 1)),
+                       dot(hash22(i + vec2(1, 1)), f - vec2(1, 1)), u.x), u.y);
+    }
+
+    float caustics(vec2 p, float t)
+    {
+        // Two rotated noise layers add a "rippling cell" pattern that mimics
+        // refraction through wave fronts.
+        float a = gradNoise(p * 1.0 + vec2( cos(t * 0.4),  sin(t * 0.4)) * 1.3);
+        float b = gradNoise(p * 1.7 + vec2(-sin(t * 0.7),  cos(t * 0.7)) * 1.6);
+        float n = (a + b) * 0.5;
+        // Sharpen into bright "veins": pow on absolute value.
+        float caust = 1.0 - abs(n);
+        return pow(clamp(caust, 0.0, 1.0), 6.0);
+    }
+
+    vec3 applyUnderwater(vec3 col, vec2 uv)
+    {
+        if (!uUnderwaterEffects) return col;
+        if (!bool(omw.isUnderwater)) return col;
+
+        // World-space position of the fragment for caustic UV.
+        vec3 worldPos = omw_GetWorldPosFromUV(uv);
+        float t = omw.simulationTime;
+        float caust = caustics(worldPos.xy * uCausticsScale, t) * uCausticsStrength;
+
+        // Sky-vis modulation: caustics need the sun reaching the bottom.
+        // Cheap proxy: are we looking at a pixel whose normal points up?
+        vec3 n = omw_GetNormals(uv);
+        float upMask = clamp(n.z * 0.5 + 0.5, 0.0, 1.0);
+        upMask = pow(upMask, 1.5);
+        caust *= upMask;
+
+        // Tinted caustics: cool turquoise with a hint of sun warmth.
+        vec3 caustColor = mix(vec3(0.6, 0.95, 0.95), omw.sunColor.rgb, 0.5);
+        col += caustColor * caust;
+
+        // Underwater volumetric fog: fade everything to a deep blue/green
+        // exponentially with view distance. Stronger as the player descends
+        // (we don't know exact submersion depth — proxy: linear depth).
+        float linearD = omw_GetLinearDepth(uv);
+        float fogAmount = 1.0 - exp(-linearD / max(1.0, uUnderwaterFogDistance));
+        vec3 deep = mix(vec3(0.05, 0.18, 0.22), vec3(0.02, 0.08, 0.12), fogAmount);
+        col = mix(col, deep, fogAmount * uUnderwaterTint);
+
+        return col;
+    }
+
+    // -------------------------------------------------------------------
     // Wet surface effect
     // -------------------------------------------------------------------
     // Tints surfaces facing up with a darkened, more-saturated look and
@@ -328,7 +485,18 @@ fragment main {
         if (sunClip.w <= 0.0) return vec3(0.0);
         vec2 sunUV = sunClip.xy / sunClip.w * 0.5 + 0.5;
 
-        int steps = uGodRaysSteps;
+        // Underwater path: water acts as a participating medium that scatters
+        // light forward, so the shafts are denser, brighter, and visible
+        // further from the sun direction than in air.
+        bool underwater = uUnderwaterEffects && bool(omw.isUnderwater);
+
+        // GLSL 1.20 has no integer min(); use a ternary instead.
+        int boostedSteps = uGodRaysSteps + 24;
+        if (boostedSteps > 96) boostedSteps = 96;
+        int steps = underwater ? boostedSteps : uGodRaysSteps;
+        float decay = underwater ? mix(uGodRaysDecay, 0.99, 0.7) : uGodRaysDecay;
+        float intensity = underwater ? (uGodRaysIntensity * 1.8) : uGodRaysIntensity;
+
         vec2 delta = (sunUV - uv) / float(steps);
         float dither = bayer4x4(gl_FragCoord.xy);
         vec2 sUV = uv + delta * dither;
@@ -345,17 +513,35 @@ fragment main {
             float skyContribution = step(0.99999, d);
 #endif
             accum += skyContribution * weight;
-            weight *= uGodRaysDecay;
+            weight *= decay;
             sUV += delta;
         }
         accum /= float(steps);
 
         // Falloff with screen-distance from the sun so we don't bleed into
-        // the corners of the screen unrealistically.
+        // the corners of the screen unrealistically. Wider underwater.
         float distFromSun = length(uv - sunUV);
-        float radial = exp(-distFromSun * 1.8);
+        float falloffRate = underwater ? 0.7 : 1.8;
+        float radial = exp(-distFromSun * falloffRate);
 
-        return omw.sunColor.rgb * accum * radial * uGodRaysIntensity;
+        // Underwater tint shifts the rays toward cyan/turquoise as the water
+        // absorbs red and orange wavelengths preferentially.
+        vec3 sunCol = omw.sunColor.rgb;
+        if (underwater)
+        {
+            sunCol = mix(sunCol, vec3(0.45, 0.85, 1.0), 0.65);
+
+            // Add a vertical "shaft" pattern on top of the radial god rays
+            // so we see distinct rays descending from the surface even when
+            // the sun isn't directly above. Modulated by gradient noise on
+            // worldPos so the shafts feel volumetric, not flat.
+            vec3 wp = omw_GetWorldPosFromUV(uv);
+            float shafts = 0.5 + 0.5 * gradNoise(wp.xy * 0.012 + vec2(omw.simulationTime * 0.05, 0.0));
+            shafts *= smoothstep(0.0, 0.6, accum) * 0.6;
+            accum = max(accum, shafts);
+        }
+
+        return sunCol * accum * radial * intensity;
     }
 
     // -------------------------------------------------------------------
@@ -454,7 +640,26 @@ fragment main {
         if (isSky)
         {
             vec3 rays = godRays(omw_TexCoord);
-            omw_FragColor = vec4(col.rgb + halo + rays, col.a);
+            vec3 skyCol = col.rgb;
+
+            // Atmospheric Rayleigh+Mie tint on sky pixels (skipped underwater).
+            if (uAtmoScatter && !bool(omw.isUnderwater))
+            {
+                // Reconstruct world-space view direction from screen UV.
+                vec4 ndc = vec4(omw_TexCoord * 2.0 - 1.0, 1.0, 1.0);
+                vec4 viewH = omw.invProjectionMatrix * ndc;
+                vec3 viewDirVS = normalize(viewH.xyz / viewH.w);
+                vec3 viewDirWS = (omw.invViewMatrix * vec4(viewDirVS, 0.0)).xyz;
+                vec3 sunDirWS = normalize(omw.sunPos.xyz);
+                vec3 atmo = atmoSky(viewDirWS, sunDirWS, uAtmoIntensity);
+                // Blend with existing sky so OpenMW weather effects (clouds,
+                // night moons) are not erased. Heavier blend toward zenith.
+                float blend = clamp(viewDirWS.z * 0.7 + 0.3, 0.4, 0.95);
+                skyCol = mix(col.rgb, atmo, blend);
+            }
+            // Underwater fog/tint applies on top (the "sky" seen from below).
+            skyCol = applyUnderwater(skyCol, omw_TexCoord);
+            omw_FragColor = vec4(skyCol + halo + rays, col.a);
             return;
         }
 
@@ -470,6 +675,9 @@ fragment main {
         base = applyWetness(base, omw_TexCoord);
         // SSR is mixed in additively-with-clamp; the .a holds the strength.
         base = mix(base, max(base, ssr.rgb), ssr.a);
+        // Underwater overlay (caustics + scattering) applied last so it
+        // tints everything including SSR/halo contributions.
+        base = applyUnderwater(base, omw_TexCoord);
         omw_FragColor = vec4(base + halo + rays, col.a);
     }
 }

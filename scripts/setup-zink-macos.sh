@@ -34,8 +34,12 @@ brew install --quiet \
     glslang spirv-tools molten-vk \
     pkg-config libxml2
 
-# Python templating module Mesa needs at build time.
-python3 -m pip install --user --quiet mako || true
+# Python templating module Mesa needs at build time. Mesa main rejects
+# python 3.14 (which is what `brew install python` lands today), so we
+# pin to python@3.13 which Mesa's meson check accepts.
+brew install --quiet python@3.13 2>&1 | grep -v "already installed" || true
+BREW_PY=/opt/homebrew/bin/python3.13
+"$BREW_PY" -m pip install --quiet --break-system-packages mako 2>&1 | grep -v "already satisfied" || true
 
 mkdir -p "$PREFIX"
 SRC="$PREFIX/src"
@@ -49,24 +53,28 @@ fi
 cd "$SRC/mesa"
 
 echo "==> Configuring Mesa with Zink for macOS"
-# brew sh exposes Homebrew's bison/flex/llvm in PATH for the build.
+# brew sh exposes Homebrew's bison/flex/llvm in PATH for the build, but we
+# also force PATH to prefer python@3.13 because Mesa rejects 3.14.
 brew sh -c "
     set -e
+    export PATH=/opt/homebrew/opt/python@3.13/bin:\$PATH
     cd '$SRC/mesa'
     if [[ ! -d builddir ]]; then
+        # Note: option set varies by Mesa version. Use only the stable ones.
+        # Old options (osmesa, gallium-extra-hud, gles1) were removed; we let
+        # them default. Adjust here if a future Mesa rejects another flag.
+        # Per Mesa docs (macos.html): on Apple, GL goes through a custom
+        # libgl_interpose; EGL/GLX are not viable, so disable them.
         meson setup builddir \
             -Dprefix='$PREFIX' \
             -Dgallium-drivers=zink \
             -Dvulkan-drivers= \
             -Dplatforms=macos \
             -Dbuildtype=release \
-            -Dosmesa=false \
             -Dglx=disabled \
-            -Degl=enabled \
-            -Dgles1=disabled \
-            -Dgles2=disabled \
+            -Degl=disabled \
             -Dshared-glapi=enabled \
-            -Dgallium-extra-hud=false
+            -Dopengl=true
     fi
     echo '==> Building Mesa (this takes a while)'
     meson compile -C builddir -j$JOBS
