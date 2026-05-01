@@ -35,7 +35,8 @@ Jolt.
 | 7e | `queueObjectMovement` + `moveActors` | ✅ done |
 | 7f | Vanilla parity tuning (slope, water, stuck recovery) | ⏳ |
 | 8a | Spatial queries (castRay, castSphere, getLineOfSight, traceDown) + projectile bodies | ✅ done |
-| 8b | UserData -> Ptr resolution + ignore/target filters + hit normals | ⏳ |
+| 8b | Hit normal extraction in castRay/castSphere | ✅ done |
+| 8c | UserData -> Ptr resolution + ignore/target filters | ⏳ |
 | 9 | Detour bridge (Bullet shape → Recast triangle soup) | ⏳ |
 | 10 | Animated/skinned shape sync | ⏳ |
 | 11 | Lua API surface audit | ⏳ |
