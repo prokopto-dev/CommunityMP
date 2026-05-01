@@ -26,6 +26,7 @@
 #include <Jolt/RegisterTypes.h>
 
 #include <components/debug/debuglog.hpp>
+#include <components/misc/constants.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/bulletshape.hpp>
 #include <components/resource/bulletshapemanager.hpp>
@@ -159,9 +160,13 @@ namespace MWPhysics
             mBroadPhaseLayerInterface, mObjectVsBroadPhaseLayerFilter, mObjectLayerPairFilter);
         mJoltSystem->SetContactListener(&mContactListener);
 
-        // Morrowind world units are centimetres, gravity ~ 9.81 m/s²
-        // = 981 cm/s². Z is up.
-        mJoltSystem->SetGravity(JPH::Vec3(0.0f, 0.0f, -981.0f));
+        // OpenMW gravity matches Bullet's MovementSolver: 8.96 m/s² in
+        // world-units coordinates, where 1 m = 69.99125 units. Earth
+        // standard 981 cm/s² is wrong here — MW units are NOT plain
+        // centimetres, and the engine GMSTs/animations are tuned to
+        // this softer pull. Z is up.
+        constexpr float kMwGravity = Constants::GravityConst * Constants::UnitsPerMeter;
+        mJoltSystem->SetGravity(JPH::Vec3(0.0f, 0.0f, -kMwGravity));
 
         Log(Debug::Info) << "JoltPhysicsSystem: initialised "
                          << "(maxBodies=" << kMaxBodies
