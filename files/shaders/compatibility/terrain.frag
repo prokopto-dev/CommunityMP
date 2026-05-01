@@ -104,6 +104,19 @@ void main()
     }
 #endif
 
+    // Bump self-shadow on the terrain height channel (same algorithm
+    // as objects.frag). Camera-independent because tangent-space.
+    float bumpSelfShadow = 1.0;
+#if @parallax && @normalMap && PARALLAX_SELF_SHADOW_SAMPLES > 0
+    {
+        float receiverHeight = texture2D(normalMap, adjustedUV).a;
+        vec3 sunVS = normalize(lcalcPosition(0));
+        vec3 sunTS = transpose(normalToViewMatrix) * sunVS;
+        bumpSelfShadow = parallaxSelfShadow(
+            normalMap, adjustedUV, sunTS, receiverHeight, linearDepth);
+    }
+#endif
+
     float shadowing = unshadowedLightRatio(linearDepth);
     vec3 lighting, specular;
 #if !PER_PIXEL_LIGHTING
@@ -119,6 +132,8 @@ void main()
 #endif
     vec3 diffuseLight, ambientLight, specularLight;
     doLighting(passViewPos, viewNormal, shininess, shadowing, diffuseLight, ambientLight, specularLight);
+    diffuseLight *= bumpSelfShadow;
+    specularLight *= bumpSelfShadow;
     lighting = diffuseColor.xyz * diffuseLight + getAmbientColor().xyz * ambientLight + getEmissionColor().xyz;
     specular = specularColor * specularLight;
 #endif

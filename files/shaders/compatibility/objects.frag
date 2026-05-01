@@ -177,6 +177,21 @@ vec2 screenCoords = gl_FragCoord.xy / screenRes;
     vec3 viewNormal = normalize(gl_NormalMatrix * passNormal);
 #endif
 
+    // AAA-grade bump self-shadowing: tangent-space ray-march of the
+    // height channel toward the sun. Camera-independent because the
+    // entire computation lives on the surface — no depth buffer, no
+    // screen-space sampling. Only fires on @parallax surfaces (i.e.
+    // those with a real height channel in normalMap.a).
+    float bumpSelfShadow = 1.0;
+#if @parallax && PARALLAX_SELF_SHADOW_SAMPLES > 0
+    {
+        vec3 sunVS = normalize(lcalcPosition(0));
+        vec3 sunTS = transpose(normalToViewMatrix) * sunVS;
+        bumpSelfShadow = parallaxSelfShadow(
+            normalMap, normalMapUV + offset, sunTS, height, -passViewPos.z);
+    }
+#endif
+
     vec3 viewVec = normalize(passViewPos);
 
 #if @detailMap
@@ -234,6 +249,11 @@ vec2 screenCoords = gl_FragCoord.xy / screenRes;
 #endif
     vec3 diffuseLight, ambientLight, specularLight;
     doLighting(passViewPos, viewNormal, shininess, shadowing, diffuseLight, ambientLight, specularLight);
+    // Bump self-shadow modulates the sun's diffuse + specular only —
+    // ambient term is left intact so deep crevices still get bounce
+    // light and don't go pitch black.
+    diffuseLight *= bumpSelfShadow;
+    specularLight *= bumpSelfShadow;
     lighting = diffuseColor.xyz * diffuseLight + getAmbientColor().xyz * ambientLight + getEmissionColor().xyz * emissiveMult;
     specular = specularColor * specularLight * specStrength;
 #endif
