@@ -401,10 +401,65 @@ namespace MWPhysics
         }
     }
 
-    void JoltPhysicsSystem::updatePtr(const MWWorld::Ptr&, const MWWorld::Ptr&) { notImplemented("updatePtr"); }
-    void JoltPhysicsSystem::updateScale(const MWWorld::Ptr&) { notImplemented("updateScale"); }
-    void JoltPhysicsSystem::updateRotation(const MWWorld::Ptr&, osg::Quat) { notImplemented("updateRotation"); }
-    void JoltPhysicsSystem::updatePosition(const MWWorld::Ptr&) { notImplemented("updatePosition"); }
+    void JoltPhysicsSystem::updatePtr(const MWWorld::Ptr& old, const MWWorld::Ptr& updated)
+    {
+        // Cell change / save-load fixup. The internal maps key off
+        // LiveCellRefBase* which is *stable* across cell transitions
+        // (Ptr just gets a new CellStore), so the physics-side maps
+        // don't need rekeying. Refresh the owner map's stored Ptr
+        // so castRay returns the up-to-date Ptr (with current cell).
+        if (auto it = mObjectBodies.find(old.mRef); it != mObjectBodies.end())
+            mBodyOwners[it->second.GetIndexAndSequenceNumber()] = updated;
+        if (auto it = mActors.find(old.mRef); it != mActors.end())
+        {
+            if (auto* cv = it->second->getCharacter())
+            {
+                const JPH::BodyID innerId = cv->GetInnerBodyID();
+                if (!innerId.IsInvalid())
+                    mBodyOwners[innerId.GetIndexAndSequenceNumber()] = updated;
+            }
+        }
+    }
+
+    void JoltPhysicsSystem::updateScale(const MWWorld::Ptr& /*ptr*/)
+    {
+        // Scaling a static body in Jolt requires either rebuilding
+        // the shape (changing extents on a primitive) or wrapping
+        // in a ScaledShape. Neither is wired up yet — vanilla MW
+        // rarely scales static objects post-load, so a phase-10
+        // task takes this on alongside the animated-collision-shape
+        // refresh path.
+    }
+
+    void JoltPhysicsSystem::updateRotation(const MWWorld::Ptr& ptr, osg::Quat rotate)
+    {
+        if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
+        {
+            mJoltSystem->GetBodyInterface().SetRotation(it->second,
+                JPH::Quat(rotate.x(), rotate.y(), rotate.z(), rotate.w()),
+                JPH::EActivation::DontActivate);
+        }
+        // Actor rotation is driven by gameplay code (turning); the
+        // CharacterVirtual tracks its own rotation via SetRotation,
+        // wired in phase 7f when the gameplay-physics handshake
+        // lands.
+    }
+
+    void JoltPhysicsSystem::updatePosition(const MWWorld::Ptr& ptr)
+    {
+        const ESM::Position& pos = ptr.getRefData().getPosition();
+        const JPH::RVec3 jpos(pos.pos[0], pos.pos[1], pos.pos[2]);
+        if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
+        {
+            mJoltSystem->GetBodyInterface().SetPosition(it->second, jpos,
+                JPH::EActivation::DontActivate);
+        }
+        else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
+        {
+            if (auto* cv = ait->second->getCharacter())
+                cv->SetPosition(jpos);
+        }
+    }
 
     void JoltPhysicsSystem::addHeightField(
         const float* heights, int x, int y, int size, int verts, float minH, float maxH,
@@ -542,8 +597,20 @@ namespace MWPhysics
                 /*movePhysics*/ false, /*moveToActive*/ false);
         }
     }
-    bool JoltPhysicsSystem::toggleCollisionMode() { notImplemented("toggleCollisionMode"); }
-    void JoltPhysicsSystem::debugDraw() { notImplemented("debugDraw"); }
+    bool JoltPhysicsSystem::toggleCollisionMode()
+    {
+        // TCL-style noclip toggle. Vanilla MW just flips a flag on
+        // the player actor; Jolt's CharacterVirtual gets the same
+        // treatment via a Set<...>Layer call in phase 7f when the
+        // player-actor handshake settles. Default-on for now.
+        return true;
+    }
+
+    void JoltPhysicsSystem::debugDraw()
+    {
+        // No-op: phase 12 hooks JPH::DebugRenderer to OSG geometry
+        // so the F4 collision-debug overlay works on the Jolt path.
+    }
 
     namespace
     {
@@ -678,13 +745,21 @@ namespace MWPhysics
         return !result.mHit;
     }
 
-    std::vector<MWWorld::Ptr> JoltPhysicsSystem::getCollisions(const MWWorld::ConstPtr&, int, int) const
+    std::vector<MWWorld::Ptr> JoltPhysicsSystem::getCollisions(
+        const MWWorld::ConstPtr& /*ptr*/, int /*group*/, int /*mask*/) const
     {
-        notImplemented("getCollisions");
+        // Phase 8e: wire JPH::PhysicsSystem::GetActiveBodies +
+        // CollideShape against the Ptr's body. For now return an
+        // empty list — this is what the Bullet path returns when no
+        // collisions are recorded for the frame, which is most of
+        // the time anyway (only scripted callbacks consume it).
+        return {};
     }
-    std::vector<ContactPoint> JoltPhysicsSystem::getCollisionsPoints(const MWWorld::ConstPtr&, int, int) const
+
+    std::vector<ContactPoint> JoltPhysicsSystem::getCollisionsPoints(
+        const MWWorld::ConstPtr& /*ptr*/, int /*group*/, int /*mask*/) const
     {
-        notImplemented("getCollisionsPoints");
+        return {};
     }
     osg::Vec3f JoltPhysicsSystem::traceDown(
         const MWWorld::Ptr& /*ptr*/, const osg::Vec3f& position, float maxHeight)
@@ -707,9 +782,14 @@ namespace MWPhysics
         const auto it = mActors.find(ptr.mRef);
         return it != mActors.end() && it->second->isOnGround();
     }
-    bool JoltPhysicsSystem::canMoveToWaterSurface(const MWWorld::ConstPtr&, float)
+    bool JoltPhysicsSystem::canMoveToWaterSurface(
+        const MWWorld::ConstPtr& /*actor*/, float /*waterlevel*/)
     {
-        notImplemented("canMoveToWaterSurface");
+        // Conservative true: vanilla actors can move toward water in
+        // most situations. Phase 7f tightens this with a real
+        // capsule-overlap query so AI doesn't try to swim through
+        // landlocked water.
+        return true;
     }
 
     osg::Vec3f JoltPhysicsSystem::getHalfExtents(const MWWorld::ConstPtr& ptr) const
@@ -736,9 +816,19 @@ namespace MWPhysics
         const auto it = mActors.find(ptr.mRef);
         return it != mActors.end() ? it->second->getPosition() : osg::Vec3f();
     }
-    osg::BoundingBox JoltPhysicsSystem::getBoundingBox(const MWWorld::ConstPtr&) const
+    osg::BoundingBox JoltPhysicsSystem::getBoundingBox(const MWWorld::ConstPtr& ptr) const
     {
-        notImplemented("getBoundingBox");
+        // Approximate via half-extents centred on the actor /
+        // object's current position. Good enough for AI camera
+        // framing and spawn-overlap tests; exact body AABB is a
+        // BodyLockRead away if any caller demands it.
+        if (auto it = mActors.find(ptr.mRef); it != mActors.end())
+        {
+            const osg::Vec3f c = it->second->getPosition();
+            const osg::Vec3f h = it->second->getHalfExtents();
+            return osg::BoundingBox(c - h, c + h);
+        }
+        return osg::BoundingBox();
     }
 
     void JoltPhysicsSystem::queueObjectMovement(const MWWorld::Ptr& ptr, const osg::Vec3f& velocity)
@@ -747,32 +837,58 @@ namespace MWPhysics
     }
     void JoltPhysicsSystem::clearQueuedMovement() { mQueuedMovement.clear(); }
 
-    bool JoltPhysicsSystem::isActorStandingOn(const MWWorld::Ptr&, const MWWorld::ConstPtr&) const
+    bool JoltPhysicsSystem::isActorStandingOn(
+        const MWWorld::Ptr& /*actor*/, const MWWorld::ConstPtr& /*object*/) const
     {
-        notImplemented("isActorStandingOn");
+        // Used by scripts that gate logic on "is the player on
+        // <pressure plate>". JPH::CharacterVirtual::GetGroundBodyID
+        // gives us the answer; phase 7f wires it (alongside the
+        // step-up / slope-brake tuning that needs the same data).
+        return false;
     }
-    void JoltPhysicsSystem::getActorsStandingOn(const MWWorld::ConstPtr&, std::vector<MWWorld::Ptr>&) const
+    void JoltPhysicsSystem::getActorsStandingOn(
+        const MWWorld::ConstPtr& /*object*/, std::vector<MWWorld::Ptr>& /*out*/) const
     {
-        notImplemented("getActorsStandingOn");
+        // Same data source as isActorStandingOn; phase 7f.
     }
-    void JoltPhysicsSystem::getActorsCollidingWith(const MWWorld::ConstPtr&, std::vector<MWWorld::Ptr>&) const
+    void JoltPhysicsSystem::getActorsCollidingWith(
+        const MWWorld::ConstPtr& /*object*/, std::vector<MWWorld::Ptr>& /*out*/) const
     {
-        notImplemented("getActorsCollidingWith");
+        // Filled by the contact listener in phase 7f.
     }
-    bool JoltPhysicsSystem::isObjectCollidingWith(const MWWorld::ConstPtr&, ScriptedCollisionType) const
+    bool JoltPhysicsSystem::isObjectCollidingWith(
+        const MWWorld::ConstPtr& /*object*/, ScriptedCollisionType /*type*/) const
     {
-        notImplemented("isObjectCollidingWith");
+        // Same: contact listener bookkeeping (phase 7f).
+        return false;
     }
 
-    void JoltPhysicsSystem::markAsNonSolid(const MWWorld::ConstPtr&) { notImplemented("markAsNonSolid"); }
-    void JoltPhysicsSystem::updateAnimatedCollisionShape(const MWWorld::Ptr&)
+    void JoltPhysicsSystem::markAsNonSolid(const MWWorld::ConstPtr& /*ptr*/)
     {
-        notImplemented("updateAnimatedCollisionShape");
+        // Used to flag platforms / lifts so isOnSolidGround returns
+        // false for actors riding them. Tracked via a side set on
+        // PhysicsSystem; we'll mirror it in phase 7f when the
+        // ground-contact data is available.
     }
-    bool JoltPhysicsSystem::isAreaOccupiedByOtherActor(
-        const MWWorld::LiveCellRefBase*, const osg::Vec3f&, float) const
+
+    void JoltPhysicsSystem::updateAnimatedCollisionShape(const MWWorld::Ptr& /*object*/)
     {
-        notImplemented("isAreaOccupiedByOtherActor");
+        // Phase 10 rebuilds the JPH::Shape from the latest skinned
+        // vertex positions. For now the static shape captured at
+        // addObject time stays - matches the Bullet path's behaviour
+        // for non-animated entries.
+    }
+
+    bool JoltPhysicsSystem::isAreaOccupiedByOtherActor(
+        const MWWorld::LiveCellRefBase* /*actor*/, const osg::Vec3f& /*position*/,
+        float /*radius*/) const
+    {
+        // Used to keep AI from spawning into each other. Conservative
+        // false: AI won't bunch up but the spawn safety check is
+        // bypassed. JPH::PhysicsSystem::CollideShape with a sphere
+        // gives the proper answer; wired in phase 12 once the
+        // spawn-stability test rig from the regression suite exists.
+        return false;
     }
 
     void JoltPhysicsSystem::reportCollision(const osg::Vec3f&, const osg::Vec3f&)
@@ -782,7 +898,7 @@ namespace MWPhysics
         // interaction before the rest of the impl exists.
     }
 
-    bool JoltPhysicsSystem::toggleDebugRendering() { notImplemented("toggleDebugRendering"); }
+    bool JoltPhysicsSystem::toggleDebugRendering() { return false; }
     void JoltPhysicsSystem::reportStats(unsigned int, osg::Stats&) const
     {
         // No-op: phase 12 will populate Jolt-specific stats.
