@@ -503,22 +503,37 @@ namespace MWPhysics
         // Bullet's heightfield: heightStickWidth × heightStickLength
         // grid, height samples are in the local frame's third axis
         // (Z, upAxis=2). Cell footprint is `size` units, sampled at
-        // `verts × verts` grid points.
+        // `verts × verts` grid points. OpenMW lays out heights
+        // row-major with the row index increasing along world +Y.
         //
-        // Jolt's HeightFieldShape: samples form an XZ grid with
-        // heights along local +Y. Sample count must be a power of 2.
-        // To match MW's Z-up convention we wrap the shape in a
-        // RotatedTranslated that maps Jolt local Y -> world Z.
+        // Jolt's HeightFieldShape: samples form an XZ grid (indexed
+        // as samples[z*count+x]) with heights along local +Y. To
+        // match MW's Z-up convention we wrap the shape in a 90°
+        // rotation around X so local +Y becomes world +Z. That same
+        // rotation also sends local +Z to world -Y, which flips the
+        // grid's second axis. We compensate two ways:
+        //   1. shift the local origin by (-size) along Z so the
+        //      footprint sits at local Z ∈ [-size, 0]; after the
+        //      rotation the cell ends up at world Y ∈ [0, size];
+        //   2. reverse the row order of the heights array so the
+        //      OpenMW row 0 (world Y=0) ends up at the trailing
+        //      Jolt grid edge (post-rotation world Y=0).
         //
-        // Jolt requires sample count to be a power of 2; MW's
+        // Jolt requires (sampleCount-1) to be a power of 2; MW's
         // (verts-1) is a power of 2 by construction (vanilla 64+1 =
-        // 65 sample points = 64-cell grid). HeightFieldShape's
-        // sample count parameter is the side length, so we pass
-        // verts directly and trust the upstream guarantee.
+        // 65 sample points = 64-cell grid).
         const float scaling = static_cast<float>(size) / static_cast<float>(verts - 1);
 
-        JPH::HeightFieldShapeSettings settings(heights,
-            JPH::Vec3(0.0f, 0.0f, 0.0f),
+        std::vector<float> flippedHeights(static_cast<size_t>(verts) * verts);
+        for (int r = 0; r < verts; ++r)
+        {
+            const int srcRow = (verts - 1 - r) * verts;
+            const int dstRow = r * verts;
+            std::copy_n(heights + srcRow, verts, flippedHeights.data() + dstRow);
+        }
+
+        JPH::HeightFieldShapeSettings settings(flippedHeights.data(),
+            JPH::Vec3(0.0f, 0.0f, -static_cast<float>(size)),
             JPH::Vec3(scaling, 1.0f, scaling),
             static_cast<JPH::uint32>(verts));
         const auto baseResult = settings.Create();
@@ -539,18 +554,19 @@ namespace MWPhysics
             return;
         }
 
-        // Position: cell-corner offset matching the Bullet path
-        // (BulletHelpers::getHeightfieldShift). MW cells are `size`
-        // units square, anchored at (x*size, y*size).
+        // Place the cell's bottom-left corner at (x*size, y*size).
+        // After the rotation + offset, the heightfield's bottom-left
+        // sample sits at local (0, 0, ?), so this BCS position is
+        // also the world position of grid sample (0, 0).
         const float cx = static_cast<float>(x) * static_cast<float>(size);
         const float cy = static_cast<float>(y) * static_cast<float>(size);
-        const float cz = 0.5f * (minH + maxH);
 
         JPH::BodyCreationSettings bcs(rotResult.Get(),
-            JPH::RVec3(cx, cy, cz),
+            JPH::RVec3(cx, cy, 0.0f),
             JPH::Quat::sIdentity(),
             JPH::EMotionType::Static,
             JoltLayers::NON_MOVING);
+        (void)minH; (void)maxH; // height range is implicit in the samples
         const JPH::BodyID id
             = mJoltSystem->GetBodyInterface().CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
         mHeightFieldBodies.emplace(std::make_pair(x, y), id);
