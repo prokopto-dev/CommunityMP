@@ -19,27 +19,36 @@
 //   3. Keep the build green: this file compiles standalone, exports
 //      a pure abstract class, and declares no symbols that link.
 //
-// Scope deliberately excluded from the interface (for now):
-//   - castRay / castSphere — RayCastingResult.mHitObject is a raw
-//     const btCollisionObject*. Step 3b will replace it with an
-//     opaque PhysicsBodyHandle. Until then, RayCastingInterface (the
-//     existing virtual base in raycasting.hpp) stays the abstraction
-//     point for ray queries.
-//   - getCollisions / getCollisionsPoints — same Bullet leak via
-//     ContactPoint.
-//   - getActor / getObject / getProjectile — return raw pointers to
-//     concrete classes that hold btCollisionObject internally. Will
-//     stay PhysicsSystem-specific until callers learn to ask the
-//     backend for handle queries instead.
+// Re-audited in phase 3b: a grep across mwworld/, mwmechanics/,
+// mwrender/, mwgui/, mwbase/, mwlua/ found zero references to
+// btCollisionObject / btRigidBody (one stale #include in scene.cpp;
+// no actual use). The Bullet types I previously thought leaked
+// (`mStandingOn`, `mCollisionObject` on FrameData, etc.) are all
+// internal to mwphysics/ — they're consumed by movementsolver.cpp,
+// mtphysics.cpp, and the FrameData structs themselves, none of
+// which sit on the public surface. So the interface below grows to
+// include every public PhysicsSystem method without needing an
+// opaque-handle wrapper. Outside callers already speak in
+// MWWorld::Ptr / RayCastingResult / ContactPoint, all of which are
+// physics-library-agnostic.
 //
-// Once 3b lands the handle wrapper, every entry below marked [pending
-// wrapper] can move into this header and PhysicsSystem can finally
-// inherit from IPhysicsBackend in 3c.
+// One remaining Bullet boundary: PhysicsSystem::reportCollision
+// takes (btVector3, btVector3). The single external caller in
+// mwworld/worldimp.cpp already converts from osg::Vec3f via
+// Misc::Convert::toBullet just to call it, so the Bullet types
+// there are gratuitous. The interface declares the osg::Vec3f
+// signature; the Bullet impl will do the conversion internally,
+// the Jolt impl will use the values directly.
+//
+// Phase 3c: PhysicsSystem inherits from IPhysicsBackend and a
+// factory in physicsbackend.hpp returns the right concrete class
+// based on OPENMW_PHYSICS_USES_JOLT / _BULLET. No call site changes.
 
 #include <memory>
 #include <string_view>
 #include <vector>
 
+#include <osg/BoundingBox>
 #include <osg/Quat>
 #include <osg/Stats>
 #include <osg/Timer>
@@ -50,10 +59,15 @@
 #include "../mwworld/ptr.hpp"
 
 #include "collisiontype.hpp"
+#include "raycasting.hpp"
 
 namespace MWPhysics
 {
+    class Actor;
     class HeightField;
+    class Object;
+    class Projectile;
+    struct ContactPoint;
 
     // Pure-virtual surface for the backend. Lifetime is owned by
     // PhysicsSystem; every call must be safe from the main game
@@ -122,26 +136,94 @@ namespace MWPhysics
         // backend ships its own debug renderer.
         virtual void debugDraw() = 0;
 
-        // ----- Pending wrapper work — see file comment -----------------
-        // Listed here for future-me / next reviewer. These would join
-        // the interface in phase 3b once PhysicsBodyHandle exists.
-        //
-        //   castRay / castSphere       — needs handle-typed RayCastingResult
-        //   getLineOfSight             — currently fine; just lives on
-        //                                RayCastingInterface, so leaving
-        //                                it there avoids a double-virtual
-        //                                hop.
-        //   getCollisions /             — handle-typed ContactPoint
-        //   getCollisionsPoints
-        //   traceDown                  — clean signature; can lift today
-        //                                but cluster with the spatial
-        //                                queries above for the next pass
-        //   getActor / getObject /     — return concrete classes that
-        //   getProjectile                store btCollisionObject; their
-        //                                clients reach into Bullet
-        //                                directly today
-        //   isOnGround                 — clean; same cluster
-        //   canMoveToWaterSurface      — clean; same cluster
+        // ----- Spatial queries -----------------------------------------
+        // Ray and sphere casts. RayCastingResult.mHitObject is an
+        // MWWorld::Ptr — physics-library-agnostic. The signature
+        // matches RayCastingInterface verbatim so PhysicsSystem can
+        // satisfy both bases with the same override (phase 3c).
+        virtual RayCastingResult castRay(const osg::Vec3f& from, const osg::Vec3f& to,
+            const std::vector<MWWorld::ConstPtr>& ignore = {}, const std::vector<MWWorld::Ptr>& targets = {},
+            int mask = CollisionType_Default, int group = 0xff) const = 0;
+
+        virtual RayCastingResult castSphere(const osg::Vec3f& from, const osg::Vec3f& to, float radius,
+            int mask = CollisionType_Default, int group = 0xff) const = 0;
+
+        virtual bool getLineOfSight(const MWWorld::ConstPtr& actor1, const MWWorld::ConstPtr& actor2) const = 0;
+
+        // Returns the list of MWWorld::Ptrs whose collision objects
+        // overlap `ptr`. The Ptrs are physics-library-agnostic;
+        // ContactPoint also speaks in MWWorld::Ptr / osg::Vec3f.
+        virtual std::vector<MWWorld::Ptr> getCollisions(
+            const MWWorld::ConstPtr& ptr, int collisionGroup, int collisionMask) const
+            = 0;
+        virtual std::vector<ContactPoint> getCollisionsPoints(
+            const MWWorld::ConstPtr& ptr, int collisionGroup, int collisionMask) const
+            = 0;
+
+        // Drop a ray straight down from `position` for up to `maxHeight`
+        // and return where it hit (or position - maxHeight if it hits
+        // nothing). Used by AI placement and ground-snap helpers.
+        virtual osg::Vec3f traceDown(const MWWorld::Ptr& ptr, const osg::Vec3f& position, float maxHeight) = 0;
+
+        // ----- Actor state queries -------------------------------------
+        virtual bool isOnGround(const MWWorld::Ptr& actor) = 0;
+        virtual bool isOnSolidGround(const MWWorld::Ptr& actor) const = 0;
+        virtual bool canMoveToWaterSurface(const MWWorld::ConstPtr& actor, float waterlevel) = 0;
+
+        virtual osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor) const = 0;
+        virtual osg::Vec3f getOriginalHalfExtents(const MWWorld::ConstPtr& actor) const = 0;
+        virtual osg::Vec3f getRenderingHalfExtents(const MWWorld::ConstPtr& actor) const = 0;
+        virtual osg::Vec3f getCollisionObjectPosition(const MWWorld::ConstPtr& actor) const = 0;
+        virtual osg::BoundingBox getBoundingBox(const MWWorld::ConstPtr& object) const = 0;
+
+        // ----- Movement queue ------------------------------------------
+        // Queue a velocity for `ptr`. Re-queuing overwrites. Velocities
+        // are valid until the next stepSimulation call clears them.
+        virtual void queueObjectMovement(const MWWorld::Ptr& ptr, const osg::Vec3f& velocity) = 0;
+        virtual void clearQueuedMovement() = 0;
+
+        // ----- Standing / collision bookkeeping ------------------------
+        virtual bool isActorStandingOn(const MWWorld::Ptr& actor, const MWWorld::ConstPtr& object) const = 0;
+        virtual void getActorsStandingOn(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& out) const = 0;
+        virtual void getActorsCollidingWith(const MWWorld::ConstPtr& object, std::vector<MWWorld::Ptr>& out) const = 0;
+
+        // Mark as non-solid so isOnSolidGround returns false for actors
+        // standing on it. Used for trapdoors / lifts in motion.
+        virtual void markAsNonSolid(const MWWorld::ConstPtr& ptr) = 0;
+
+        // ----- Animated collision shapes -------------------------------
+        // Refresh the collision shape of an animated mesh after the
+        // skinning has updated its vertices for the frame.
+        virtual void updateAnimatedCollisionShape(const MWWorld::Ptr& object) = 0;
+
+        // Test whether an actor (or another world point) is going to
+        // collide with another actor in the area around `position`.
+        // Used to keep AI from spawning into each other.
+        virtual bool isAreaOccupiedByOtherActor(
+            const MWWorld::LiveCellRefBase* actor, const osg::Vec3f& position, float radius) const
+            = 0;
+
+        // ----- Projectile / collision reporting ------------------------
+        // Re-typed to osg::Vec3f relative to PhysicsSystem's signature
+        // (which takes btVector3) — see the file header for the
+        // rationale. The Bullet impl converts internally.
+        virtual void reportCollision(const osg::Vec3f& position, const osg::Vec3f& normal) = 0;
+
+        // ----- Diagnostics --------------------------------------------
+        virtual bool toggleDebugRendering() = 0;
+        virtual void reportStats(unsigned int frameNumber, osg::Stats& stats) const = 0;
+
+        // ----- Concrete-typed lookups ---------------------------------
+        // Actor, Object, Projectile are mwphysics-internal classes
+        // (their public API doesn't expose Bullet types — verified by
+        // grepping mwworld/mwmechanics/mwrender for getCollisionObject
+        // and friends; zero hits). For the Jolt impl, JoltActor /
+        // JoltObject / JoltProjectile will derive from the same
+        // base classes — these accessors stay valid.
+        virtual Actor* getActor(const MWWorld::Ptr& ptr) = 0;
+        virtual const Actor* getActor(const MWWorld::ConstPtr& ptr) const = 0;
+        virtual const Object* getObject(const MWWorld::ConstPtr& ptr) const = 0;
+        virtual Projectile* getProjectile(int projectileId) const = 0;
     };
 }
 
