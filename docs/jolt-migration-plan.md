@@ -22,8 +22,8 @@ Jolt.
 | 3c | `PhysicsSystem : public IPhysicsBackend` | ✅ done | commit `8997ef28ce` |
 | 3c | `override` cleanup (43 methods) | ✅ done | commit `699610e678` |
 | - | `extern/JoltPhysics` submodule | ✅ cloned | pinned at `04587a3e` |
-| 4 | `JoltPhysicsSystem` skeleton + factory | ✅ done | this commit |
-| 5 | Jolt-side world bootstrap (BroadPhaseLayers, ObjectLayers) | ⏳ |
+| 4 | `JoltPhysicsSystem` skeleton + factory | ✅ done |
+| 5 | Jolt-side world bootstrap (BroadPhaseLayers, ObjectLayers) | ✅ done |
 | 6 | Static colliders (objects, height fields, water) | ⏳ |
 | 7 | Actor controller (`CharacterVirtual` ↔ MovementSolver) | ⏳ |
 | 8 | Projectiles + raycasts + sphere casts | ⏳ |
