@@ -246,6 +246,14 @@ namespace MWPhysics
         // to learn a new key type.
         std::unordered_map<int, JPH::BodyID> mProjectileBodies;
         int mNextProjectileId = 0;
+
+        // Reverse map: BodyID's full u32 identifier -> the
+        // MWWorld::Ptr that owns it. Populated alongside every
+        // body lifecycle event so ray-cast / sphere-cast results
+        // can resolve the hit Ptr and the BodyFilter can honour
+        // ignore lists. Empty Ptr for environmental bodies (water,
+        // height fields) - those just won't match any ignore.
+        std::unordered_map<JPH::uint32, MWWorld::Ptr> mBodyOwners;
     };
 }
 

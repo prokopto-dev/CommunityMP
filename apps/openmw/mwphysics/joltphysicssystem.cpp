@@ -293,6 +293,7 @@ namespace MWPhysics
         const JPH::BodyID id
             = mJoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
         mObjectBodies.emplace(ptr.mRef, id);
+        mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), ptr);
     }
     void JoltPhysicsSystem::addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh)
     {
@@ -368,6 +369,7 @@ namespace MWPhysics
         if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
         {
             auto& bi = mJoltSystem->GetBodyInterface();
+            mBodyOwners.erase(it->second.GetIndexAndSequenceNumber());
             bi.RemoveBody(it->second);
             bi.DestroyBody(it->second);
             mObjectBodies.erase(it);
@@ -526,24 +528,59 @@ namespace MWPhysics
     bool JoltPhysicsSystem::toggleCollisionMode() { notImplemented("toggleCollisionMode"); }
     void JoltPhysicsSystem::debugDraw() { notImplemented("debugDraw"); }
 
+    namespace
+    {
+        // BodyFilter that drops bodies whose owning Ptr appears in
+        // the caller's ignore list. The owners map is captured by
+        // reference so we don't pay copies per cast.
+        class JoltIgnoreFilter final : public JPH::BodyFilter
+        {
+        public:
+            JoltIgnoreFilter(const std::unordered_map<JPH::uint32, MWWorld::Ptr>& owners,
+                const std::vector<MWWorld::ConstPtr>& ignore)
+                : mOwners(owners)
+                , mIgnore(ignore)
+            {
+            }
+            bool ShouldCollide(const JPH::BodyID& bodyId) const override
+            {
+                if (mIgnore.empty())
+                    return true;
+                const auto it = mOwners.find(bodyId.GetIndexAndSequenceNumber());
+                if (it == mOwners.end())
+                    return true;
+                for (const auto& p : mIgnore)
+                    if (p.mRef == it->second.mRef)
+                        return false;
+                return true;
+            }
+
+        private:
+            const std::unordered_map<JPH::uint32, MWWorld::Ptr>& mOwners;
+            const std::vector<MWWorld::ConstPtr>& mIgnore;
+        };
+    }
+
     RayCastingResult JoltPhysicsSystem::castRay(
         const osg::Vec3f& from, const osg::Vec3f& to,
-        const std::vector<MWWorld::ConstPtr>& /*ignore*/,
+        const std::vector<MWWorld::ConstPtr>& ignore,
         const std::vector<MWWorld::Ptr>& /*targets*/, int /*mask*/, int /*group*/) const
     {
-        // Phase 8a: ignore lists, target restrictions, and the
-        // collision mask are not yet honoured. Once bodies carry
-        // UserData (per-body MWWorld::Ptr resolution, phase 8b)
-        // we'll wire a custom BodyFilter and ObjectLayerFilter that
-        // implements those exclusions.
+        // `targets` and `mask` are still TODO — targets is rarely
+        // used (only for AI shoot-tests against specific actors),
+        // and mask requires the full ObjectLayer expansion that
+        // phase 5 deferred. Both will land alongside the per-actor
+        // collision-group plumbing in phase 9.
         RayCastingResult result;
         result.mHit = false;
 
         const JPH::Vec3 dir(to.x() - from.x(), to.y() - from.y(), to.z() - from.z());
         const JPH::RRayCast ray(JPH::RVec3(from.x(), from.y(), from.z()), dir);
 
+        JoltIgnoreFilter bodyFilter(mBodyOwners, ignore);
         JPH::RayCastResult hit;
-        const bool didHit = mJoltSystem->GetNarrowPhaseQuery().CastRay(ray, hit);
+        const bool didHit = mJoltSystem->GetNarrowPhaseQuery().CastRay(
+            ray, hit, JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
         if (didHit)
         {
             result.mHit = true;
@@ -551,10 +588,6 @@ namespace MWPhysics
             const JPH::RVec3 hitPos = ray.GetPointOnRay(f);
             result.mHitPos = osg::Vec3f(hitPos.GetX(), hitPos.GetY(), hitPos.GetZ());
 
-            // Lock the hit body for read so we can ask it for the
-            // world-space surface normal at the hit point. The lock
-            // scope is tight (single read); the per-tick contention
-            // budget here is fine.
             JPH::BodyLockRead lock(mJoltSystem->GetBodyLockInterface(), hit.mBodyID);
             if (lock.Succeeded())
             {
@@ -562,8 +595,11 @@ namespace MWPhysics
                     hit.mSubShapeID2, hitPos);
                 result.mHitNormal = osg::Vec3f(n.GetX(), n.GetY(), n.GetZ());
             }
-            // mHitObject left as default MWWorld::Ptr() until phase
-            // 8c wires UserData -> Ptr resolution.
+
+            // Resolve the hit Ptr from the body owner map.
+            const auto ownerIt = mBodyOwners.find(hit.mBodyID.GetIndexAndSequenceNumber());
+            if (ownerIt != mBodyOwners.end())
+                result.mHitObject = ownerIt->second;
         }
         return result;
     }
