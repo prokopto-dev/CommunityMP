@@ -602,12 +602,26 @@ namespace MWPhysics
         // 1. Drain the per-actor velocity queue into each
         //    CharacterVirtual. Re-queuing the same actor between
         //    ticks would have already overwritten in the map.
+        //
+        // Gravity caveat: ExtendedUpdate integrates gravity into the
+        // CharacterVirtual's stored linear velocity each frame. Game
+        // input arrives as a horizontal "desired motion" vector with
+        // Z=0 (or Z=jumpImpulse on the jump tick). Wholesale
+        // SetLinearVelocity(x, y, 0) wipes out the gravity-accumulated
+        // fall speed, leaving the actor floating. Preserve the
+        // existing Z component when input Z is zero so gravity keeps
+        // accumulating; only honour input Z when the gameplay layer
+        // explicitly drives it (jump impulse, scripted teleport).
         for (auto& [ref, actor] : mActors)
         {
+            auto* cv = actor->getCharacter();
+            if (!cv)
+                continue;
             const auto qit = mQueuedMovement.find(ref);
             const osg::Vec3f vel = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
-            if (auto* cv = actor->getCharacter())
-                cv->SetLinearVelocity(JPH::Vec3(vel.x(), vel.y(), vel.z()));
+            const JPH::Vec3 currentVel = cv->GetLinearVelocity();
+            const float zVel = (vel.z() != 0.0f) ? vel.z() : currentVel.GetZ();
+            cv->SetLinearVelocity(JPH::Vec3(vel.x(), vel.y(), zVel));
         }
 
         // 2. Tick the rigid-body world (objects, projectiles, water
