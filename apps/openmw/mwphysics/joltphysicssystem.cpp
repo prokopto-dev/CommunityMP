@@ -614,54 +614,74 @@ namespace MWPhysics
 
     namespace
     {
-        // BodyFilter that drops bodies whose owning Ptr appears in
-        // the caller's ignore list. The owners map is captured by
-        // reference so we don't pay copies per cast.
+        // BodyFilter that
+        //  - drops bodies whose owning Ptr appears in the caller's
+        //    ignore list (the "don't hit yourself" path), and
+        //  - if a targets list is provided, accepts ONLY bodies
+        //    whose owning Ptr appears in that list (the AI shoot-
+        //    test "is anyone of my known enemies in this line"
+        //    path). Empty targets list = no restriction.
+        // Both ignore/targets are captured by reference; the cast
+        // call frame owns them long enough to outlive the filter.
         class JoltIgnoreFilter final : public JPH::BodyFilter
         {
         public:
             JoltIgnoreFilter(const std::unordered_map<JPH::uint32, MWWorld::Ptr>& owners,
-                const std::vector<MWWorld::ConstPtr>& ignore)
+                const std::vector<MWWorld::ConstPtr>& ignore,
+                const std::vector<MWWorld::Ptr>& targets)
                 : mOwners(owners)
                 , mIgnore(ignore)
+                , mTargets(targets)
             {
             }
             bool ShouldCollide(const JPH::BodyID& bodyId) const override
             {
-                if (mIgnore.empty())
-                    return true;
                 const auto it = mOwners.find(bodyId.GetIndexAndSequenceNumber());
-                if (it == mOwners.end())
-                    return true;
-                for (const auto& p : mIgnore)
-                    if (p.mRef == it->second.mRef)
-                        return false;
+
+                if (!mIgnore.empty() && it != mOwners.end())
+                {
+                    for (const auto& p : mIgnore)
+                        if (p.mRef == it->second.mRef)
+                            return false;
+                }
+
+                if (!mTargets.empty())
+                {
+                    if (it == mOwners.end())
+                        return false; // no owner -> not in target list
+                    for (const auto& p : mTargets)
+                        if (p.mRef == it->second.mRef)
+                            return true;
+                    return false;
+                }
+
                 return true;
             }
 
         private:
             const std::unordered_map<JPH::uint32, MWWorld::Ptr>& mOwners;
             const std::vector<MWWorld::ConstPtr>& mIgnore;
+            const std::vector<MWWorld::Ptr>& mTargets;
         };
     }
 
     RayCastingResult JoltPhysicsSystem::castRay(
         const osg::Vec3f& from, const osg::Vec3f& to,
         const std::vector<MWWorld::ConstPtr>& ignore,
-        const std::vector<MWWorld::Ptr>& /*targets*/, int /*mask*/, int /*group*/) const
+        const std::vector<MWWorld::Ptr>& targets, int /*mask*/, int /*group*/) const
     {
-        // `targets` and `mask` are still TODO — targets is rarely
-        // used (only for AI shoot-tests against specific actors),
-        // and mask requires the full ObjectLayer expansion that
-        // phase 5 deferred. Both will land alongside the per-actor
-        // collision-group plumbing in phase 9.
+        // `mask` (CollisionType bitmask) is still deferred — that
+        // requires expanding ObjectLayers from the current 2-layer
+        // (NON_MOVING / MOVING) split to one layer per CollisionType
+        // bit, paired with a layer-pair filter table. Phase 6c′ when
+        // there's a regression-test rig that catches the difference.
         RayCastingResult result;
         result.mHit = false;
 
         const JPH::Vec3 dir(to.x() - from.x(), to.y() - from.y(), to.z() - from.z());
         const JPH::RRayCast ray(JPH::RVec3(from.x(), from.y(), from.z()), dir);
 
-        JoltIgnoreFilter bodyFilter(mBodyOwners, ignore);
+        JoltIgnoreFilter bodyFilter(mBodyOwners, ignore, targets);
         JPH::RayCastResult hit;
         const bool didHit = mJoltSystem->GetNarrowPhaseQuery().CastRay(
             ray, hit, JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
@@ -705,7 +725,8 @@ namespace MWPhysics
         JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
         const JPH::ShapeCastSettings settings;
         const std::vector<MWWorld::ConstPtr> emptyIgnore;
-        const JoltIgnoreFilter bodyFilter(mBodyOwners, emptyIgnore);
+        const std::vector<MWWorld::Ptr> emptyTargets;
+        const JoltIgnoreFilter bodyFilter(mBodyOwners, emptyIgnore, emptyTargets);
         mJoltSystem->GetNarrowPhaseQuery().CastShape(
             cast, settings, JPH::RVec3::sZero(), collector,
             JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
