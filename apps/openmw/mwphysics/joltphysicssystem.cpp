@@ -660,18 +660,37 @@ namespace MWPhysics
             const bool flying = world.isFlying(ptr);
             const bool buoyant = inWater || flying;
 
+            // Gameplay queues `input` in the ACTOR's local frame (the
+            // animation system runs in local coords, see character.cpp
+            // movementFromAnimation flow). Rotate to world space the
+            // same way MovementSolver does:
+            //   walk:       yaw only (rot[2] around -Z)
+            //   swim/fly:   pitch + yaw (rot[0] around -X, rot[2] around -Z)
+            const osg::Vec3f rot = ptr.getRefData().getPosition().asRotationVec3();
+            osg::Vec3f worldInput;
+            if (buoyant)
+            {
+                worldInput = (osg::Quat(rot.x(), osg::Vec3f(-1.0f, 0.0f, 0.0f))
+                                 * osg::Quat(rot.z(), osg::Vec3f(0.0f, 0.0f, -1.0f)))
+                    * input;
+            }
+            else
+            {
+                worldInput = osg::Quat(rot.z(), osg::Vec3f(0.0f, 0.0f, -1.0f)) * input;
+            }
+
             float inertiaZ;
             if (buoyant)
             {
-                inertiaZ = 0.0f;        // input drives Z directly below
+                inertiaZ = 0.0f;            // input drives Z directly below
             }
-            else if (input.z() > 0.0f)
+            else if (worldInput.z() > 0.0f)
             {
-                inertiaZ = input.z();   // jump impulse
+                inertiaZ = worldInput.z();  // jump impulse (world Z)
             }
             else if (onGround && !onSlope)
             {
-                inertiaZ = 0.0f;        // floor absorbs the fall
+                inertiaZ = 0.0f;            // floor absorbs the fall
             }
             else
             {
@@ -680,16 +699,17 @@ namespace MWPhysics
             actor->setInertiaZ(inertiaZ);
 
             // Total velocity:
-            //   - swimming/flying: pure input (gameplay computed the
-            //     full 3D vector, including vertical swim/fly);
-            //   - otherwise: horizontal input + vertical inertia
-            //     (negative input.z = scripted downward push, added).
+            //   - swimming/flying: pure rotated input (gameplay
+            //     computed the full 3D desired velocity);
+            //   - otherwise: horizontal worldInput + vertical inertia
+            //     (negative worldInput.z = scripted downward push,
+            //     additive on top of inertia).
             float zVel;
             if (buoyant)
-                zVel = input.z();
+                zVel = worldInput.z();
             else
-                zVel = inertiaZ + std::min(input.z(), 0.0f);
-            cv->SetLinearVelocity(JPH::Vec3(input.x(), input.y(), zVel));
+                zVel = inertiaZ + std::min(worldInput.z(), 0.0f);
+            cv->SetLinearVelocity(JPH::Vec3(worldInput.x(), worldInput.y(), zVel));
 
             if (traceThisFrame)
             {
