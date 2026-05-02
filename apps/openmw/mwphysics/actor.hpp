@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 
+#include "iphysicsactor.hpp"
 #include "ptrholder.hpp"
 
 #include <components/detournavigator/collisionshapetype.hpp>
@@ -24,7 +25,7 @@ namespace MWPhysics
 {
     class PhysicsTaskScheduler;
 
-    class Actor final : public PtrHolder
+    class Actor final : public PtrHolder, public IPhysicsActor
     {
     public:
         Actor(const MWWorld::Ptr& ptr, const Resource::BulletShape* shape, PhysicsTaskScheduler* scheduler,

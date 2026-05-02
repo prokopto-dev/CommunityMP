@@ -179,8 +179,16 @@ namespace MWPhysics
 
         void updatePtr(const MWWorld::Ptr& old, const MWWorld::Ptr& updated) override;
 
-        Actor* getActor(const MWWorld::Ptr& ptr) override;
-        const Actor* getActor(const MWWorld::ConstPtr& ptr) const override;
+        IPhysicsActor* getActor(const MWWorld::Ptr& ptr) override;
+        const IPhysicsActor* getActor(const MWWorld::ConstPtr& ptr) const override;
+
+        // Bullet-internal lookups returning the concrete Actor type so
+        // mwphysics code can call Bullet-specific methods
+        // (getCollisionObject, getSimulationPosition, etc) that don't
+        // belong on IPhysicsActor. External callers should keep using
+        // the IPhysicsActor-returning overloads above.
+        Actor* getActorImpl(const MWWorld::Ptr& ptr);
+        const Actor* getActorImpl(const MWWorld::ConstPtr& ptr) const;
 
         const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const override;
 

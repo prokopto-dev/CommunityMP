@@ -83,6 +83,22 @@ namespace MWPhysics
         return osg::Vec3f(p.GetX(), p.GetY(), p.GetZ());
     }
 
+    void JoltActor::adjustPosition(const osg::Vec3f& offset)
+    {
+        // Apply the offset directly to the CharacterVirtual; mirrors
+        // MWPhysics::Actor::adjustPosition + applyOffsetChange in the
+        // Bullet path. Used by World::moveObjectBy and scripted
+        // teleports — the simulator picks the new position up on the
+        // next ExtendedUpdate.
+        if (!mCharacter)
+            return;
+        const JPH::RVec3 cur = mCharacter->GetPosition();
+        mCharacter->SetPosition(JPH::RVec3(
+            cur.GetX() + offset.x(),
+            cur.GetY() + offset.y(),
+            cur.GetZ() + offset.z()));
+    }
+
     void JoltActor::refreshState()
     {
         if (!mCharacter)

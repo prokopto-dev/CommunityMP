@@ -71,8 +71,8 @@ namespace Resource
 
 namespace MWPhysics
 {
-    class Actor;
     class HeightField;
+    class IPhysicsActor;
     class IPhysicsObject;
     class Object;
     class Projectile;
@@ -229,8 +229,8 @@ namespace MWPhysics
         // and friends; zero hits). For the Jolt impl, JoltActor /
         // JoltObject / JoltProjectile will derive from the same
         // base classes — these accessors stay valid.
-        virtual Actor* getActor(const MWWorld::Ptr& ptr) = 0;
-        virtual const Actor* getActor(const MWWorld::ConstPtr& ptr) const = 0;
+        virtual IPhysicsActor* getActor(const MWWorld::Ptr& ptr) = 0;
+        virtual const IPhysicsActor* getActor(const MWWorld::ConstPtr& ptr) const = 0;
         // Returns IPhysicsObject so the Jolt path can hand back a
         // navigator-friendly view of its statics without needing to
         // construct a Bullet-flavoured Object. Callers only use the

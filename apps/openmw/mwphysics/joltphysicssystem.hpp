@@ -199,8 +199,8 @@ namespace MWPhysics
         bool toggleDebugRendering() override;
         void reportStats(unsigned int frameNumber, osg::Stats& stats) const override;
 
-        Actor* getActor(const MWWorld::Ptr& ptr) override;
-        const Actor* getActor(const MWWorld::ConstPtr& ptr) const override;
+        IPhysicsActor* getActor(const MWWorld::Ptr& ptr) override;
+        const IPhysicsActor* getActor(const MWWorld::ConstPtr& ptr) const override;
         const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const override;
         Projectile* getProjectile(int projectileId) const override;
 

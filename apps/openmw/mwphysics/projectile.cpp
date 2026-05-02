@@ -83,7 +83,10 @@ namespace MWPhysics
     {
         mCaster = caster;
         mCasterColObj = [this, &caster]() -> const btCollisionObject* {
-            const Actor* actor = mPhysics->getActor(caster);
+            // PhysicsSystem (Bullet path) always stores `Actor`-derived
+            // entries; the IPhysicsActor return type is the abstract
+            // base shared with the Jolt path.
+            const auto* actor = static_cast<const Actor*>(mPhysics->getActor(caster));
             if (actor)
                 return actor->getCollisionObject();
             // PhysicsSystem (Bullet path) always stores `Object`-derived
@@ -102,7 +105,7 @@ namespace MWPhysics
         mValidTargets.clear();
         for (const auto& ptr : targets)
         {
-            const auto* physicActor = mPhysics->getActor(ptr);
+            const auto* physicActor = static_cast<const Actor*>(mPhysics->getActor(ptr));
             if (physicActor)
                 mValidTargets.push_back(physicActor->getCollisionObject());
         }

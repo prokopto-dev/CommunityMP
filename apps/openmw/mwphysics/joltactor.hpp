@@ -12,6 +12,10 @@
 
 #include <osg/Vec3f>
 
+#include <components/detournavigator/collisionshapetype.hpp>
+
+#include "iphysicsactor.hpp"
+
 #include "../mwworld/ptr.hpp"
 
 namespace MWPhysics
@@ -25,19 +29,17 @@ namespace MWPhysics
     // Phase 7a (this commit): construction + identity. Phase 7b will
     // wire the movement queue and ExtendedUpdate; phase 7f tunes
     // slope/water/stuck behaviour to match vanilla MovementSolver.
-    class JoltActor
+    class JoltActor final : public IPhysicsActor
     {
     public:
         JoltActor(const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents,
             const osg::Vec3f& position, JPH::PhysicsSystem& joltSystem);
-        ~JoltActor();
+        ~JoltActor() override;
 
         JoltActor(const JoltActor&) = delete;
         JoltActor& operator=(const JoltActor&) = delete;
 
         const MWWorld::Ptr& getPtr() const { return mPtr; }
-
-        osg::Vec3f getHalfExtents() const { return mHalfExtents; }
 
         // World-space centre of the collision capsule.
         osg::Vec3f getPosition() const;
@@ -60,6 +62,21 @@ namespace MWPhysics
         // round-trip into Jolt.
         void refreshState();
 
+        // ----- IPhysicsActor ------------------------------------------
+        void enableCollisionMode(bool collision) override { mInternalCollision = collision; }
+        bool getCollisionMode() const override { return mInternalCollision; }
+        void enableCollisionBody(bool collision) override { mExternalCollision = collision; }
+        bool isWalkingOnWater() const override { return mWalkingOnWater; }
+        DetourNavigator::CollisionShapeType getCollisionShapeType() const override
+        {
+            // BoundingBox is the shape MW uses for actor capsules; the
+            // Jolt path doesn't yet support the cylinder/aabb variants.
+            return DetourNavigator::CollisionShapeType::Aabb;
+        }
+        osg::Vec3f getHalfExtents() const override { return mHalfExtents; }
+        void setActive(bool value) override { mActive = value; }
+        void adjustPosition(const osg::Vec3f& offset) override;
+
     private:
         MWWorld::Ptr mPtr;
         osg::Vec3f mHalfExtents;
@@ -70,6 +87,13 @@ namespace MWPhysics
         bool mIsOnGround = false;
         bool mIsOnSlope = false;
         float mInertiaZ = 0.0f;
+
+        // IPhysicsActor flags. Default-on so the actor behaves like a
+        // freshly-spawned vanilla MW NPC on the Bullet path.
+        bool mInternalCollision = true;
+        bool mExternalCollision = true;
+        bool mWalkingOnWater = false;
+        bool mActive = true;
     };
 }
 

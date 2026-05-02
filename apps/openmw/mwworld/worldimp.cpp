@@ -1516,7 +1516,7 @@ namespace MWWorld
 
     void World::setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external)
     {
-        MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);
+        MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(ptr);
         if (physicActor && physicActor->getCollisionMode() != internal)
         {
             physicActor->enableCollisionMode(internal);
@@ -1526,7 +1526,7 @@ namespace MWWorld
 
     bool World::isActorCollisionEnabled(const MWWorld::Ptr& ptr)
     {
-        MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);
+        MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(ptr);
         return physicActor && physicActor->getCollisionMode();
     }
 
@@ -2075,7 +2075,7 @@ namespace MWWorld
             && isLevitationEnabled())
             return true;
 
-        const MWPhysics::Actor* actor = mPhysics->getActor(ptr);
+        const MWPhysics::IPhysicsActor* actor = mPhysics->getActor(ptr);
         if (!actor)
             return true;
 
@@ -2271,7 +2271,7 @@ namespace MWWorld
 
         Ptr player = mPlayer->getPlayer();
 
-        const MWPhysics::Actor* actor = mPhysics->getActor(player);
+        const MWPhysics::IPhysicsActor* actor = mPhysics->getActor(player);
         if (!actor)
             throw std::runtime_error("can't find player");
 
@@ -2552,7 +2552,7 @@ namespace MWWorld
 
     void World::enableActorCollision(const MWWorld::Ptr& actor, bool enable)
     {
-        MWPhysics::Actor* physicActor = mPhysics->getActor(actor);
+        MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(actor);
         if (physicActor)
             physicActor->enableCollisionBody(enable);
     }
@@ -3640,7 +3640,7 @@ namespace MWWorld
 
     bool World::isWalkingOnWater(const ConstPtr& actor) const
     {
-        const MWPhysics::Actor* physicActor = mPhysics->getActor(actor);
+        const MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(actor);
         if (physicActor && physicActor->isWalkingOnWater())
             return true;
         return false;
@@ -3720,7 +3720,7 @@ namespace MWWorld
 
     DetourNavigator::AgentBounds World::getPathfindingAgentBounds(const MWWorld::ConstPtr& actor) const
     {
-        const MWPhysics::Actor* physicsActor = mPhysics->getActor(actor);
+        const MWPhysics::IPhysicsActor* physicsActor = mPhysics->getActor(actor);
         if (physicsActor == nullptr || !actor.isInCell() || actor.getCell()->isExterior())
             return DetourNavigator::AgentBounds{ Settings::game().mActorCollisionShapeType,
                 Settings::game().mDefaultActorPathfindHalfExtents };
@@ -3781,7 +3781,7 @@ namespace MWWorld
 
     void World::setActorActive(const MWWorld::Ptr& ptr, bool value)
     {
-        if (MWPhysics::Actor* const actor = mPhysics->getActor(ptr))
+        if (MWPhysics::IPhysicsActor* const actor = mPhysics->getActor(ptr))
             actor->setActive(value);
     }
 }

@@ -1090,8 +1090,16 @@ namespace MWPhysics
         // No-op: phase 12 will populate Jolt-specific stats.
     }
 
-    Actor* JoltPhysicsSystem::getActor(const MWWorld::Ptr&) { return nullptr; }
-    const Actor* JoltPhysicsSystem::getActor(const MWWorld::ConstPtr&) const { return nullptr; }
+    IPhysicsActor* JoltPhysicsSystem::getActor(const MWWorld::Ptr& ptr)
+    {
+        const auto it = mActors.find(ptr.mRef);
+        return it != mActors.end() ? it->second.get() : nullptr;
+    }
+    const IPhysicsActor* JoltPhysicsSystem::getActor(const MWWorld::ConstPtr& ptr) const
+    {
+        const auto it = mActors.find(ptr.mRef);
+        return it != mActors.end() ? it->second.get() : nullptr;
+    }
     const IPhysicsObject* JoltPhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
     {
         const auto it = mObjectEntries.find(ptr.mRef);

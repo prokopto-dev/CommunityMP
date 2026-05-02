@@ -173,7 +173,7 @@ namespace MWPhysics
 
     bool PhysicsSystem::isOnSolidGround(const MWWorld::Ptr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (!physactor || !physactor->getOnGround() || !physactor->getCollisionMode())
             return false;
 
@@ -211,7 +211,7 @@ namespace MWPhysics
         {
             if (!ptr.isEmpty())
             {
-                const Actor* actor = getActor(ptr);
+                const Actor* actor = getActorImpl(ptr);
                 if (actor)
                     ignoreList.push_back(actor->getCollisionObject());
                 else
@@ -227,7 +227,7 @@ namespace MWPhysics
         {
             for (const MWWorld::Ptr& target : targets)
             {
-                const Actor* actor = getActor(target);
+                const Actor* actor = getActorImpl(target);
                 if (actor)
                     targetCollisionObjects.push_back(actor->getCollisionObject());
             }
@@ -292,19 +292,19 @@ namespace MWPhysics
 
     bool PhysicsSystem::isOnGround(const MWWorld::Ptr& actor)
     {
-        Actor* physactor = getActor(actor);
+        Actor* physactor = getActorImpl(actor);
         return physactor && physactor->getOnGround() && physactor->getCollisionMode();
     }
 
     bool PhysicsSystem::canMoveToWaterSurface(const MWWorld::ConstPtr& actor, const float waterlevel)
     {
-        const auto* physactor = getActor(actor);
+        const auto* physactor = getActorImpl(actor);
         return physactor && physactor->canMoveToWaterSurface(waterlevel, mCollisionWorld.get());
     }
 
     osg::Vec3f PhysicsSystem::getHalfExtents(const MWWorld::ConstPtr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (physactor)
             return physactor->getHalfExtents();
         else
@@ -313,7 +313,7 @@ namespace MWPhysics
 
     osg::Vec3f PhysicsSystem::getOriginalHalfExtents(const MWWorld::ConstPtr& actor) const
     {
-        if (const Actor* physactor = getActor(actor))
+        if (const Actor* physactor = getActorImpl(actor))
             return physactor->getOriginalHalfExtents();
         else
             return osg::Vec3f();
@@ -321,7 +321,7 @@ namespace MWPhysics
 
     osg::Vec3f PhysicsSystem::getRenderingHalfExtents(const MWWorld::ConstPtr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (physactor)
             return physactor->getRenderingHalfExtents();
         else
@@ -341,7 +341,7 @@ namespace MWPhysics
 
     osg::Vec3f PhysicsSystem::getCollisionObjectPosition(const MWWorld::ConstPtr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (physactor)
             return physactor->getCollisionObjectPosition();
         else
@@ -481,7 +481,14 @@ namespace MWPhysics
         }
     }
 
-    Actor* PhysicsSystem::getActor(const MWWorld::Ptr& ptr)
+    IPhysicsActor* PhysicsSystem::getActor(const MWWorld::Ptr& ptr) { return getActorImpl(ptr); }
+
+    const IPhysicsActor* PhysicsSystem::getActor(const MWWorld::ConstPtr& ptr) const
+    {
+        return getActorImpl(ptr);
+    }
+
+    Actor* PhysicsSystem::getActorImpl(const MWWorld::Ptr& ptr)
     {
         ActorMap::iterator found = mActors.find(ptr.mRef);
         if (found != mActors.end())
@@ -489,7 +496,7 @@ namespace MWPhysics
         return nullptr;
     }
 
-    const Actor* PhysicsSystem::getActor(const MWWorld::ConstPtr& ptr) const
+    const Actor* PhysicsSystem::getActorImpl(const MWWorld::ConstPtr& ptr) const
     {
         ActorMap::const_iterator found = mActors.find(ptr.mRef);
         if (found != mActors.end())
@@ -733,7 +740,7 @@ namespace MWPhysics
 
     void PhysicsSystem::moveActors()
     {
-        auto* player = getActor(MWMechanics::getPlayer());
+        auto* player = getActorImpl(MWMechanics::getPlayer());
         const auto world = MWBase::Environment::get().getWorld();
 
         // copy new ptr position in temporary vector. player is handled separately as its movement might change active
