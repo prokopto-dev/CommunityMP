@@ -632,6 +632,7 @@ namespace MWPhysics
         //     the actor sits flat instead of slowly drifting down;
         //   - on slope or airborne: inertia.z accumulates gravity * dt.
         const JPH::Vec3 stepGravity = mJoltSystem->GetGravity();
+        auto& world = *MWBase::Environment::get().getWorld();
         for (auto& [ref, actor] : mActors)
         {
             auto* cv = actor->getCharacter();
@@ -648,20 +649,46 @@ namespace MWPhysics
             const bool onGround = (groundState == JPH::CharacterVirtual::EGroundState::OnGround);
             const bool onSlope = (groundState == JPH::CharacterVirtual::EGroundState::OnSteepGround);
 
-            float inertiaZ = actor->getInertiaZ();
-            if (input.z() > 0.0f)
-                inertiaZ = input.z(); // jump impulse
+            // Suspend gravity while swimming or flying — gameplay
+            // computes a 3D desired velocity directly in those modes,
+            // so leaving the inertia accumulator running would fight
+            // the input. Mirrors MovementSolver's
+            // `if (newPosition.z() < swimlevel || actor.mFlying)
+            //     actor.mInertia = 0` branch.
+            const MWWorld::Ptr ptr = actor->getPtr();
+            const bool inWater = world.isSwimming(ptr);
+            const bool flying = world.isFlying(ptr);
+            const bool buoyant = inWater || flying;
+
+            float inertiaZ;
+            if (buoyant)
+            {
+                inertiaZ = 0.0f;        // input drives Z directly below
+            }
+            else if (input.z() > 0.0f)
+            {
+                inertiaZ = input.z();   // jump impulse
+            }
             else if (onGround && !onSlope)
-                inertiaZ = 0.0f;       // floor absorbs the fall
+            {
+                inertiaZ = 0.0f;        // floor absorbs the fall
+            }
             else
-                inertiaZ += stepGravity.GetZ() * dt;
+            {
+                inertiaZ = actor->getInertiaZ() + stepGravity.GetZ() * dt;
+            }
             actor->setInertiaZ(inertiaZ);
 
-            // Total velocity = horizontal input + vertical inertia.
-            // Negative input.z() (rare — scripted downward push) is
-            // additive on top of inertia; positive was already
-            // captured as the jump impulse above.
-            const float zVel = inertiaZ + std::min(input.z(), 0.0f);
+            // Total velocity:
+            //   - swimming/flying: pure input (gameplay computed the
+            //     full 3D vector, including vertical swim/fly);
+            //   - otherwise: horizontal input + vertical inertia
+            //     (negative input.z = scripted downward push, added).
+            float zVel;
+            if (buoyant)
+                zVel = input.z();
+            else
+                zVel = inertiaZ + std::min(input.z(), 0.0f);
             cv->SetLinearVelocity(JPH::Vec3(input.x(), input.y(), zVel));
 
             if (traceThisFrame)
