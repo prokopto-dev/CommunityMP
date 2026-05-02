@@ -87,7 +87,9 @@ namespace MWPhysics
     {
         if (!mCharacter)
             return;
-        mIsOnGround = mCharacter->IsSupported();
+        const auto gs = mCharacter->GetGroundState();
+        mIsOnGround = (gs == JPH::CharacterVirtual::EGroundState::OnGround);
+        mIsOnSlope = (gs == JPH::CharacterVirtual::EGroundState::OnSteepGround);
     }
 }
 

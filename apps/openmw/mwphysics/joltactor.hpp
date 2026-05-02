@@ -43,8 +43,16 @@ namespace MWPhysics
         osg::Vec3f getPosition() const;
 
         bool isOnGround() const { return mIsOnGround; }
+        bool isOnSlope() const { return mIsOnSlope; }
 
         JPH::CharacterVirtual* getCharacter() { return mCharacter.get(); }
+
+        // Vertical inertia accumulator. Mirrors MWPhysics::Actor::mInertia
+        // semantics: gravity adds to it each step, lands reset it,
+        // jump impulses overwrite it. Kept separate from per-frame
+        // input so horizontal motion doesn't drag vertical state.
+        float getInertiaZ() const { return mInertiaZ; }
+        void setInertiaZ(float z) { mInertiaZ = z; }
 
         // Refresh cached state from the underlying CharacterVirtual.
         // Called after every ExtendedUpdate by JoltPhysicsSystem so
@@ -60,6 +68,8 @@ namespace MWPhysics
         // Cached per-frame state. Phase 7d keeps these in sync from
         // the Jolt character.
         bool mIsOnGround = false;
+        bool mIsOnSlope = false;
+        float mInertiaZ = 0.0f;
     };
 }
 

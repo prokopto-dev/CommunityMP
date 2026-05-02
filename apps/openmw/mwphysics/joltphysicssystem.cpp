@@ -617,23 +617,19 @@ namespace MWPhysics
         // 1. Drain the per-actor velocity queue into each
         //    CharacterVirtual.
         //
-        // Gravity is the caller's responsibility for CharacterVirtual:
-        // Update / ExtendedUpdate consume mLinearVelocity to compute
-        // position deltas and read the ground state, but they do NOT
-        // write `gravity * dt` back into mLinearVelocity. We have to
-        // do the accumulation here, mirroring the
-        // CharacterVirtualTest sample shipped with Jolt.
+        // Phase 2 of docs/jolt-character-fix-plan.md: separate input
+        // (horizontal walk velocity, jump impulse) from accumulated
+        // vertical inertia. Mirrors MWPhysics::Actor::mInertia in the
+        // Bullet path. Without this separation the per-frame input
+        // overwrite was wiping the gravity-accumulated Z, so jumps
+        // truncated, falls stalled, and standing was unstable.
         //
-        // Per-frame Z velocity policy:
-        //   - if gameplay drove an explicit Z (jump impulse, scripted
-        //     teleport): use it as-is, then add gravity*dt for this
-        //     step's contribution;
-        //   - else if on ground: clamp Z to 0 (the floor absorbed the
-        //     prior fall speed) before adding gravity*dt — keeps the
-        //     stationary case stable and avoids runaway downward
-        //     accumulation while standing;
-        //   - else (airborne): preserve the prior frame's Z (fall arc)
-        //     and add gravity*dt.
+        // Inertia rules:
+        //   - gameplay sends input.z() > 0 → jump: overwrite inertia.z
+        //     with that value (one-shot impulse);
+        //   - on ground (and not on slope): inertia.z reset to 0 so
+        //     the actor sits flat instead of slowly drifting down;
+        //   - on slope or airborne: inertia.z accumulates gravity * dt.
         const JPH::Vec3 stepGravity = mJoltSystem->GetGravity();
         for (auto& [ref, actor] : mActors)
         {
@@ -641,31 +637,40 @@ namespace MWPhysics
             if (!cv)
                 continue;
             const auto qit = mQueuedMovement.find(ref);
-            const osg::Vec3f vel = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
-            const JPH::Vec3 currentVel = cv->GetLinearVelocity();
+            const osg::Vec3f input = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
             const auto groundState = cv->GetGroundState();
-            const bool onGround = groundState == JPH::CharacterVirtual::EGroundState::OnGround;
-            float zVel;
-            if (vel.z() != 0.0f)
-                zVel = vel.z();
-            else if (onGround)
-                zVel = 0.0f;
+            const bool onGround = (groundState == JPH::CharacterVirtual::EGroundState::OnGround);
+            const bool onSlope = (groundState == JPH::CharacterVirtual::EGroundState::OnSteepGround);
+
+            float inertiaZ = actor->getInertiaZ();
+            if (input.z() > 0.0f)
+                inertiaZ = input.z(); // jump impulse
+            else if (onGround && !onSlope)
+                inertiaZ = 0.0f;       // floor absorbs the fall
             else
-                zVel = currentVel.GetZ();
-            zVel += stepGravity.GetZ() * dt;
-            cv->SetLinearVelocity(JPH::Vec3(vel.x(), vel.y(), zVel));
+                inertiaZ += stepGravity.GetZ() * dt;
+            actor->setInertiaZ(inertiaZ);
+
+            // Total velocity = horizontal input + vertical inertia.
+            // Negative input.z() (rare — scripted downward push) is
+            // additive on top of inertia; positive was already
+            // captured as the jump impulse above.
+            const float zVel = inertiaZ + std::min(input.z(), 0.0f);
+            cv->SetLinearVelocity(JPH::Vec3(input.x(), input.y(), zVel));
 
             if (traceThisFrame)
             {
                 const auto p = cv->GetPosition();
+                const auto curV = cv->GetLinearVelocity();
                 Log(Debug::Info) << "[jolt-trace pre] f=" << frameNumber
                     << " " << actor->getPtr().getCellRef().getRefId().toDebugString()
                     << " pos=(" << p.GetX() << "," << p.GetY() << "," << p.GetZ() << ")"
-                    << " in=(" << vel.x() << "," << vel.y() << "," << vel.z() << ")"
-                    << " curV=(" << currentVel.GetX() << "," << currentVel.GetY()
-                        << "," << currentVel.GetZ() << ")"
-                    << " setV=(" << vel.x() << "," << vel.y() << "," << zVel << ")"
+                    << " in=(" << input.x() << "," << input.y() << "," << input.z() << ")"
+                    << " inertiaZ=" << inertiaZ
+                    << " setV=(" << input.x() << "," << input.y() << "," << zVel << ")"
                     << " ground=" << static_cast<int>(groundState)
+                    << " curV=(" << curV.GetX() << "," << curV.GetY()
+                        << "," << curV.GetZ() << ")"
                     << " dt=" << dt;
             }
         }
