@@ -56,6 +56,9 @@
 
 #include "mwinput/inputmanagerimp.hpp"
 
+#include <components/sdlutil/sdlinputwrapper.hpp>
+
+#include "mwgui/imguioverlay.hpp"
 #include "mwgui/windowmanagerimp.hpp"
 
 #include "mwlua/luamanagerimp.hpp"
@@ -408,6 +411,11 @@ OMW::Engine::~Engine()
     mMechanicsManager = nullptr;
     mDialogueManager = nullptr;
     mJournal = nullptr;
+    // ImGui must shut down while the OpenGL context still exists —
+    // i.e. before mViewer is dropped further down. The window manager
+    // also calls into GL during teardown, so order: ImGui → MyGUI →
+    // viewer.
+    mImGuiOverlay = nullptr;
     mWindowManager = nullptr;
     mScriptManager = nullptr;
     mWorld = nullptr;
@@ -828,6 +836,24 @@ void OMW::Engine::prepareEngine()
     mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, mScreenCaptureHandler, keybinderUser,
         keybinderUserExists, userGameControllerdb, gameControllerdb, mGrab);
     mEnvironment.setInputManager(*mInputManager);
+
+    // Phase 2 of docs/imgui-overlay-plan.md: stand up the in-engine
+    // ImGui overlay and wire it as the first-pass SDL event
+    // interceptor. F1 toggles visibility (Alt-F1 stays available
+    // for OSG screenshot etc. — the modifier check below skips us).
+    mImGuiOverlay = std::make_unique<MWGui::ImGuiOverlay>(mWindow, mViewer->getCamera());
+    if (auto* wrapper = mInputManager->getInputWrapper())
+    {
+        wrapper->setEventInterceptor([this](const SDL_Event& evt) -> bool {
+            if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_F1
+                && (evt.key.keysym.mod & KMOD_ALT) == 0)
+            {
+                mImGuiOverlay->toggleVisible();
+                return true;
+            }
+            return mImGuiOverlay->processEvent(evt);
+        });
+    }
 
     // Create sound system
     mSoundManager = std::make_unique<MWSound::SoundManager>(mVFS.get(), mUseSound);

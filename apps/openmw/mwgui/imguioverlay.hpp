@@ -6,9 +6,9 @@
 namespace osg
 {
     class Camera;
-    class GraphicsContext;
 }
 
+struct SDL_Window;
 union SDL_Event;
 
 namespace MWGui
@@ -26,7 +26,7 @@ namespace MWGui
     class ImGuiOverlay
     {
     public:
-        ImGuiOverlay(osg::GraphicsContext* gc, osg::Camera* mainCamera);
+        ImGuiOverlay(SDL_Window* window, osg::Camera* mainCamera);
         ~ImGuiOverlay();
 
         ImGuiOverlay(const ImGuiOverlay&) = delete;

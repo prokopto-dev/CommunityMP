@@ -75,6 +75,7 @@ namespace MWState
 
 namespace MWGui
 {
+    class ImGuiOverlay;
     class WindowManager;
 }
 
@@ -134,6 +135,7 @@ namespace OMW
         std::unique_ptr<MWSound::SoundManager> mSoundManager;
         std::unique_ptr<MWScript::ScriptManager> mScriptManager;
         std::unique_ptr<MWGui::WindowManager> mWindowManager;
+        std::unique_ptr<MWGui::ImGuiOverlay> mImGuiOverlay;
         std::unique_ptr<MWMechanics::MechanicsManager> mMechanicsManager;
         std::unique_ptr<MWDialogue::DialogueManager> mDialogueManager;
         std::unique_ptr<MWDialogue::Journal> mJournal;

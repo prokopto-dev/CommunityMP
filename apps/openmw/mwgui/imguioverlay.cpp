@@ -49,11 +49,11 @@ namespace MWGui
         };
     }
 
-    ImGuiOverlay::ImGuiOverlay(osg::GraphicsContext* gc, osg::Camera* mainCamera)
+    ImGuiOverlay::ImGuiOverlay(SDL_Window* window, osg::Camera* mainCamera)
     {
-        if (gc == nullptr || mainCamera == nullptr)
+        if (window == nullptr || mainCamera == nullptr)
         {
-            Log(Debug::Warning) << "ImGuiOverlay: missing context or camera";
+            Log(Debug::Warning) << "ImGuiOverlay: missing window or camera";
             return;
         }
         IMGUI_CHECKVERSION();
@@ -61,18 +61,7 @@ namespace MWGui
         ImGuiIO& io = ImGui::GetIO();
         io.IniFilename = nullptr; // no on-disk config; sessions are clean
 
-        // SDL2 window pointer — OpenMW already created the SDL_Window
-        // when the OSG GraphicsContext was set up. The traits expose
-        // it under the `inheritedWindowData` slot for our SDL backend
-        // to bind to. If the cast fails we leave ImGui in degraded
-        // mode (input ignored, rendering still works for static
-        // overlays).
-        auto* traits = const_cast<osg::GraphicsContext::Traits*>(gc->getTraits());
-        auto* sdlWindow = traits != nullptr
-            ? static_cast<SDL_Window*>(reinterpret_cast<void*>(traits->inheritedWindowData.get()))
-            : nullptr;
-        if (sdlWindow != nullptr)
-            ImGui_ImplSDL2_InitForOpenGL(sdlWindow, nullptr);
+        ImGui_ImplSDL2_InitForOpenGL(window, nullptr);
         // GLSL 130 = OpenGL 3.0; OpenMW targets at least that.
         ImGui_ImplOpenGL3_Init("#version 130");
 

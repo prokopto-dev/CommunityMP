@@ -88,6 +88,11 @@ namespace SDLUtil
             if (evt.type > SDL_SYSWMEVENT && evt.type < SDL_KEYDOWN)
                 continue;
 #endif
+            // First-pass interceptor (e.g. ImGui overlay). If it
+            // claims the event, skip the listener dispatch entirely.
+            if (mEventInterceptor && mEventInterceptor(evt))
+                continue;
+
             switch (evt.type)
             {
                 case SDL_MOUSEMOTION:

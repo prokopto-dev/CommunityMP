@@ -1,6 +1,8 @@
 #ifndef OPENMW_COMPONENTS_SDLUTIL_SDLINPUTWRAPPER_H
 #define OPENMW_COMPONENTS_SDLUTIL_SDLINPUTWRAPPER_H
 
+#include <functional>
+
 #include <osg/ref_ptr>
 
 #include <SDL_events.h>
@@ -27,6 +29,14 @@ namespace SDLUtil
         void setKeyboardEventCallback(KeyListener* listen) { mKeyboardListener = listen; }
         void setWindowEventCallback(WindowListener* listen) { mWindowListener = listen; }
         void setControllerEventCallback(ControllerListener* listen) { mConListener = listen; }
+
+        // Optional first-pass interceptor. Invoked for every SDL event
+        // before the listener dispatch. Return true to mark the event
+        // consumed and skip downstream handling — used by the ImGui
+        // overlay so typing into a debug widget doesn't also drive
+        // game input.
+        using EventInterceptor = std::function<bool(const SDL_Event&)>;
+        void setEventInterceptor(EventInterceptor interceptor) { mEventInterceptor = std::move(interceptor); }
 
         void capture(bool windowEventsOnly);
         bool isModifierHeld(int mod);
@@ -57,6 +67,8 @@ namespace SDLUtil
         KeyListener* mKeyboardListener;
         WindowListener* mWindowListener;
         ControllerListener* mConListener;
+
+        EventInterceptor mEventInterceptor;
 
         Uint16 mWarpX;
         Uint16 mWarpY;

@@ -55,6 +55,11 @@ namespace MWInput
 
         ~InputManager() final;
 
+        // Engine-side hook for first-pass event interception (ImGui
+        // overlay). Owned by Engine; we just expose the wrapper so
+        // it can be set from there.
+        SDLUtil::InputWrapper* getInputWrapper() { return mInputWrapper.get(); }
+
         /// Clear all savegame-specific data
         void clear() override;
 
