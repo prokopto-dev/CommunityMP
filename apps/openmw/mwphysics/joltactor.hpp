@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include <osg/Quat>
 #include <osg/Vec3f>
 
 #include <components/detournavigator/collisionshapetype.hpp>
@@ -46,8 +47,20 @@ namespace MWPhysics
 
         bool isOnGround() const { return mIsOnGround; }
         bool isOnSlope() const { return mIsOnSlope; }
+        bool isActive() const { return mActive; }
 
         JPH::CharacterVirtual* getCharacter() { return mCharacter.get(); }
+
+        // Rotate the underlying CharacterVirtual. Called by
+        // JoltPhysicsSystem::updateRotation when gameplay turns the
+        // actor (mouse-look on the player, AI turn on NPCs).
+        void setRotation(const osg::Quat& rot);
+
+        // Re-snap the CharacterVirtual to ptr.refData.position.
+        // Used by scripted teleports and the world's place / move-by
+        // paths. Resets the vertical inertia accumulator so the actor
+        // doesn't carry stale fall speed across a teleport.
+        void updatePosition();
 
         // Vertical inertia accumulator. Mirrors MWPhysics::Actor::mInertia
         // semantics: gravity adds to it each step, lands reset it,

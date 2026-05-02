@@ -36,6 +36,7 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
+#include "../mwmechanics/actorutil.hpp"
 #include "../mwworld/class.hpp"
 
 #include "constants.hpp"
@@ -473,10 +474,10 @@ namespace MWPhysics
             eit->second.mLastRotation = jrot;
             eit->second.mChanged = true;
         }
-        // Actor rotation is driven by gameplay code (turning); the
-        // CharacterVirtual tracks its own rotation via SetRotation,
-        // wired in phase 7f when the gameplay-physics handshake
-        // lands.
+        if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
+        {
+            ait->second->setRotation(rotate);
+        }
     }
 
     void JoltPhysicsSystem::updatePosition(const MWWorld::Ptr& ptr)
@@ -636,6 +637,11 @@ namespace MWPhysics
             auto* cv = actor->getCharacter();
             if (!cv)
                 continue;
+            // Inactive actors (cell freeze) skip the step entirely so
+            // their position / inertia don't drift while the player
+            // is across the world.
+            if (!actor->isActive())
+                continue;
             const auto qit = mQueuedMovement.find(ref);
             const osg::Vec3f input = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
             const auto groundState = cv->GetGroundState();
@@ -705,10 +711,27 @@ namespace MWPhysics
         const JPH::ShapeFilter shapeFilter; // accept all
         for (auto& [_, actor] : mActors)
         {
-            if (auto* cv = actor->getCharacter())
+            if (!actor->isActive())
+                continue;
+            // tcl no-clip: when collision mode is off, skip the
+            // collision-resolving ExtendedUpdate entirely and let the
+            // CharacterVirtual translate by mLinearVelocity * dt
+            // straight through geometry. Mirrors PhysicsSystem's
+            // toggleCollisionMode behaviour.
+            auto* cv = actor->getCharacter();
+            if (!cv)
+                continue;
+            if (actor->getCollisionMode())
             {
                 cv->ExtendedUpdate(dt, gravity, updateSettings,
                     bpFilter, objFilter, bodyFilter, shapeFilter, *mTempAllocator);
+            }
+            else
+            {
+                const JPH::Vec3 v = cv->GetLinearVelocity();
+                const JPH::RVec3 p = cv->GetPosition();
+                cv->SetPosition(JPH::RVec3(p.GetX() + v.GetX() * dt,
+                    p.GetY() + v.GetY() * dt, p.GetZ() + v.GetZ() * dt));
             }
             actor->refreshState();
 
@@ -743,11 +766,17 @@ namespace MWPhysics
     }
     bool JoltPhysicsSystem::toggleCollisionMode()
     {
-        // TCL-style noclip toggle. Vanilla MW just flips a flag on
-        // the player actor; Jolt's CharacterVirtual gets the same
-        // treatment via a Set<...>Layer call in phase 7f when the
-        // player-actor handshake settles. Default-on for now.
-        return true;
+        // TCL: flip the player actor's internal collision flag. The
+        // step loop honours mInternalCollision by skipping
+        // ExtendedUpdate (collision resolution) and translating the
+        // CharacterVirtual freely instead.
+        const auto& playerPtr = MWMechanics::getPlayer();
+        auto it = mActors.find(playerPtr.mRef);
+        if (it == mActors.end())
+            return true;
+        const bool newMode = !it->second->getCollisionMode();
+        it->second->enableCollisionMode(newMode);
+        return newMode;
     }
 
     void JoltPhysicsSystem::debugDraw()

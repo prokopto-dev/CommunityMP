@@ -83,6 +83,22 @@ namespace MWPhysics
         return osg::Vec3f(p.GetX(), p.GetY(), p.GetZ());
     }
 
+    void JoltActor::setRotation(const osg::Quat& rot)
+    {
+        if (!mCharacter)
+            return;
+        mCharacter->SetRotation(JPH::Quat(rot.x(), rot.y(), rot.z(), rot.w()));
+    }
+
+    void JoltActor::updatePosition()
+    {
+        if (!mCharacter)
+            return;
+        const auto& pos = mPtr.getRefData().getPosition();
+        mCharacter->SetPosition(JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]));
+        mInertiaZ = 0.0f; // teleports clear the fall accumulator
+    }
+
     void JoltActor::adjustPosition(const osg::Vec3f& offset)
     {
         // Apply the offset directly to the CharacterVirtual; mirrors
