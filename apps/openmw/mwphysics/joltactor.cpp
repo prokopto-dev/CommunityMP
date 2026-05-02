@@ -60,13 +60,15 @@ namespace MWPhysics
         // failure mode without ghost collisions.
         settings->mPredictiveContactDistance = 5.0f;
 
-        // Inner body — without this CharacterVirtual is "virtual" and
-        // doesn't appear in ray casts / sphere casts. Vanilla MW lets
-        // arrows / spells hit creatures, so we attach a kinematic
-        // body using the same shape so the spatial queries land.
-        settings->mInnerBodyShape = settings->mShape;
-        settings->mInnerBodyLayer = 1; // JoltLayers::MOVING — header
-                                       // include kept lean here.
+        // No inner body for now: when set, every actor's CV-internal
+        // kinematic body sits in the world at the actor's position
+        // and shows up to OTHER characters' collision queries as a
+        // solid obstacle. Two NPCs spawned near each other end up
+        // mutually supported, floating in mid-air. The downside of
+        // dropping the inner body is that ray casts / sphere casts
+        // no longer hit characters — phase 8 will reintroduce one
+        // in a dedicated broadphase layer that's filtered out of
+        // the CharacterVirtual's collision query.
 
         mCharacter = std::make_unique<JPH::CharacterVirtual>(settings,
             JPH::RVec3(position.x(), position.y(), position.z()),
