@@ -598,10 +598,21 @@ namespace MWPhysics
     }
 
     void JoltPhysicsSystem::stepSimulation(
-        float dt, bool skipSimulation, osg::Timer_t /*frameStart*/, unsigned int /*frameNumber*/, osg::Stats& /*stats*/)
+        float dt, bool skipSimulation, osg::Timer_t /*frameStart*/, unsigned int frameNumber, osg::Stats& /*stats*/)
     {
         if (skipSimulation || dt <= 0.0f)
             return;
+
+        // Diagnostic logging: set OPENMW_JOLT_TRACE=1 to dump per-actor
+        // state every 30 frames. Phase 1 of docs/jolt-character-fix-plan.md.
+        // Reads ground-state, velocity, and queued input AT BOTH ends of
+        // the step so we can see whether ExtendedUpdate is the one
+        // zeroing things out.
+        static const bool sTrace = []() {
+            const char* env = std::getenv("OPENMW_JOLT_TRACE");
+            return env != nullptr && env[0] != '0' && env[0] != '\0';
+        }();
+        const bool traceThisFrame = sTrace && (frameNumber % 30 == 0);
 
         // 1. Drain the per-actor velocity queue into each
         //    CharacterVirtual.
@@ -632,8 +643,8 @@ namespace MWPhysics
             const auto qit = mQueuedMovement.find(ref);
             const osg::Vec3f vel = (qit != mQueuedMovement.end()) ? qit->second : osg::Vec3f();
             const JPH::Vec3 currentVel = cv->GetLinearVelocity();
-            const bool onGround
-                = cv->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround;
+            const auto groundState = cv->GetGroundState();
+            const bool onGround = groundState == JPH::CharacterVirtual::EGroundState::OnGround;
             float zVel;
             if (vel.z() != 0.0f)
                 zVel = vel.z();
@@ -643,6 +654,20 @@ namespace MWPhysics
                 zVel = currentVel.GetZ();
             zVel += stepGravity.GetZ() * dt;
             cv->SetLinearVelocity(JPH::Vec3(vel.x(), vel.y(), zVel));
+
+            if (traceThisFrame)
+            {
+                const auto p = cv->GetPosition();
+                Log(Debug::Info) << "[jolt-trace pre] f=" << frameNumber
+                    << " " << actor->getPtr().getCellRef().getRefId().toDebugString()
+                    << " pos=(" << p.GetX() << "," << p.GetY() << "," << p.GetZ() << ")"
+                    << " in=(" << vel.x() << "," << vel.y() << "," << vel.z() << ")"
+                    << " curV=(" << currentVel.GetX() << "," << currentVel.GetY()
+                        << "," << currentVel.GetZ() << ")"
+                    << " setV=(" << vel.x() << "," << vel.y() << "," << zVel << ")"
+                    << " ground=" << static_cast<int>(groundState)
+                    << " dt=" << dt;
+            }
         }
 
         // 2. Tick the rigid-body world (objects, projectiles, water
@@ -681,6 +706,21 @@ namespace MWPhysics
                     bpFilter, objFilter, bodyFilter, shapeFilter, *mTempAllocator);
             }
             actor->refreshState();
+
+            if (traceThisFrame)
+            {
+                if (auto* cv = actor->getCharacter())
+                {
+                    const auto p = cv->GetPosition();
+                    const auto v = cv->GetLinearVelocity();
+                    Log(Debug::Info) << "[jolt-trace post] f=" << frameNumber
+                        << " " << actor->getPtr().getCellRef().getRefId().toDebugString()
+                        << " pos=(" << p.GetX() << "," << p.GetY() << "," << p.GetZ() << ")"
+                        << " postV=(" << v.GetX() << "," << v.GetY() << "," << v.GetZ() << ")"
+                        << " ground=" << static_cast<int>(cv->GetGroundState())
+                        << " supported=" << (cv->IsSupported() ? 1 : 0);
+                }
+            }
         }
 
         // 4. Movement queue is "valid until the next stepSimulation"
