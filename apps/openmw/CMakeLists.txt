@@ -45,6 +45,7 @@ add_openmw_dir (mwgui
     recharge mode videowidget backgroundimage itemwidget screenfader debugwindow spellmodel spellview
     draganddrop timeadvancer jailscreen itemchargeview keyboardnavigation textcolours statswatcher
     postprocessorhud settings worlditemmodel itemtransfer controllerbuttonsoverlay inventorytabsoverlay
+    imguioverlay
     )
 
 add_openmw_dir (mwdialogue
@@ -201,6 +202,10 @@ if(OPENMW_PHYSICS_BACKEND STREQUAL "jolt")
     target_include_directories(openmw-lib SYSTEM PRIVATE ${JOLT_INCLUDE_DIR})
     target_link_libraries(openmw-lib Jolt)
 endif()
+
+# Vendored Dear ImGui (extern/imgui submodule, pinned to v1.92.7).
+# Provides the in-engine debug overlay that MWGui::ImGuiOverlay drives.
+target_link_libraries(openmw-lib imgui)
 
 if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
     target_precompile_headers(openmw-lib PRIVATE

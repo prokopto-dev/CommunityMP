@@ -188,6 +188,33 @@ endif()
 
 add_subdirectory(smhasher)
 
+# Dear ImGui (vendored as submodule under extern/imgui, pinned to v1.92.7).
+# Built as a static library with the SDL2 + OpenGL3 backends so the
+# in-engine debug overlay (apps/openmw/mwgui/imguioverlay.*) can call
+# into it without a separate find_package step. Backends use SDL2
+# (already a hard dep of openmw) and a self-contained GL3 loader.
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+)
+target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1)
+find_package(SDL2 REQUIRED)
+target_link_libraries(imgui PUBLIC SDL2::SDL2)
+set_target_properties(imgui PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    EXCLUDE_FROM_ALL OFF
+)
+
 if (BUILD_BENCHMARKS AND NOT OPENMW_USE_SYSTEM_BENCHMARK)
 
     set(BENCHMARK_ENABLE_TESTING OFF)
