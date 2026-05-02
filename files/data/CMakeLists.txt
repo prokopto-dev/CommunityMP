@@ -169,6 +169,7 @@ set(BUILTIN_DATA_FILES
     shaders/debug.omwfx
     shaders/internal_distortion.omwfx
     shaders/internal_raycast.omwfx
+    shaders/ssao.omwfx
 
     mygui/core.skin
     mygui/core.xml

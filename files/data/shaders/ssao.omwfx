@@ -1,0 +1,123 @@
+// Standalone SSAO post-process. Phase A1 of docs/ssao-and-grass-plan.md:
+// extracts the horizon-based ambient occlusion currently bundled in
+// internal_raycast.omwfx into a single-file effect that can be enabled
+// in isolation. Identical algorithm; the planned bilateral-blur and
+// hemisphere kernel work lands in Phase A2.
+
+uniform_float uRadius {
+    header = "#{OMWShaders:SSAOHeader}";
+    default = 80.0;
+    min = 1.0;
+    max = 400.0;
+    step = 1.0;
+    display_name = "Radius";
+    description = "World-space sampling radius (in MW units, 1m ≈ 70).";
+}
+
+uniform_float uStrength {
+    default = 1.0;
+    min = 0.0;
+    max = 4.0;
+    step = 0.05;
+    display_name = "Strength";
+    description = "Multiplier on the occlusion factor before clamp.";
+}
+
+uniform_int uSamples {
+    default = 16;
+    min = 4;
+    max = 64;
+    step = 1;
+    display_name = "Samples";
+    description = "Per-pixel directional samples. Higher = smoother, slower.";
+}
+
+uniform_float uPower {
+    default = 1.0;
+    min = 0.5;
+    max = 4.0;
+    step = 0.05;
+    display_name = "Contrast";
+    description = "Exponent applied to the AO factor — 1.0 is linear, >1 darkens crevices.";
+}
+
+fragment main {
+
+    omw_In vec2 omw_TexCoord;
+
+    vec3 viewPosFromUV(vec2 uv)
+    {
+        float d = omw_GetDepth(uv);
+#if (OMW_REVERSE_Z == 1)
+        float ndcZ = 1.0 - d;
+#else
+        float ndcZ = d * 2.0 - 1.0;
+#endif
+        vec4 ndc = vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
+        vec4 view = omw_InvProjectionMatrix() * ndc;
+        return view.xyz / view.w;
+    }
+
+    // Horizon-based AO. One ring of `uSamples` taps in screen-space; for
+    // each tap we project the sample point onto the surface tangent
+    // plane via dot(n, toSample) and accumulate. World-anchored hash
+    // dither (instead of gl_FragCoord) so the noise pattern doesn't
+    // crawl with the camera over static geometry.
+    float ambientOcclusion(vec2 uv)
+    {
+        vec3 origin = viewPosFromUV(uv);
+#if OMW_NORMALS
+        vec3 n = omw_GetNormals(uv);
+        if (length(n) < 0.5) return 1.0;
+        n = normalize(n);
+#else
+        return 1.0;
+#endif
+
+        vec2 res = omw.resolution;
+        float pxRadius = uRadius * res.y / max(0.001, -origin.z) * 0.5;
+        pxRadius = clamp(pxRadius, 4.0, 0.25 * res.y);
+        vec2 uvRadius = vec2(pxRadius) / res;
+
+        vec3 originWS = (omw.invViewMatrix * vec4(origin, 1.0)).xyz;
+        float dither = fract(sin(dot(originWS.xyz,
+            vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+
+        float ao = 0.0;
+        const float TWO_PI = 6.2831853;
+        int samples = uSamples;
+        float radiusSq = uRadius * uRadius;
+
+        for (int i = 0; i < samples; ++i)
+        {
+            float angle = (float(i) + dither) / float(samples) * TWO_PI;
+            vec2 dir = vec2(cos(angle), sin(angle));
+            vec2 sUV = uv + dir * uvRadius;
+            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
+                continue;
+            vec3 sampled = viewPosFromUV(sUV);
+            vec3 toSample = sampled - origin;
+            float d2 = dot(toSample, toSample);
+            float falloff = clamp(1.0 - d2 / radiusSq, 0.0, 1.0);
+            float horizon = max(0.0, dot(n, normalize(toSample))) * falloff;
+            ao += horizon;
+        }
+        ao = clamp(1.0 - ao * uStrength / float(samples), 0.0, 1.0);
+        return pow(ao, uPower);
+    }
+
+    void main()
+    {
+        vec4 col = omw_GetLastShader(omw_TexCoord);
+        float ao = ambientOcclusion(omw_TexCoord);
+        omw_FragColor = vec4(col.rgb * ao, col.a);
+    }
+}
+
+technique {
+    description = "Standalone screen-space ambient occlusion (horizon-based).";
+    author = "OpenMW Boost";
+    version = "1.0";
+    passes = main;
+    pass_normals = true;
+}
