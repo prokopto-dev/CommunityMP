@@ -38,6 +38,7 @@
 #include "../mwbase/world.hpp"
 #include "../mwworld/class.hpp"
 
+#include "constants.hpp"
 #include "joltactor.hpp"
 #include "joltshapeconverter.hpp"
 
@@ -653,8 +654,21 @@ namespace MWPhysics
         // 3. Tick each character. ExtendedUpdate handles its own
         //    sub-stepping, slope sliding, stick-to-floor, and
         //    walk-stairs heuristics inside Jolt.
+        //
+        // Jolt's ExtendedUpdateSettings defaults assume a Y-up world:
+        //   mStickToFloorStepDown = (0, -0.5, 0)  // -Y "down"
+        //   mWalkStairsStepUp     = (0,  0.4, 0)  // +Y "up"
+        // MW is Z-up — without overriding these the stick-to-floor
+        // raycast goes sideways instead of downward, ground state
+        // flickers, and the step-up logic can't traverse vanilla
+        // stairs. Use MW's stair sizes (sStepSizeUp = 34 units, ~48 cm)
+        // so the heuristic matches what level designers expected.
         const JPH::Vec3 gravity = mJoltSystem->GetGravity();
-        const JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+        JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+        updateSettings.mStickToFloorStepDown
+            = JPH::Vec3(0.0f, 0.0f, -MWPhysics::sStepSizeDown);
+        updateSettings.mWalkStairsStepUp
+            = JPH::Vec3(0.0f, 0.0f, ::Constants::sStepSizeUp);
         const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
         const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
         const JPH::BodyFilter bodyFilter; // accept all (no per-body exclusions yet)
