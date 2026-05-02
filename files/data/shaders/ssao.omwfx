@@ -1,8 +1,12 @@
-// Standalone SSAO post-process. Phase A1 of docs/ssao-and-grass-plan.md:
-// extracts the horizon-based ambient occlusion currently bundled in
-// internal_raycast.omwfx into a single-file effect that can be enabled
-// in isolation. Identical algorithm; the planned bilateral-blur and
-// hemisphere kernel work lands in Phase A2.
+// Standalone SSAO post-process. Phase A2 of docs/ssao-and-grass-plan.md:
+// 3-pass pipeline (raw AO → bilateral blur → composite) with depth-aware
+// blur to denoise the noisy single-tap-per-direction AO without smearing
+// across geometric edges.
+//
+// Pass layout:
+//   1. ao_raw   → R8  AO factor at quarter-res, horizon-based.
+//   2. ao_blur  → bilateral cross blur, depth weights.
+//   3. main     → compose: scene * blurredAO.
 
 uniform_float uRadius {
     header = "#{OMWShaders:SSAOHeader}";
@@ -41,10 +45,22 @@ uniform_float uPower {
     description = "Exponent applied to the AO factor — 1.0 is linear, >1 darkens crevices.";
 }
 
-fragment main {
+uniform_bool uBilateralBlur {
+    default = true;
+    display_name = "Bilateral Blur";
+    description = "Apply depth-aware blur to denoise the AO factor.";
+}
 
-    omw_In vec2 omw_TexCoord;
+uniform_float uBlurDepthSigma {
+    default = 30.0;
+    min = 1.0;
+    max = 200.0;
+    step = 1.0;
+    display_name = "Blur Depth Threshold";
+    description = "View-space depth (units) over which the blur weight falls off — keeps AO from bleeding across edges.";
+}
 
+shared {
     vec3 viewPosFromUV(vec2 uv)
     {
         float d = omw_GetDepth(uv);
@@ -57,12 +73,40 @@ fragment main {
         vec4 view = omw_InvProjectionMatrix() * ndc;
         return view.xyz / view.w;
     }
+}
 
-    // Horizon-based AO. One ring of `uSamples` taps in screen-space; for
-    // each tap we project the sample point onto the surface tangent
-    // plane via dot(n, toSample) and accumulate. World-anchored hash
-    // dither (instead of gl_FragCoord) so the noise pattern doesn't
-    // crawl with the camera over static geometry.
+// Quarter-resolution single-channel AO target. R8 is enough — AO is a
+// scalar in [0, 1] and the bilateral blur softens any banding.
+render_target RT_AO {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = r8;
+    source_type = unsigned_byte;
+    source_format = red;
+    mipmaps = false;
+    min_filter = linear;
+    mag_filter = linear;
+}
+
+// Blurred AO at the same resolution. Linear filtering so the upsample
+// in the composite pass interpolates smoothly between AO texels.
+render_target RT_AOBlurred {
+    width_ratio = 0.5;
+    height_ratio = 0.5;
+    internal_format = r8;
+    source_type = unsigned_byte;
+    source_format = red;
+    mipmaps = false;
+    min_filter = linear;
+    mag_filter = linear;
+}
+
+// -----------------------------------------------------------------------
+// Pass 1: raw horizon AO
+// -----------------------------------------------------------------------
+fragment ao_raw(target=RT_AO) {
+    omw_In vec2 omw_TexCoord;
+
     float ambientOcclusion(vec2 uv)
     {
         vec3 origin = viewPosFromUV(uv);
@@ -79,6 +123,8 @@ fragment main {
         pxRadius = clamp(pxRadius, 4.0, 0.25 * res.y);
         vec2 uvRadius = vec2(pxRadius) / res;
 
+        // World-anchored hash dither so the noise pattern stays
+        // attached to surfaces instead of crawling with the camera.
         vec3 originWS = (omw.invViewMatrix * vec4(origin, 1.0)).xyz;
         float dither = fract(sin(dot(originWS.xyz,
             vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -92,15 +138,43 @@ fragment main {
         {
             float angle = (float(i) + dither) / float(samples) * TWO_PI;
             vec2 dir = vec2(cos(angle), sin(angle));
-            vec2 sUV = uv + dir * uvRadius;
-            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
-                continue;
-            vec3 sampled = viewPosFromUV(sUV);
-            vec3 toSample = sampled - origin;
-            float d2 = dot(toSample, toSample);
-            float falloff = clamp(1.0 - d2 / radiusSq, 0.0, 1.0);
-            float horizon = max(0.0, dot(n, normalize(toSample))) * falloff;
-            ao += horizon;
+            // Two taps per direction (inner + outer) for a poor-man's
+            // hemisphere kernel — picks up close-range occlusion at
+            // half radius without doubling the texture-fetch budget.
+            vec2 sUV0 = uv + dir * uvRadius * 0.5;
+            vec2 sUV1 = uv + dir * uvRadius;
+
+            float partial = 0.0;
+            int taps = 0;
+            if (sUV0.x >= 0.0 && sUV0.x <= 1.0 && sUV0.y >= 0.0 && sUV0.y <= 1.0)
+            {
+                vec3 sampled = viewPosFromUV(sUV0);
+                vec3 toSample = sampled - origin;
+                float d2 = dot(toSample, toSample);
+                // Range check: ignore taps outside the sphere of
+                // influence. Without this, a distant background
+                // pixel can fake-occlude a foreground point at silhouette
+                // edges.
+                if (d2 < radiusSq)
+                {
+                    float falloff = 1.0 - d2 / radiusSq;
+                    partial += max(0.0, dot(n, normalize(toSample))) * falloff;
+                    taps++;
+                }
+            }
+            if (sUV1.x >= 0.0 && sUV1.x <= 1.0 && sUV1.y >= 0.0 && sUV1.y <= 1.0)
+            {
+                vec3 sampled = viewPosFromUV(sUV1);
+                vec3 toSample = sampled - origin;
+                float d2 = dot(toSample, toSample);
+                if (d2 < radiusSq)
+                {
+                    float falloff = 1.0 - d2 / radiusSq;
+                    partial += max(0.0, dot(n, normalize(toSample))) * falloff;
+                    taps++;
+                }
+            }
+            ao += taps > 0 ? partial / float(taps) : 0.0;
         }
         ao = clamp(1.0 - ao * uStrength / float(samples), 0.0, 1.0);
         return pow(ao, uPower);
@@ -108,16 +182,72 @@ fragment main {
 
     void main()
     {
-        vec4 col = omw_GetLastShader(omw_TexCoord);
         float ao = ambientOcclusion(omw_TexCoord);
+        omw_FragColor = vec4(ao, 0.0, 0.0, 1.0);
+    }
+}
+
+// -----------------------------------------------------------------------
+// Pass 2: bilateral cross blur (separable would need 2 passes; cross is
+// cheap enough at quarter-res). Depth weight prevents AO from leaking
+// across silhouette edges (e.g. a creature's outline against a wall).
+// -----------------------------------------------------------------------
+fragment ao_blur(target=RT_AOBlurred, rt1=RT_AO) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        if (!uBilateralBlur)
+        {
+            omw_FragColor = omw_Texture2D(RT_AO, omw_TexCoord);
+            return;
+        }
+
+        const int kRadius = 2; // 5x5 cross
+        vec2 texel = vec2(1.0) / (omw.resolution * 0.5); // RT is half-res
+
+        float refDepth = omw_GetLinearDepth(omw_TexCoord);
+        float invSigma = 1.0 / max(uBlurDepthSigma, 0.001);
+
+        float sum = 0.0;
+        float weightTotal = 0.0;
+        for (int dy = -kRadius; dy <= kRadius; ++dy)
+        {
+            for (int dx = -kRadius; dx <= kRadius; ++dx)
+            {
+                vec2 sUV = omw_TexCoord + vec2(float(dx), float(dy)) * texel;
+                float sDepth = omw_GetLinearDepth(sUV);
+                float depthDiff = abs(sDepth - refDepth) * invSigma;
+                // Gaussian on spatial distance × Gaussian on depth diff
+                float spatialW = exp(-0.5 * float(dx*dx + dy*dy) * 0.25);
+                float depthW = exp(-0.5 * depthDiff * depthDiff);
+                float w = spatialW * depthW;
+                sum += omw_Texture2D(RT_AO, sUV).r * w;
+                weightTotal += w;
+            }
+        }
+        omw_FragColor = vec4(weightTotal > 0.0 ? sum / weightTotal : 1.0, 0.0, 0.0, 1.0);
+    }
+}
+
+// -----------------------------------------------------------------------
+// Pass 3: composite — scene color × blurred AO
+// -----------------------------------------------------------------------
+fragment main(rt1=RT_AOBlurred) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        vec4 col = omw_GetLastShader(omw_TexCoord);
+        float ao = omw_Texture2D(RT_AOBlurred, omw_TexCoord).r;
         omw_FragColor = vec4(col.rgb * ao, col.a);
     }
 }
 
 technique {
-    description = "Standalone screen-space ambient occlusion (horizon-based).";
+    description = "Standalone screen-space ambient occlusion (3-pass: raw → bilateral blur → composite).";
     author = "OpenMW Boost";
-    version = "1.0";
-    passes = main;
+    version = "1.1";
+    passes = ao_raw, ao_blur, main;
     pass_normals = true;
 }
