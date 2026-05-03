@@ -1,3 +1,35 @@
+openmw-jolt — fork expérimental
+================================
+
+> Tripe de gars qui s'amuse à modifier le moteur d'OpenMW à coups de Claude
+> Code. Aucune garantie, rien de production. C'est un fork pour tester des
+> idées qui n'ont pas vraiment de raison d'être upstream.
+
+Ce qui change par rapport à OpenMW vanilla:
+
+- **Backend physique Jolt** à la place de Bullet (`apps/openmw/mwphysics/jolt*`).
+  Migration progressive, encore quelques rough edges (animations colliders,
+  inner-body filtering pour les projectiles, etc.).
+- **Post-process raycast (`internal_raycast.omwfx`)** — un gros shader qui
+  empile contact shadows, SSAO, SSR, sun halo, god rays, scattering
+  atmosphérique, brouillard volumétrique, eye adaptation, parallax, et
+  d'autres petits trucs.
+- **SSAO standalone (`ssao.omwfx`)** — pipeline 3 passes (raw AO → bilateral
+  blur → composite) pour A/B contre le SSAO intégré du raycast.
+- **Pipeline PBR** — `scripts/generate_pbr_textures.py` pour batch-générer
+  albédo/normal/height/specular via API externes, puis fusion height-in-alpha
+  pour activer le `@parallax` define automatiquement.
+- **Overlay ImGui** (en cours, F1 désactivé pour l'instant — crash macOS sur
+  l'état GL partagé OSG/ImGui à régler).
+
+Les commits sont taggés par phase (`Jolt phase 1`, `SSAO Phase A2`, etc.) et
+les plans détaillés vivent dans `docs/jolt-character-fix-plan.md`,
+`docs/ssao-and-grass-plan.md`, `docs/imgui-overlay-plan.md`.
+
+Pour suivre l'upstream officiel: https://gitlab.com/OpenMW/openmw
+
+---
+
 OpenMW
 ======
 
