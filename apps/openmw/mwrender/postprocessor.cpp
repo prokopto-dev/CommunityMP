@@ -840,9 +840,25 @@ namespace MWRender
             mTechniques.push_back(technique);
         }
 
+        // Skip user-chain entries whose names match an already-loaded
+        // internal technique. Otherwise internal_raycast (registered
+        // as internal+locked) gets stacked once for every time the
+        // user's saved chain mentions it — and the F2 HUD lets users
+        // accidentally accumulate copies because it shows the locked
+        // technique alongside removable ones, which then survives the
+        // next save / load round-trip.
+        const auto isAlreadyInternal = [&](std::string_view name) {
+            for (const auto& t : mInternalTechniques)
+                if (t->getName() == name)
+                    return true;
+            return false;
+        };
+
         for (const std::string& techniqueName : Settings::postProcessing().mChain.get())
         {
             if (techniqueName.empty())
+                continue;
+            if (isAlreadyInternal(techniqueName))
                 continue;
 
             mTechniques.push_back(loadTechnique(techniqueName));
