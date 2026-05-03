@@ -1131,7 +1131,14 @@ namespace MWPhysics
                 origin.z() += it->second->getHalfExtents().z();
             return origin;
         };
-        const RayCastingResult result = castRay(getEye(a1), getEye(a2), {}, {},
+        // Ignore both actors so the LoS ray doesn't trip on either
+        // CharacterVirtual's inner body. With probes registered on
+        // ACTOR_PROBE the player's own inner body sits at the eye
+        // position the ray starts from — without the self-ignore the
+        // ray hits its origin's own probe and getHitContact bails
+        // out, making melee miss every NPC.
+        const std::vector<MWWorld::ConstPtr> ignore{ a1, a2 };
+        const RayCastingResult result = castRay(getEye(a1), getEye(a2), ignore, {},
             CollisionType_World | CollisionType_HeightMap | CollisionType_Door, 0xff);
         return !result.mHit;
     }
@@ -1153,12 +1160,19 @@ namespace MWPhysics
         return {};
     }
     osg::Vec3f JoltPhysicsSystem::traceDown(
-        const MWWorld::Ptr& /*ptr*/, const osg::Vec3f& position, float maxHeight)
+        const MWWorld::Ptr& ptr, const osg::Vec3f& position, float maxHeight)
     {
         // Drop a ray straight down. Returns where it hit ground, or
         // (position - maxHeight*Z) if the ray escapes to free space.
+        // The actor's own inner body sits at its position and would
+        // otherwise be the first hit (zero distance) — World::adjustPosition
+        // calls us right after a teleport, so the ray starts inside or
+        // just above the actor's capsule. Without the self-ignore the
+        // result is "snap to your own current z", which made cell-change
+        // teleports look like they did nothing.
         const osg::Vec3f to(position.x(), position.y(), position.z() - maxHeight);
-        const RayCastingResult hit = castRay(position, to, {}, {},
+        const std::vector<MWWorld::ConstPtr> ignore{ ptr };
+        const RayCastingResult hit = castRay(position, to, ignore, {},
             CollisionType_World | CollisionType_HeightMap, 0xff);
         return hit.mHit ? hit.mHitPos : to;
     }
