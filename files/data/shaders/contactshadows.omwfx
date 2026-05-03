@@ -43,6 +43,39 @@ uniform_float uBias {
     description = "Distance (in MW units) the ray origin is pushed along the surface normal before marching. Prevents self-shadow at glancing angles.";
 }
 
+uniform_float uPenumbraSoftness {
+    default = 1.0;
+    min = 0.0;
+    max = 4.0;
+    step = 0.1;
+    display_name = "Penumbra Softness";
+    description = "Distance-based soft-shadow ramp. 0 = hard binary shadow (occluded or not). Higher = occluders far down the ray cast progressively softer shadows, mimicking the sun's angular size.";
+}
+
+uniform_float uStepCurve {
+    default = 1.5;
+    min = 1.0;
+    max = 3.0;
+    step = 0.1;
+    display_name = "Step Curve";
+    description = "Logarithmic step distribution along the ray. 1 = uniform (every sample equally spaced), >1 concentrates samples close to the surface where the shadow detail is, leaving fewer samples for the far end where banding is invisible anyway.";
+}
+
+uniform_bool uBilateralBlur {
+    default = true;
+    display_name = "Bilateral Blur";
+    description = "Apply a depth-aware 5x5 cross blur to the raw shadow buffer to smooth out raymarche noise without bleeding across silhouettes.";
+}
+
+uniform_float uBlurDepthSigma {
+    default = 30.0;
+    min = 1.0;
+    max = 200.0;
+    step = 1.0;
+    display_name = "Blur Depth Threshold";
+    description = "View-space depth (units) over which the blur weight falls off — keeps shadows from leaking across geometric edges.";
+}
+
 uniform_bool uFadeWithSun {
     default = true;
     display_name = "Fade With Sun Visibility";
@@ -65,6 +98,17 @@ shared {
 }
 
 render_target RT_ContactShadows {
+    width_ratio = 1.0;
+    height_ratio = 1.0;
+    internal_format = red;
+    source_type = unsigned_byte;
+    source_format = red;
+    mipmaps = false;
+    min_filter = linear;
+    mag_filter = linear;
+}
+
+render_target RT_ContactShadowsBlurred {
     width_ratio = 1.0;
     height_ratio = 1.0;
     internal_format = red;
@@ -150,11 +194,20 @@ fragment cshadow_raw(target=RT_ContactShadows) {
         int steps = uSteps;
         float thickness = uThickness * omw.far;
         float minThickness = thickness * 0.05;
+        float invStepCurve = 1.0 / max(uStepCurve, 1.0);
 
         float occluded = 0.0;
+        float hitT = 1.0; // 1.0 = no hit, lower = closer to origin
         for (int i = 1; i <= steps; ++i)
         {
-            float t = (float(i) + dither) / float(steps);
+            // Logarithmic step distribution: pow((i + dither)/steps,
+            // uStepCurve) > linear means samples are concentrated
+            // near t=0 (close to the origin where shadow detail is
+            // crisp) and stretched toward t=1 (far end where the
+            // contact shadow is fading anyway). uStepCurve=1 falls
+            // back to uniform sampling.
+            float linT = (float(i) + dither) / float(steps);
+            float t = pow(linT, uStepCurve);
             vec2 sUV = ssStart + delta * t;
             if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
                 break;
@@ -163,35 +216,83 @@ fragment cshadow_raw(target=RT_ContactShadows) {
             float diff = sampled.z - rayVS.z;
             if (diff > minThickness && diff < thickness)
             {
+                hitT = t;
                 occluded = 1.0;
                 break;
             }
         }
 
-        // Encode (1 - shadow) into the R channel; uStrength + sunFade
-        // applied here rather than in the composite so the panel can
-        // A/B between strength values without re-running the full
-        // composite chain.
-        float shadow = 1.0 - occluded * uStrength * sunFade;
+        // Soft penumbra: a hit close to the origin (small hitT) gives
+        // a hard / dark shadow; a hit far down the ray fades. Mimics
+        // the angular size of the sun — far-away occluders cast
+        // soft penumbral edges. uPenumbraSoftness=0 falls back to
+        // a hard binary shadow.
+        float penumbra = mix(1.0, 1.0 - hitT, clamp(uPenumbraSoftness, 0.0, 4.0));
+        // Clamp penumbra below 1.0 so an early-out hit still gets
+        // some occlusion budget (1.0 is reserved for "no hit").
+        penumbra = clamp(penumbra, 0.0, 1.0);
+        float shadow = 1.0 - occluded * penumbra * uStrength * sunFade;
         omw_FragColor = vec4(shadow, 0.0, 0.0, 1.0);
     }
 }
 
-fragment main(rt1=RT_ContactShadows) {
+// -----------------------------------------------------------------------
+// Bilateral cross blur: 5x5 depth-weighted Gaussian. Mirror of
+// ssao.omwfx's ao_blur — denoises the raymarche output without leaking
+// across geometric edges.
+// -----------------------------------------------------------------------
+fragment cshadow_blur(target=RT_ContactShadowsBlurred, rt1=RT_ContactShadows) {
+    omw_In vec2 omw_TexCoord;
+
+    void main()
+    {
+        if (!uBilateralBlur)
+        {
+            omw_FragColor = omw_Texture2D(RT_ContactShadows, omw_TexCoord);
+            return;
+        }
+
+        const int kRadius = 2; // 5x5 cross
+        vec2 texel = vec2(1.0) / omw.resolution;
+
+        float refDepth = omw_GetLinearDepth(omw_TexCoord);
+        float invSigma = 1.0 / max(uBlurDepthSigma, 0.001);
+
+        float sum = 0.0;
+        float weightTotal = 0.0;
+        for (int dy = -kRadius; dy <= kRadius; ++dy)
+        {
+            for (int dx = -kRadius; dx <= kRadius; ++dx)
+            {
+                vec2 sUV = omw_TexCoord + vec2(float(dx), float(dy)) * texel;
+                float sDepth = omw_GetLinearDepth(sUV);
+                float depthDiff = abs(sDepth - refDepth) * invSigma;
+                float spatialW = exp(-0.5 * float(dx*dx + dy*dy) * 0.25);
+                float depthW = exp(-0.5 * depthDiff * depthDiff);
+                float w = spatialW * depthW;
+                sum += omw_Texture2D(RT_ContactShadows, sUV).r * w;
+                weightTotal += w;
+            }
+        }
+        omw_FragColor = vec4(weightTotal > 0.0 ? sum / weightTotal : 1.0, 0.0, 0.0, 1.0);
+    }
+}
+
+fragment main(rt1=RT_ContactShadowsBlurred) {
     omw_In vec2 omw_TexCoord;
 
     void main()
     {
         vec4 col = omw_GetLastShader(omw_TexCoord);
-        float shadow = omw_Texture2D(RT_ContactShadows, omw_TexCoord).r;
+        float shadow = omw_Texture2D(RT_ContactShadowsBlurred, omw_TexCoord).r;
         omw_FragColor = vec4(col.rgb * shadow, col.a);
     }
 }
 
 technique {
-    description = "Standalone screen-space contact shadows toward the sun. Driven by omw.sunPos + omw.sunVis, decoupled from internal_raycast so the user can A/B and tune in isolation.";
+    description = "Standalone screen-space contact shadows toward the sun. AAA-style: bilateral blur, soft penumbra by occluder distance, logarithmic step distribution. Driven by omw.sunPos + omw.sunVis, decoupled from internal_raycast so the user can A/B and tune in isolation.";
     author = "OpenMW Boost";
-    version = "1.0";
-    passes = cshadow_raw, main;
+    version = "1.1";
+    passes = cshadow_raw, cshadow_blur, main;
     pass_normals = true;
 }
