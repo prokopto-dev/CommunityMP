@@ -46,6 +46,7 @@ namespace MWPhysics
     }
 
     JoltActor::JoltActor(const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents,
+        const osg::Vec3f& shapeOffset,
         const osg::Vec3f& position, JPH::PhysicsSystem& joltSystem)
         : mPtr(ptr)
         , mHalfExtents(halfExtents)
@@ -55,16 +56,15 @@ namespace MWPhysics
         settings->mUp = JPH::Vec3(0.0f, 0.0f, 1.0f); // MW Z-up
         settings->mMass = 90.0f;                     // ~90 kg adult human, vanilla-ish
 
-        // Shape sits half-height above the CV's reference position.
-        // OpenMW gives us the actor's *feet* position, but Jolt's
-        // CharacterVirtual centers its shape on its own position by
-        // default — without this offset the capsule center is at
-        // the feet, the bottom is underground, and the CV lifts the
-        // body to settle, leaving the visual mesh hovering above
-        // the ground by ~halfExtent.z. Mirrors how the Bullet path
-        // adds mCollisionBox.mCenter (= (0, 0, halfExtent.z) for
-        // auto-generated NPC capsules) to the feet position.
-        settings->mShapeOffset = JPH::Vec3(0.0f, 0.0f, halfExtents.z());
+        // Shape sits at shapeOffset above the CV's reference
+        // (feet) position. Caller passes shape->mCollisionBox.mCenter
+        // here — same offset Bullet's MWPhysics::Actor stores in
+        // mMeshTranslation. Hardcoding (0, 0, halfExtents.z) put NPC
+        // visuals half a capsule off-axis from the physics body
+        // (user-reported "spawn at half collider height in air")
+        // because their explicit collision boxes don't always have
+        // mCenter at exactly halfExtents.z.
+        settings->mShapeOffset = JPH::Vec3(shapeOffset.x(), shapeOffset.y(), shapeOffset.z());
 
         // Slope ceiling: vanilla MW lets actors walk surfaces up to
         // ~46° before sliding (fSlopeBraking GMST). Phase 7f tunes

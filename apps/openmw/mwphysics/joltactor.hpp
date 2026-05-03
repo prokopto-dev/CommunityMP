@@ -34,6 +34,7 @@ namespace MWPhysics
     {
     public:
         JoltActor(const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents,
+            const osg::Vec3f& shapeOffset,
             const osg::Vec3f& position, JPH::PhysicsSystem& joltSystem);
         ~JoltActor() override;
 

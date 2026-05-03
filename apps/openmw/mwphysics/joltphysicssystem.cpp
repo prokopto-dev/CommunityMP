@@ -405,10 +405,27 @@ namespace MWPhysics
         if (halfExtents.length2() < 1e-6f)
             return; // shape has no usable bounds
 
+        // mCollisionBox.mCenter is the offset from the RefData
+        // position (feet, in MW convention) to the collision box
+        // center. For NPCs with an explicit collision box this
+        // typically differs slightly from (0, 0, halfExtents.z()) —
+        // hardcoding the latter as the CV's mShapeOffset (which we
+        // were doing before) put the visual mesh half a capsule
+        // off-axis from the physics body, hence the user-reported
+        // "spawn at half collider height in air". Use the actual
+        // box center; fall back to (0, 0, halfExtents.z) only when
+        // the shape has no center information (creatures with
+        // auto-generated boxes — same fallback the Bullet path
+        // takes in MWPhysics::Actor when mOriginalHalfExtents is
+        // zero).
+        osg::Vec3f shapeOffset = shape->mCollisionBox.mCenter;
+        if (shapeOffset.length2() < 1e-6f)
+            shapeOffset = osg::Vec3f(0.0f, 0.0f, halfExtents.z());
+
         const ESM::Position& pos = ptr.getRefData().getPosition();
         const osg::Vec3f position(pos.pos[0], pos.pos[1], pos.pos[2]);
 
-        auto actor = std::make_unique<JoltActor>(ptr, halfExtents, position, *mJoltSystem);
+        auto actor = std::make_unique<JoltActor>(ptr, halfExtents, shapeOffset, position, *mJoltSystem);
         // Phase 8d: register the CharacterVirtual's inner body in
         // the owner map so ray casts can resolve hits to this Ptr.
         if (auto* cv = actor->getCharacter())
