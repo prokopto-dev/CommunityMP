@@ -944,6 +944,18 @@ namespace MWWorld
     void Scene::changeToInteriorCell(
         std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent)
     {
+        // Cancel any pending exterior cell-grid change so the request
+        // doesn't fire AFTER we've already moved to the interior.
+        // Without this, the engine reads a stale pre-teleport
+        // requestChangeCellGrid (set by playerMoved when the actor
+        // was crossing an exterior cell border just before activating
+        // the door) and processes it on the next update, which unloads
+        // the interior we just loaded and reloads exterior cells around
+        // the interior's xy coords — putting the player visually under
+        // water near (0,0,0). User-reported "C, sous l'eau, milieu de
+        // la carte".
+        mChangeCellGridRequest.reset();
+
         CellStore& cell = mWorld.getWorldModel().getInterior(cellName);
         bool useFading = (mCurrentCell != nullptr);
         if (useFading)
