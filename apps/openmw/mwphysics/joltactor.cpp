@@ -83,6 +83,15 @@ namespace MWPhysics
         // that scale so step-up doesn't ghost-collide.
         settings->mCharacterPadding = 1.5f;
 
+        // Enhanced internal edge removal: makes the CV slide
+        // smoothly over the convex edges where two collision
+        // triangles meet (typical in MW stair tread / riser
+        // junctions). Without it, the CV catches micro-edges and
+        // stops dead when stepping. Slightly more expensive per
+        // step but worth it for the user-reported "stairs are
+        // difficult" symptom.
+        settings->mEnhancedInternalEdgeRemoval = true;
+
         // Inner body on the dedicated ACTOR_PROBE layer. Without one,
         // ray casts / sphere casts go through creatures (arrows fly
         // past). Putting the probes on their own layer lets the

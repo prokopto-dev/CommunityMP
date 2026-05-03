@@ -723,6 +723,21 @@ namespace MWRender
             float windSpeed = mSky->getBaseWindSpeed();
             mSharedUniformStateUpdater->setWindSpeed(windSpeed);
             mSharedUniformStateUpdater->setPlayerPos(playerPos);
+
+            // Phase B1 (cont'd) of docs/ssao-and-grass-plan.md.
+            // Morrowind's weather records expose a scalar wind speed
+            // but no direction (the original engine just used a
+            // hardcoded vec2(1.0)). Derive a slowly-rotating direction
+            // from the game-time hour so the field doesn't always
+            // bend the same way — full rotation over ~24 in-game
+            // hours. Smoothed inside the shader via the simulationTime
+            // drift it already applies. When MWWorld::Weather grows a
+            // direction field this becomes the seed value rather than
+            // the source.
+            const float hour = MWBase::Environment::get().getWorld()->getTimeStamp().getHour();
+            const float angle = hour * (2.0f * 3.14159265f / 24.0f);
+            mSharedUniformStateUpdater->setWindDirection(
+                osg::Vec2f(std::cos(angle), std::sin(angle)));
         }
 
         updateNavMesh();
