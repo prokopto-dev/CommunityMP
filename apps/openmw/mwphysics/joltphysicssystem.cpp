@@ -884,6 +884,12 @@ namespace MWPhysics
         // wrong-angle contacts get filtered later by the step-up
         // collision sweep itself.
         updateSettings.mWalkStairsCosAngleForwardContact = -1.0f;
+        // Step-down extra: when the step-up + forward-test lands
+        // somewhere, the CV needs to find ground below. Default is
+        // zero, which fails on slightly recessed treads. Add 20
+        // units (~30 cm) of extra search downward.
+        updateSettings.mWalkStairsStepDownExtra
+            = JPH::Vec3(0.0f, 0.0f, -20.0f);
         const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
         const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
         const IgnoreSensorsBodyFilter playerBodyFilter;

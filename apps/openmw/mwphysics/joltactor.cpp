@@ -73,10 +73,19 @@ namespace MWPhysics
 
         // Predictive contact distance: how far Jolt scans outside
         // the shape to find an upcoming wall. Default 0.1 (m) is
-        // microscopic at MW's "1 m ≈ 70 unit" scale; 5 MW units
-        // (~7 cm) avoids the "stuck on a corner" failure mode without
-        // ghost collisions.
-        settings->mPredictiveContactDistance = 5.0f;
+        // microscopic at MW's "1 m ≈ 70 unit" scale; we want the CV
+        // to see a stair riser well before colliding with it so the
+        // walk-stairs heuristic has time to engage. 20 MW units
+        // (~28 cm) covers a couple of frames of forward motion at
+        // walking speed (160 units/s × 1/60 = 2.7 units/frame).
+        settings->mPredictiveContactDistance = 20.0f;
+
+        // Hit reduction merges contacts whose normals are within
+        // ~2.5° by default. NIF stair geometry has small normal
+        // variations from tessellation that should NOT be merged —
+        // each unique step's riser is its own surface. Disable
+        // hit reduction (-1) so the CV sees every step distinctly.
+        settings->mHitReductionCosMaxAngle = -1.0f;
 
         // Character padding: how far Jolt tries to keep the shape
         // from geometry. Default 0.02 (m) → 1.4 MW units. Keep at
