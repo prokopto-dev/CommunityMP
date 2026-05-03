@@ -101,6 +101,18 @@ fragment cshadow_raw(target=RT_ContactShadows) {
             return;
         }
 
+        // Skip skybox pixels: the depth there is at the far plane
+        // (the sky is rendered without geometry), and tracing a
+        // contact ray against an "infinite" depth fragment produces
+        // a noisy ribbon across the sun / clouds. Same pattern
+        // bloomlinear.omwfx uses — anything beyond 99.9% of far is
+        // sky.
+        if (omw_GetLinearDepth(omw_TexCoord) > omw.far * 0.999)
+        {
+            omw_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
 #if OMW_NORMALS
         vec3 origin = viewPosFromUV(omw_TexCoord);
         vec3 n = omw_GetNormals(omw_TexCoord);
