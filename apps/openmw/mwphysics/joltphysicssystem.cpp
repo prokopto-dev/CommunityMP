@@ -478,7 +478,8 @@ namespace MWPhysics
         mProjectileBodies.erase(it);
     }
     void JoltPhysicsSystem::promoteToDynamic(
-        const MWWorld::Ptr& ptr, DynamicShape shape, const osg::Vec3f& halfExtents, float mass)
+        const MWWorld::Ptr& ptr, DynamicShape shape, const osg::Vec3f& halfExtents, float mass,
+        const osg::Quat* initialRotation)
     {
         // Hold onto the source BulletShape before we drop the static
         // body — extractConvexHull walks it for the Mesh path. Once
@@ -574,11 +575,13 @@ namespace MWPhysics
 
         const ESM::Position& pos = ptr.getRefData().getPosition();
         // Convert MW Euler (XYZ around -X, -Y, -Z to match the rest
-        // of the engine's rotation convention) to a Quat for Jolt.
-        const osg::Quat q
-            = osg::Quat(pos.rot[2], osg::Vec3f(0.0f, 0.0f, -1.0f))
-            * osg::Quat(pos.rot[1], osg::Vec3f(0.0f, -1.0f, 0.0f))
-            * osg::Quat(pos.rot[0], osg::Vec3f(-1.0f, 0.0f, 0.0f));
+        // of the engine's rotation convention) to a Quat for Jolt
+        // — unless the caller (cell-load path) handed us a quat
+        // captured from a previous run.
+        const osg::Quat q = (initialRotation != nullptr) ? *initialRotation
+            : (osg::Quat(pos.rot[2], osg::Vec3f(0.0f, 0.0f, -1.0f))
+                * osg::Quat(pos.rot[1], osg::Vec3f(0.0f, -1.0f, 0.0f))
+                * osg::Quat(pos.rot[0], osg::Vec3f(-1.0f, 0.0f, 0.0f)));
 
         // Spawn position = visual pivot + lift, rotated into world
         // by the initial body rotation. For zero rotation this is
@@ -1025,19 +1028,26 @@ namespace MWPhysics
                     }
                 }
 
-                // Persist position only — we keep the live rotation
-                // exclusively on the OSG node (BaseNode::setAttitude
-                // below). Decomposing Jolt's Quat back into MW's
-                // intrinsic-ZYX Euler picks up gimbal-lock artefacts
-                // for free-falling bodies; since the inspector / save
-                // path use RefData.rot just for the *initial* orient
-                // until we add a proper dynamic-state writer in
-                // Phase 6c, leaving it stale is the lesser evil.
+                // Position goes into RefData::mPosition (read on save).
+                // Rotation is *not* decomposed back to Euler — that
+                // round-trip picks up gimbal-lock artefacts for
+                // free-falling bodies. Instead we shadow the live
+                // quat into the per-ref DynamicBodyState which is
+                // what the cell-load path replays after a save.
                 ESM::Position pos = dyn.mPtr.getRefData().getPosition();
                 pos.pos[0] = visualPos.x();
                 pos.pos[1] = visualPos.y();
                 pos.pos[2] = visualPos.z();
                 dyn.mPtr.getRefData().setPosition(pos);
+
+                if (dyn.mPtr.getRefData().isDynamic())
+                {
+                    auto& dbs = dyn.mPtr.getRefData().getDynamicBody();
+                    dbs.mRotation[0] = static_cast<float>(osgRot.x());
+                    dbs.mRotation[1] = static_cast<float>(osgRot.y());
+                    dbs.mRotation[2] = static_cast<float>(osgRot.z());
+                    dbs.mRotation[3] = static_cast<float>(osgRot.w());
+                }
 
                 if (auto* base = dyn.mPtr.getRefData().getBaseNode())
                 {

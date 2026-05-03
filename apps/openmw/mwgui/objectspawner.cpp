@@ -280,6 +280,24 @@ namespace MWGui
                     phys->promoteToDynamic(placed, backendShape,
                         osg::Vec3f(mDynamicHalfExtents[0], mDynamicHalfExtents[1], mDynamicHalfExtents[2]),
                         mDynamicMass);
+
+                    // Stamp the dynamic record onto RefData so the
+                    // savegame keeps it dynamic on reload (Phase 6c).
+                    // Rotation seed = identity; the per-frame sync in
+                    // JoltPhysicsSystem::stepSimulation will overwrite
+                    // it as soon as the body integrates.
+                    ESM::DynamicBodyState dbs;
+                    dbs.mShape = static_cast<uint8_t>(backendShape);
+                    dbs.mHalfExtents[0] = mDynamicHalfExtents[0];
+                    dbs.mHalfExtents[1] = mDynamicHalfExtents[1];
+                    dbs.mHalfExtents[2] = mDynamicHalfExtents[2];
+                    dbs.mMass = mDynamicMass;
+                    dbs.mRotation[0] = 0.0f;
+                    dbs.mRotation[1] = 0.0f;
+                    dbs.mRotation[2] = 0.0f;
+                    dbs.mRotation[3] = 1.0f;
+                    placed.getRefData().setDynamic(dbs);
+
                     mLastResult = "spawned dynamic " + mSelected.toDebugString();
                 }
                 else

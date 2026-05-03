@@ -140,7 +140,8 @@ namespace MWPhysics
             int collisionType) override;
         void addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh) override;
         void promoteToDynamic(const MWWorld::Ptr& ptr, DynamicShape shape,
-            const osg::Vec3f& halfExtents, float mass) override;
+            const osg::Vec3f& halfExtents, float mass,
+            const osg::Quat* initialRotation = nullptr) override;
         int addProjectile(const MWWorld::Ptr& caster, const osg::Vec3f& position,
             VFS::Path::NormalizedView mesh, bool computeRadius) override;
         void setCaster(int projectileId, const MWWorld::Ptr& caster) override;

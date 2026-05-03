@@ -44,6 +44,7 @@
 // factory in physicsbackend.hpp returns the right concrete class
 // based on OPENMW_PHYSICS_USES_JOLT / _BULLET. No call site changes.
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string_view>
@@ -114,15 +115,22 @@ namespace MWPhysics
         // static object to a dynamic rigid body with a primitive
         // collider. Default no-op so the Bullet backend stays
         // unchanged; only Jolt implements it for now.
-        enum class DynamicShape
+        // Enum values are persisted in savegames (DynamicBodyState.mShape)
+        // so do NOT renumber existing entries.
+        enum class DynamicShape : uint8_t
         {
-            Box,
-            Cylinder,
-            Sphere,
-            Mesh, // ConvexHull extracted from the source NIF
+            Box = 0,
+            Cylinder = 1,
+            Sphere = 2,
+            Mesh = 3, // ConvexHull extracted from the source NIF
         };
+        // initialRotation, if non-null, overrides the Euler in the
+        // ref's CellRef position — used by the cell-load path to
+        // restore the saved settled orientation without going through
+        // the lossy Euler round-trip.
         virtual void promoteToDynamic(const MWWorld::Ptr& /*ptr*/, DynamicShape /*shape*/,
-            const osg::Vec3f& /*halfExtents*/, float /*mass*/)
+            const osg::Vec3f& /*halfExtents*/, float /*mass*/,
+            const osg::Quat* /*initialRotation*/ = nullptr)
         {
         }
 

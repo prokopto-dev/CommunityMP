@@ -836,6 +836,31 @@ namespace Fx
                 expect<Lexer::Literal>();
                 pass->mRenderTargets[2] = std::get<Lexer::Literal>(mToken).value;
             }
+            else if (key == "rt4")
+            {
+                expect<Lexer::Literal>();
+                pass->mRenderTargets[3] = std::get<Lexer::Literal>(mToken).value;
+            }
+            else if (key == "rt5")
+            {
+                expect<Lexer::Literal>();
+                pass->mRenderTargets[4] = std::get<Lexer::Literal>(mToken).value;
+            }
+            else if (key == "rt6")
+            {
+                expect<Lexer::Literal>();
+                pass->mRenderTargets[5] = std::get<Lexer::Literal>(mToken).value;
+            }
+            else if (key == "rt7")
+            {
+                expect<Lexer::Literal>();
+                pass->mRenderTargets[6] = std::get<Lexer::Literal>(mToken).value;
+            }
+            else if (key == "rt8")
+            {
+                expect<Lexer::Literal>();
+                pass->mRenderTargets[7] = std::get<Lexer::Literal>(mToken).value;
+            }
             else if (key == "blend")
             {
                 expect<Lexer::Open_Parenthesis>();

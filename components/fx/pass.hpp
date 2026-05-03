@@ -46,7 +46,7 @@ namespace Fx
 
         std::string getTarget() const { return mTarget; }
 
-        const std::array<std::string, 3>& getRenderTargets() const { return mRenderTargets; }
+        const std::array<std::string, 8>& getRenderTargets() const { return mRenderTargets; }
 
         void prepareStateSet(osg::StateSet* stateSet, const std::string& name) const;
 
@@ -69,7 +69,7 @@ namespace Fx
         bool mLegacyGLSL;
         bool mUBO;
 
-        std::array<std::string, 3> mRenderTargets;
+        std::array<std::string, 8> mRenderTargets;
 
         std::string mTarget;
 

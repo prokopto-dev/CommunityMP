@@ -82,6 +82,60 @@ uniform_bool uFadeWithSun {
     description = "Multiply the effect by omw.sunVis so the shadow softens when clouds occlude the sun and disappears at night.";
 }
 
+uniform_bool uDebugView {
+    default = false;
+    display_name = "Debug: Show Raw Shadow Buffer";
+    description = "Replace the screen with a greyscale dump of the contact-shadow buffer. White = no shadow, dark = shadow. Useful to verify whether the raymarche fires at all on a given pixel.";
+}
+
+uniform_bool uPointLights {
+    default = true;
+    display_name = "Point-Light Contact Shadows";
+    description = "Cast extra contact shadows from active dynamic point lights (torches, spells, lanterns). Heavy — gated by uMaxLights and uLightSteps.";
+}
+
+uniform_int uMaxLights {
+    default = 4;
+    min = 1;
+    max = 8;
+    step = 1;
+    display_name = "Max Lights Per Pixel";
+    description = "Hard cap on the number of point lights that contribute to the contact shadow per fragment. LightManager already sorts by distance, so the closest N are used.";
+}
+
+uniform_int uLightSteps {
+    default = 16;
+    min = 6;
+    max = 32;
+    step = 1;
+    display_name = "Steps Per Light";
+    description = "Raymarch step count per point light. Lower than the sun's steps because point-light rays are short (capped by light radius).";
+}
+
+uniform_float uLightStrength {
+    default = 0.6;
+    min = 0.0;
+    max = 1.0;
+    step = 0.05;
+    display_name = "Point-Light Strength";
+    description = "Per-light occlusion weight. Final shadow accumulates over all lights then clamps to [0,1] before multiplying with the sun shadow.";
+}
+
+uniform_float uLightLengthScale {
+    default = 0.6;
+    min = 0.1;
+    max = 1.0;
+    step = 0.05;
+    display_name = "Light Ray Length";
+    description = "Fraction of the light's radius the ray actually marches. Shorter rays = fewer false hits behind the occluder, less banding for the same step count.";
+}
+
+uniform_bool uLightFacingOnly {
+    default = true;
+    display_name = "Skip Back-Facing Lights";
+    description = "Don't trace lights illuminating the back of the surface (dot(N, lightDir) <= 0). Saves perf and avoids spurious shadows.";
+}
+
 shared {
     vec3 viewPosFromUV(vec2 uv)
     {
@@ -94,6 +148,104 @@ shared {
         vec4 ndc = vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
         vec4 view = omw_InvProjectionMatrix() * ndc;
         return view.xyz / view.w;
+    }
+
+    // Per-fragment shadow contribution from active point lights.
+    // originVS / normalVS are view-space, originWS is world-space (already
+    // computed by the caller, passed in to avoid recomputing the inverse
+    // view matrix multiplication).
+    float pointLightShadow(vec3 originVS, vec3 normalVS, vec3 originWS,
+                           float thickness, float minThickness)
+    {
+        if (!uPointLights)
+            return 1.0;
+        int n = omw_GetPointLightCount();
+        if (n <= 0)
+            return 1.0;
+        // Engine sorts lights by view-space distance, so the first N are
+        // the closest — capping is just a slice.
+        n = min(n, uMaxLights);
+
+        float occlusion = 0.0;
+        for (int li = 0; li < n; ++li)
+        {
+            vec3 lightWS = omw_GetPointLightWorldPos(li);
+            float radius = omw_GetPointLightRadius(li);
+            vec3 toLightWS = lightWS - originWS;
+            float distWS = length(toLightWS);
+            // Outside the light's radius — no influence, no shadow.
+            if (distWS > radius || distWS < 1.0)
+                continue;
+
+            // To view space.
+            vec3 lightVS = (omw.viewMatrix * vec4(lightWS, 1.0)).xyz;
+            vec3 dirVS = lightVS - originVS;
+            float distVS = length(dirVS);
+            if (distVS < 1.0)
+                continue;
+            dirVS /= distVS;
+
+            // Skip back-facing surfaces — light can't reach them, so a
+            // contact shadow there would be wrong (and wastes ~16 samples).
+            if (uLightFacingOnly && dot(normalVS, dirVS) <= 0.0)
+                continue;
+
+            // March length: bounded by both the actual distance to the
+            // light and a fraction of its radius. The fraction lets the
+            // user trade detail vs. banding.
+            float marchLen = min(distVS, radius * uLightLengthScale);
+            if (marchLen < 2.0)
+                continue;
+
+            vec3 endVS = originVS + dirVS * marchLen;
+            vec4 clipS = omw_ProjectionMatrix() * vec4(originVS, 1.0);
+            vec4 clipE = omw_ProjectionMatrix() * vec4(endVS, 1.0);
+            vec2 ssStart = (clipS.xy / clipS.w) * 0.5 + 0.5;
+            vec2 ssEnd   = (clipE.xy / clipE.w) * 0.5 + 0.5;
+            vec2 delta = ssEnd - ssStart;
+
+            // Light-anchored dither — different offset per light so the
+            // noise patterns don't stack into a coherent banding artefact.
+            float dither = fract(sin(dot(originWS + lightWS,
+                vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+
+            // Light contribution weight: distance falloff (smoothstepped
+            // out near the radius) × diffuse luminance (so a bright torch
+            // contributes more than a faint candle).
+            float distFalloff = 1.0 - smoothstep(radius * 0.5, radius, distWS);
+            vec3 diffuse = omw_GetPointLightDiffuse(li);
+            float lum = dot(diffuse, vec3(0.299, 0.587, 0.114));
+            float weight = distFalloff * clamp(lum, 0.0, 1.0);
+            if (weight < 0.01)
+                continue;
+
+            int lsteps = uLightSteps;
+            float hitT = 1.0;
+            float lightOccluded = 0.0;
+            for (int s = 1; s <= lsteps; ++s)
+            {
+                float linT = (float(s) + dither) / float(lsteps);
+                float t = pow(linT, uStepCurve);
+                vec2 sUV = ssStart + delta * t;
+                if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
+                    break;
+                vec3 sampled = viewPosFromUV(sUV);
+                vec3 rayVS = originVS + dirVS * (marchLen * t);
+                float diff = sampled.z - rayVS.z;
+                if (diff > minThickness && diff < thickness)
+                {
+                    hitT = t;
+                    lightOccluded = 1.0;
+                    break;
+                }
+            }
+
+            float penumbra = mix(1.0, 1.0 - hitT, clamp(uPenumbraSoftness, 0.0, 4.0));
+            penumbra = clamp(penumbra, 0.0, 1.0);
+            occlusion += lightOccluded * penumbra * uLightStrength * weight;
+        }
+
+        return 1.0 - clamp(occlusion, 0.0, 1.0);
     }
 }
 
@@ -124,27 +276,6 @@ fragment cshadow_raw(target=RT_ContactShadows) {
 
     void main()
     {
-        // Sun direction in view space. omw.sunPos is a directional
-        // light expressed as a position; normalising gives the
-        // inverse light dir. Below the horizon → no shadow to draw.
-        vec3 sunVS = normalize((omw.viewMatrix * vec4(omw.sunPos.xyz, 0.0)).xyz);
-        if (sunVS.z >= 0.0)
-        {
-            omw_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-            return;
-        }
-
-        // Sun-visibility fade — at night / under heavy cloud cover
-        // omw.sunVis approaches 0, so the contact shadow softens to
-        // nothing instead of staying full strength against the sun
-        // direction the engine computed earlier in the day.
-        float sunFade = uFadeWithSun ? clamp(omw.sunVis, 0.0, 1.0) : 1.0;
-        if (sunFade < 0.05)
-        {
-            omw_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-            return;
-        }
-
         // Skip skybox pixels: the depth there is at the far plane
         // (the sky is rendered without geometry), and tracing a
         // contact ray against an "infinite" depth fragment produces
@@ -174,64 +305,78 @@ fragment cshadow_raw(target=RT_ContactShadows) {
         return;
 #endif
 
-        // Project the start + end into screen space so we can step
-        // along the depth buffer.
-        float worldLength = uLength * 600.0;
-        vec3 endVS = origin + sunVS * worldLength;
-        vec4 clipS = omw_ProjectionMatrix() * vec4(origin, 1.0);
-        vec4 clipE = omw_ProjectionMatrix() * vec4(endVS, 1.0);
-        vec2 ssStart = (clipS.xy / clipS.w) * 0.5 + 0.5;
-        vec2 ssEnd   = (clipE.xy / clipE.w) * 0.5 + 0.5;
-        vec2 delta = ssEnd - ssStart;
-
-        // World-anchored hash dither — pinned to the surface so
-        // static geometry shows static dither even under camera
-        // motion, the symptom we used to get from a per-pixel hash.
+        // World-space origin reused by both the sun-shadow dither
+        // and the point-light helper.
         vec3 originWS = (omw.invViewMatrix * vec4(origin, 1.0)).xyz;
-        float dither = fract(sin(dot(originWS.xyz,
-            vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-
-        int steps = uSteps;
         float thickness = uThickness * omw.far;
-        float minThickness = thickness * 0.05;
-        float invStepCurve = 1.0 / max(uStepCurve, 1.0);
+        // Absolute floor (1 MW unit ≈ 1.4 cm) instead of `thickness * 0.05`.
+        // The high end scales with omw.far (32k+ in exterior) so 5 % grows to
+        // ~40 units, which silently rejects any mesh protruding less than
+        // ~50 cm from a wall — exactly the case where contact shadows are
+        // most useful. A small absolute value catches all geometric
+        // occluders while still filtering pure depth-precision noise.
+        float minThickness = 1.0;
 
-        float occluded = 0.0;
-        float hitT = 1.0; // 1.0 = no hit, lower = closer to origin
-        for (int i = 1; i <= steps; ++i)
+        // -------- Sun shadow --------
+        // Below the horizon or under heavy cloud cover, the sun pass
+        // collapses to "no shadow" but the point-light pass below still
+        // runs (a torch at night absolutely should cast contact shadows).
+        float shadowSun = 1.0;
+        vec3 sunVS = normalize((omw.viewMatrix * vec4(omw.sunPos.xyz, 0.0)).xyz);
+        float sunFade = uFadeWithSun ? clamp(omw.sunVis, 0.0, 1.0) : 1.0;
+        if (sunVS.z < 0.0 && sunFade >= 0.05)
         {
-            // Logarithmic step distribution: pow((i + dither)/steps,
-            // uStepCurve) > linear means samples are concentrated
-            // near t=0 (close to the origin where shadow detail is
-            // crisp) and stretched toward t=1 (far end where the
-            // contact shadow is fading anyway). uStepCurve=1 falls
-            // back to uniform sampling.
-            float linT = (float(i) + dither) / float(steps);
-            float t = pow(linT, uStepCurve);
-            vec2 sUV = ssStart + delta * t;
-            if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
-                break;
-            vec3 sampled = viewPosFromUV(sUV);
-            vec3 rayVS = origin + sunVS * (worldLength * t);
-            float diff = sampled.z - rayVS.z;
-            if (diff > minThickness && diff < thickness)
+            float worldLength = uLength * 600.0;
+            vec3 endVS = origin + sunVS * worldLength;
+            vec4 clipS = omw_ProjectionMatrix() * vec4(origin, 1.0);
+            vec4 clipE = omw_ProjectionMatrix() * vec4(endVS, 1.0);
+            vec2 ssStart = (clipS.xy / clipS.w) * 0.5 + 0.5;
+            vec2 ssEnd   = (clipE.xy / clipE.w) * 0.5 + 0.5;
+            vec2 delta = ssEnd - ssStart;
+
+            // World-anchored hash dither — pinned to the surface so
+            // static geometry shows static dither even under camera
+            // motion, the symptom we used to get from a per-pixel hash.
+            float dither = fract(sin(dot(originWS.xyz,
+                vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+
+            int steps = uSteps;
+            float occluded = 0.0;
+            float hitT = 1.0; // 1.0 = no hit, lower = closer to origin
+            for (int i = 1; i <= steps; ++i)
             {
-                hitT = t;
-                occluded = 1.0;
-                break;
+                // Logarithmic step distribution: samples concentrated
+                // near t=0 where shadow detail is crisp.
+                float linT = (float(i) + dither) / float(steps);
+                float t = pow(linT, uStepCurve);
+                vec2 sUV = ssStart + delta * t;
+                if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0)
+                    break;
+                vec3 sampled = viewPosFromUV(sUV);
+                vec3 rayVS = origin + sunVS * (worldLength * t);
+                float diff = sampled.z - rayVS.z;
+                if (diff > minThickness && diff < thickness)
+                {
+                    hitT = t;
+                    occluded = 1.0;
+                    break;
+                }
             }
+
+            // Soft penumbra: hits near the origin = hard shadow, hits far
+            // down the ray fade. Mimics the sun's angular size.
+            float penumbra = mix(1.0, 1.0 - hitT, clamp(uPenumbraSoftness, 0.0, 4.0));
+            penumbra = clamp(penumbra, 0.0, 1.0);
+            shadowSun = 1.0 - occluded * penumbra * uStrength * sunFade;
         }
 
-        // Soft penumbra: a hit close to the origin (small hitT) gives
-        // a hard / dark shadow; a hit far down the ray fades. Mimics
-        // the angular size of the sun — far-away occluders cast
-        // soft penumbral edges. uPenumbraSoftness=0 falls back to
-        // a hard binary shadow.
-        float penumbra = mix(1.0, 1.0 - hitT, clamp(uPenumbraSoftness, 0.0, 4.0));
-        // Clamp penumbra below 1.0 so an early-out hit still gets
-        // some occlusion budget (1.0 is reserved for "no hit").
-        penumbra = clamp(penumbra, 0.0, 1.0);
-        float shadow = 1.0 - occluded * penumbra * uStrength * sunFade;
+        // -------- Point-light shadows --------
+        float shadowLights = pointLightShadow(origin, n, originWS,
+                                              thickness, minThickness);
+
+        // Multiply combine — same pattern as Frostbite/UE5: each shadow
+        // source darkens independently, the result is the most occluded.
+        float shadow = shadowSun * shadowLights;
         omw_FragColor = vec4(shadow, 0.0, 0.0, 1.0);
     }
 }
@@ -280,14 +425,20 @@ fragment main(rt1=RT_ContactShadowsBlurred) {
     {
         vec4 col = omw_GetLastShader(omw_TexCoord);
         float shadow = omw_Texture2D(RT_ContactShadowsBlurred, omw_TexCoord).r;
+        if (uDebugView)
+        {
+            omw_FragColor = vec4(shadow, shadow, shadow, 1.0);
+            return;
+        }
         omw_FragColor = vec4(col.rgb * shadow, col.a);
     }
 }
 
 technique {
-    description = "Standalone screen-space contact shadows toward the sun. AAA-style: bilateral blur, soft penumbra by occluder distance, logarithmic step distribution. Driven by omw.sunPos + omw.sunVis, decoupled from internal_raycast so the user can A/B and tune in isolation.";
+    description = "Standalone screen-space contact shadows. AAA-style: bilateral blur, soft penumbra by occluder distance, logarithmic step distribution, plus per-pixel raymarche from up to N closest dynamic point lights (torches, spells). Driven by omw.sunPos + omw.sunVis + omw_PointLights[], decoupled from internal_raycast so the user can A/B and tune in isolation.";
     author = "OpenMW Boost";
-    version = "1.1";
+    version = "1.2";
     passes = cshadow_raw, cshadow_blur, main;
     pass_normals = true;
+    pass_lights = true;
 }

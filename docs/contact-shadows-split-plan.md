@@ -187,21 +187,43 @@ technique {
 - Pas de gate dynamique GLSL (impossible sans nouveau pipeline d'introspection de chain) — c'est UI-driven : le user décoche manuellement la case dans le panneau F2.
 - Compat saves intacte — les `uContactShadows*` uniforms gardent leurs valeurs par défaut.
 
-### Phase 3 — Refacto pour purer world-space + lighting (~2 h, optionnel)
+### Phase 3 — Refacto pour purer world-space + lighting (optionnel)
 
 Si l'utilisateur veut vraiment "indépendant de la caméra" au sens VRAI, deux options :
 
-**Option A — Reconstruction world-space pure** :
+**Option A — Reconstruction world-space pure (~2 h, non fait)** :
 - `viewPosFromUV` reste (la projection écran ↔ vue est inévitable pour sampler le depth)
 - TOUT le reste du raymarche se fait en **world space** : converter `origin` en world via `omw.invViewMatrix`, générer la marche dans le repère monde, puis re-projeter chaque pas en écran pour sampler la profondeur.
 - Coût : 2 transformations matricielles supplémentaires par pas. Acceptable à 38 pas.
 - Bénéfice : le code lit comme "je marche du point P vers le soleil S, en monde", pas "je projette en écran et je marche le segment 2D" — plus lisible, plus modifiable.
 
-**Option B — Ajout de lights actives** :
-- Étendre le shader pour itérer sur les lights actives proches (torches, sorts) et accumuler leur contribution.
-- OpenMW expose `omw.lightCount`, `omw.lights[i]` (à confirmer côté `components/fx/stateupdater.hpp`).
-- Pour chaque light, refaire un raymarche similaire mais avec direction = `light.pos - origin` au lieu de `sunDir`.
-- Coût : ×N samples par pixel où N = nombre de lights. Cap à 4 lights max sinon insupportable.
+**Option B — Lights actives — DONE** :
+
+API OpenMW confirmée dans `components/fx/pass.cpp:97-128` (helper bindings) et `components/sceneutil/lightmanager.hpp:23-83` (PPLightBuffer, max 40 lights, déjà tri par distance view-space) :
+
+```glsl
+int   omw_GetPointLightCount();
+vec3  omw_GetPointLightWorldPos(int);   // world space
+vec3  omw_GetPointLightDiffuse(int);
+vec3  omw_GetPointLightAttenuation(int);
+float omw_GetPointLightRadius(int);
+```
+
+Activé par `pass_lights = true;` dans le bloc `technique` (parser : `components/fx/technique.cpp:251`).
+
+**Choix de design (AAA-style)** :
+- **4 lights max par pixel** par défaut (uniform `uMaxLights`, exposé 1-8). LightManager trie par distance, donc les premières N sont les plus proches — capper = simple slice.
+- **16 steps par light** (uniform `uLightSteps`, 6-32). Rayons courts (≤ radius), donc moins de pas que pour le soleil (38). 4 × 16 = 64 samples ajoutés/pixel = ~165 % du coût soleil.
+- **Composite multiply** : `shadow_total = shadow_sun * shadow_lights`, comme UE5 / Frostbite. Chaque source obscurcit indépendamment.
+- **Pondération par luminance diffuse** (`dot(diffuse, [0.299, 0.587, 0.114])`) — torche brillante contribue plus qu'une bougie.
+- **Falloff distance** smoothstep entre `radius * 0.5` et `radius` — pas de coupure dure au bord du rayon d'influence.
+- **Skip back-facing** (`dot(N, lightDir) <= 0`) — gate optionnel `uLightFacingOnly`, évite ~60 % des samples sur les murs hors-champ.
+- **Dither indépendant par light** (`originWS + lightWS` dans le hash) — empêche les patterns de bruit de se corréler entre lights.
+- **Sun shadow re-structurée** : plus de early-return quand le soleil est sous l'horizon — `shadowSun = 1.0` mais le pass des lights tourne quand même (une torche la nuit DOIT projeter des contact shadows).
+
+Risque perf : ×4-5 le coût total quand le joueur est entouré de torches en intérieur. Mitigation : `uPointLights = false` ou `uMaxLights = 2` si trop lourd.
+
+Implémenté commit __à venir__ — uniforms : `uPointLights`, `uMaxLights`, `uLightSteps`, `uLightStrength`, `uLightLengthScale`, `uLightFacingOnly`.
 
 ### Phase 4 — UI panneau post-process (gratuit)
 
@@ -209,10 +231,11 @@ Si l'utilisateur veut vraiment "indépendant de la caméra" au sens VRAI, deux o
 
 ## Estimation totale
 
-- Phase 1 : ~1 h
-- Phase 2 : ~30 min
-- Phase 3 : ~2 h (optionnel — propres world-space ou lights actives)
-- **Total minimum** : ~1.5 h pour un standalone fonctionnel équivalent.
+- Phase 1 : ~1 h — DONE
+- Phase 2 : ~30 min — DONE
+- Phase 3-A (world-space pur) : ~2 h — non fait, optionnel cosmétique
+- Phase 3-B (lights actives) : ~2 h — DONE
+- **Total réalisé** : ~3.5 h pour un standalone AAA-style avec contact shadows soleil + 4 lights dynamiques.
 
 ## Risques
 
