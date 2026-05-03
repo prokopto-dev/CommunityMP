@@ -86,6 +86,7 @@ namespace SceneUtil
         stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f{}));
         stateset->addUniform(new osg::Uniform("isReflection", false));
         stateset->addUniform(new osg::Uniform("windSpeed", 0.0f));
+        stateset->addUniform(new osg::Uniform("uWindDirection", osg::Vec2f(1.0f, 1.0f)));
         stateset->addUniform(new osg::Uniform("playerPos", osg::Vec3f(0.f, 0.f, 0.f)));
         stateset->addUniform(new osg::Uniform("useTreeAnim", false));
     }
@@ -97,6 +98,7 @@ namespace SceneUtil
         stateset->getUniform("skyBlendingStart")->set(mFar * mSkyBlendingStartCoef);
         stateset->getUniform("screenRes")->set(mScreenRes);
         stateset->getUniform("windSpeed")->set(mWindSpeed);
+        stateset->getUniform("uWindDirection")->set(mWindDirection);
         stateset->getUniform("playerPos")->set(mPlayerPos);
     }
 
@@ -118,6 +120,11 @@ namespace SceneUtil
     void SharedUniformStateUpdater::setWindSpeed(float windSpeed)
     {
         mWindSpeed = windSpeed;
+    }
+
+    void SharedUniformStateUpdater::setWindDirection(osg::Vec2f direction)
+    {
+        mWindDirection = direction;
     }
 
     void SharedUniformStateUpdater::setPlayerPos(osg::Vec3f playerPos)
