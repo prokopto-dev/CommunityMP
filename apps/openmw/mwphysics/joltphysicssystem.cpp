@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
@@ -32,6 +33,7 @@
 #include <components/resource/bulletshape.hpp>
 #include <components/resource/bulletshapemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 
@@ -405,27 +407,10 @@ namespace MWPhysics
         if (halfExtents.length2() < 1e-6f)
             return; // shape has no usable bounds
 
-        // mCollisionBox.mCenter is the offset from the RefData
-        // position (feet, in MW convention) to the collision box
-        // center. For NPCs with an explicit collision box this
-        // typically differs slightly from (0, 0, halfExtents.z()) —
-        // hardcoding the latter as the CV's mShapeOffset (which we
-        // were doing before) put the visual mesh half a capsule
-        // off-axis from the physics body, hence the user-reported
-        // "spawn at half collider height in air". Use the actual
-        // box center; fall back to (0, 0, halfExtents.z) only when
-        // the shape has no center information (creatures with
-        // auto-generated boxes — same fallback the Bullet path
-        // takes in MWPhysics::Actor when mOriginalHalfExtents is
-        // zero).
-        osg::Vec3f shapeOffset = shape->mCollisionBox.mCenter;
-        if (shapeOffset.length2() < 1e-6f)
-            shapeOffset = osg::Vec3f(0.0f, 0.0f, halfExtents.z());
-
         const ESM::Position& pos = ptr.getRefData().getPosition();
         const osg::Vec3f position(pos.pos[0], pos.pos[1], pos.pos[2]);
 
-        auto actor = std::make_unique<JoltActor>(ptr, halfExtents, shapeOffset, position, *mJoltSystem);
+        auto actor = std::make_unique<JoltActor>(ptr, halfExtents, position, *mJoltSystem);
         // Phase 8d: register the CharacterVirtual's inner body in
         // the owner map so ray casts can resolve hits to this Ptr.
         if (auto* cv = actor->getCharacter())
@@ -489,8 +474,92 @@ namespace MWPhysics
         bi.DestroyBody(it->second);
         mProjectileBodies.erase(it);
     }
+    void JoltPhysicsSystem::promoteToDynamic(
+        const MWWorld::Ptr& ptr, DynamicShape shape, const osg::Vec3f& halfExtents, float mass)
+    {
+        // Tear down the existing static body if there is one — the
+        // ImGui spawner places the ref via the normal addObject path
+        // first so the rendering node exists, then upgrades it here.
+        auto& bi = mJoltSystem->GetBodyInterface();
+        if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
+        {
+            mBodyOwners.erase(it->second.GetIndexAndSequenceNumber());
+            bi.RemoveBody(it->second);
+            bi.DestroyBody(it->second);
+            mObjectBodies.erase(it);
+            mObjectEntries.erase(ptr.mRef);
+        }
+
+        // Build a primitive shape with safety floors — Jolt rejects
+        // shapes whose convex radius exceeds half-extent on any axis,
+        // and CylinderShape additionally requires non-zero radius and
+        // half-height. Clamp to a sensible minimum (1 MW unit ≈ 1.4 cm).
+        constexpr float kMinExtent = 8.0f;
+        const JPH::Vec3 he(std::max(halfExtents.x(), kMinExtent),
+            std::max(halfExtents.y(), kMinExtent), std::max(halfExtents.z(), kMinExtent));
+
+        JPH::RefConst<JPH::Shape> joltShape;
+        switch (shape)
+        {
+            case DynamicShape::Box:
+                joltShape = new JPH::BoxShape(he);
+                break;
+            case DynamicShape::Cylinder:
+            {
+                const float radius = 0.5f * (he.GetX() + he.GetY());
+                joltShape = new JPH::CylinderShape(he.GetZ(), radius);
+                break;
+            }
+            case DynamicShape::Sphere:
+            {
+                const float radius = std::max({ he.GetX(), he.GetY(), he.GetZ() });
+                joltShape = new JPH::SphereShape(radius);
+                break;
+            }
+        }
+        if (!joltShape)
+            return;
+
+        const ESM::Position& pos = ptr.getRefData().getPosition();
+        // Convert MW Euler (XYZ around -X, -Y, -Z to match the rest
+        // of the engine's rotation convention) to a Quat for Jolt.
+        const osg::Quat q
+            = osg::Quat(pos.rot[2], osg::Vec3f(0.0f, 0.0f, -1.0f))
+            * osg::Quat(pos.rot[1], osg::Vec3f(0.0f, -1.0f, 0.0f))
+            * osg::Quat(pos.rot[0], osg::Vec3f(-1.0f, 0.0f, 0.0f));
+
+        JPH::BodyCreationSettings settings(joltShape,
+            JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]),
+            JPH::Quat(q.x(), q.y(), q.z(), q.w()), JPH::EMotionType::Dynamic, JoltLayers::MOVING);
+        // Override mass; Jolt's volume-based default would be too
+        // coarse for hand-tuned debug spawns. Inertia tensor is still
+        // computed from the shape so rolling feels right.
+        settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+        settings.mMassPropertiesOverride.mMass = mass;
+        // Friction & restitution: pick numbers a barrel would have.
+        settings.mFriction = 0.6f;
+        settings.mRestitution = 0.2f;
+        // Generous linear/angular damping so things settle and don't
+        // ping around forever from the contact solver.
+        settings.mLinearDamping = 0.1f;
+        settings.mAngularDamping = 0.2f;
+
+        const JPH::BodyID id = bi.CreateAndAddBody(settings, JPH::EActivation::Activate);
+        mDynamicBodies.emplace(ptr.mRef, DynamicBody{ id, ptr });
+        mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), ptr);
+    }
+
     void JoltPhysicsSystem::remove(const MWWorld::Ptr& ptr)
     {
+        if (auto dit = mDynamicBodies.find(ptr.mRef); dit != mDynamicBodies.end())
+        {
+            auto& bi = mJoltSystem->GetBodyInterface();
+            mBodyOwners.erase(dit->second.mBodyId.GetIndexAndSequenceNumber());
+            bi.RemoveBody(dit->second.mBodyId);
+            bi.DestroyBody(dit->second.mBodyId);
+            mDynamicBodies.erase(dit);
+            return;
+        }
         if (auto it = mObjectBodies.find(ptr.mRef); it != mObjectBodies.end())
         {
             auto& bi = mJoltSystem->GetBodyInterface();
@@ -846,6 +915,50 @@ namespace MWPhysics
         //    benches whether MW's clock granularity wants more.
         constexpr int collisionSteps = 1;
         mJoltSystem->Update(dt, collisionSteps, mTempAllocator.get(), mJobSystem.get());
+
+        // 2.5 Pull dynamic-body transforms back into RefData and the
+        //     OSG node so the visual mesh tracks the physics body
+        //     (Phase 6 of docs/imgui-overlay-plan.md). We bypass
+        //     World::moveObject deliberately: that path would call
+        //     mPhysics->updatePosition and overwrite the body we
+        //     just read from. Setting the BaseNode directly is the
+        //     same path Scene::updateObjectPosition takes.
+        if (!mDynamicBodies.empty())
+        {
+            auto& bi = mJoltSystem->GetBodyInterfaceNoLock();
+            for (auto& [_, dyn] : mDynamicBodies)
+            {
+                if (dyn.mPtr.isEmpty())
+                    continue;
+                JPH::RVec3 jpos;
+                JPH::Quat jrot;
+                bi.GetPositionAndRotation(dyn.mBodyId, jpos, jrot);
+
+                // Persist transform to CellRef so saves and the
+                // entity inspector see the live position.
+                ESM::Position pos = dyn.mPtr.getRefData().getPosition();
+                pos.pos[0] = jpos.GetX();
+                pos.pos[1] = jpos.GetY();
+                pos.pos[2] = jpos.GetZ();
+                // Decompose Quat to MW Euler. OSG's Quat::getRotate
+                // gives axis+angle around a single axis, which loses
+                // the per-axis breakdown — use intrinsic XYZ via the
+                // matrix path instead. Cheap enough for a handful of
+                // bodies per frame.
+                const osg::Quat q(jrot.GetX(), jrot.GetY(), jrot.GetZ(), jrot.GetW());
+                const osg::Matrixd m(q);
+                pos.rot[0] = std::atan2(-m(2, 1), m(2, 2));
+                pos.rot[1] = std::asin(std::clamp(m(2, 0), -1.0, 1.0));
+                pos.rot[2] = std::atan2(-m(1, 0), m(0, 0));
+                dyn.mPtr.getRefData().setPosition(pos);
+
+                if (auto* base = dyn.mPtr.getRefData().getBaseNode())
+                {
+                    base->setPosition(osg::Vec3f(jpos.GetX(), jpos.GetY(), jpos.GetZ()));
+                    base->setAttitude(q);
+                }
+            }
+        }
 
         // 3. Tick each character. ExtendedUpdate handles its own
         //    sub-stepping, slope sliding, stick-to-floor, and
