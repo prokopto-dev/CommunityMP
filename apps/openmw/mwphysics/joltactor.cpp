@@ -4,8 +4,12 @@
 
 #include "joltphysicssystem.hpp" // JoltLayers::ACTOR_PROBE
 
+#include <cstdlib>
+
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+
+#include <components/debug/debuglog.hpp>
 
 namespace MWPhysics
 {
@@ -113,9 +117,25 @@ namespace MWPhysics
         if (!mCharacter)
             return;
         const auto& pos = mPtr.getRefData().getPosition();
-        mCharacter->SetPosition(JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]));
+        const JPH::RVec3 prev = mCharacter->GetPosition();
+        const JPH::RVec3 next(pos.pos[0], pos.pos[1], pos.pos[2]);
+        mCharacter->SetPosition(next);
         mInertiaZ = 0.0f; // teleports clear the fall accumulator
         mNeedsGroundSnap = true;
+        // Phase-A teleport diagnostic. Gated on OPENMW_JOLT_TRACE so
+        // it stays quiet in normal play, only fires when we're
+        // actively chasing a "teleport leaves you in place" report.
+        static const bool sTrace = []() {
+            const char* env = std::getenv("OPENMW_JOLT_TRACE");
+            return env != nullptr && env[0] != '0' && env[0] != '\0';
+        }();
+        if (sTrace)
+        {
+            Log(Debug::Info) << "[jolt-teleport] " << mPtr.getCellRef().getRefId().toDebugString()
+                << " from=(" << prev.GetX() << "," << prev.GetY() << "," << prev.GetZ() << ")"
+                << " to=(" << next.GetX() << "," << next.GetY() << "," << next.GetZ() << ")"
+                << " delta=" << (next - prev).Length();
+        }
     }
 
     void JoltActor::adjustPosition(const osg::Vec3f& offset)
