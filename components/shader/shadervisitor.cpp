@@ -792,15 +792,23 @@ namespace Shader
         if (!node.getUserValue("shaderPrefix", shaderPrefix))
             shaderPrefix = mDefaultShaderPrefix;
 
-        // Phase 8a — material override registry. If a YAML matches the
-        // diffuse / node name, swap the shaderPrefix and merge defines
-        // before the ShaderManager builds the program. Uniforms are
-        // pushed straight onto the writable StateSet (OVERRIDE flag).
+        // Phase 8a / 8c — material override registry. If a YAML
+        // matches the diffuse / node name / refId, swap the
+        // shaderPrefix and merge defines before the ShaderManager
+        // builds the program. Uniforms are pushed straight onto the
+        // writable StateSet (OVERRIDE flag). RefId is read from the
+        // ancestor BaseNode UserValue stamped by mwrender/objects.cpp.
         const Material::MaterialDef* matched = nullptr;
         if (mMaterialRegistry != nullptr)
         {
+            std::string refId;
+            for (const osg::Node* n = &node; n != nullptr; n = (n->getNumParents() > 0 ? n->getParent(0) : nullptr))
+            {
+                if (n->getUserValue("refId", refId) && !refId.empty())
+                    break;
+            }
             matched = mMaterialRegistry->matchMesh(/*meshPath=*/"",
-                node.getName(), reqs.mDiffuseFilename);
+                node.getName(), reqs.mDiffuseFilename, refId);
             if (matched != nullptr)
             {
                 if (!matched->mShaderPrefix.empty())

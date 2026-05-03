@@ -9,6 +9,7 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/shader/shadermanager.hpp>
+#include <components/vfs/manager.hpp>
 
 #include "../mwbase/environment.hpp"
 
@@ -96,6 +97,12 @@ namespace MWGui
         ImGui::SameLine();
         if (ImGui::Button("Reload shaders"))
             sceneMgr->getShaderManager().triggerShaderReload();
+        ImGui::SameLine();
+        if (ImGui::Button("Reload from disk"))
+        {
+            registry->reload(MWBase::Environment::get().getResourceSystem()->getVFS());
+            sceneMgr->getShaderManager().triggerShaderReload();
+        }
 
         ImGui::Separator();
 

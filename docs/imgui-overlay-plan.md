@@ -184,11 +184,16 @@ Nouvelle fenêtre `Materials` au-dessus du registry de Phase 8a (toggle F1 → c
 - Per-Ptr / per-instance override (sélection inspector + copy-on-write StateSet) — Phase 8c.
 - Hot-reload mtime watch (édition externe) — Phase 8c.
 
-### Phase 8c — RefId matching + hot-reload (~1 j)
-Implémente Phase 2 de `material-override-plan.md` :
-- Plumber `setUserValue("refId", ...)` dans `mwrender/objects.cpp:60`.
-- `MaterialRegistry` watch les mtimes des YAML, re-parse à chaque modif, flush le cache de match, trigger un `ShaderManager::triggerShaderReload()`.
-- Pane ImGui : pendant l'édition d'un YAML externe (Vim/IDE), le pane se rafraîchit automatiquement à chaque save.
+### Phase 8c — RefId matching + reload-from-disk (DONE, MVP)
+- `mwrender/objects.cpp:Objects::insertBegin` stamp `setUserValue("refId", ptr.getCellRef().getRefId().toDebugString())` sur le `BaseNode`.
+- `Shader::ShaderVisitor::createProgram` walk le node + ses parents pour lire la RefId UserValue (les Geode enfants n'ont pas le user value direct).
+- `Material::Registry::matchMesh` accepte un 4ème argument `refId` ; les rules `record_id:` matchent en sous-string case-insensitive.
+- `Material::Registry::reload(vfs)` : drop + re-parse. Bouton "Reload from disk" dans le pane ImGui Materials, suivi d'un trigger shader reload.
+
+**Pas dans le MVP** :
+- Watch mtime auto (édition externe sans bouton). Demande un thread/poll dans `ResourceSystem::updateCache` ou similaire — Phase 8c-bis.
+- Save to YAML (write-back depuis le pane). Demande sérialisation YAML — Phase 8c-bis.
+- Per-instance override (copy-on-write StateSet sur Ptr courant).
 
 ### Phase 8d (optionnel) — terrain override (~5 h)
 Phase 3 de `material-override-plan.md`. Pas piloté par l'ImGui (sélection terrain pas exposée dans l'inspector aujourd'hui — ce serait une Phase 9 séparée).

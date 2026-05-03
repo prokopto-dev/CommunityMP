@@ -59,6 +59,11 @@ namespace MWRender
 
         insert->getOrCreateUserDataContainer()->addUserObject(new PtrHolder(ptr));
 
+        // Phase 8c — stamp the RefId on the insert node so the
+        // Material::Registry can match overrides per-RefId. Read by
+        // Shader::ShaderVisitor::createProgram via getUserValue.
+        insert->setUserValue("refId", ptr.getCellRef().getRefId().toDebugString());
+
         const float* f = ptr.getRefData().getPosition().pos;
 
         insert->setPosition(osg::Vec3(f[0], f[1], f[2]));

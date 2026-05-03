@@ -124,6 +124,14 @@ namespace Material
 
     Registry::Registry(const VFS::Manager* vfs)
     {
+        reload(vfs);
+    }
+
+    Registry::~Registry() = default;
+
+    void Registry::reload(const VFS::Manager* vfs)
+    {
+        mMaterials.clear();
         if (vfs == nullptr)
             return;
 
@@ -159,10 +167,8 @@ namespace Material
             [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
     }
 
-    Registry::~Registry() = default;
-
     const MaterialDef* Registry::matchMesh(const std::string& meshPath, const std::string& nodeName,
-        const std::string& diffuseFilename) const
+        const std::string& diffuseFilename, const std::string& refId) const
     {
         if (mMaterials.empty())
             return nullptr;
@@ -170,6 +176,7 @@ namespace Material
         const std::string meshPathLower = toLower(meshPath);
         const std::string nodeNameLower = toLower(nodeName);
         const std::string diffuseLower = toLower(diffuseFilename);
+        const std::string refIdLower = toLower(refId);
 
         for (const auto& def : mMaterials)
         {
@@ -181,8 +188,8 @@ namespace Material
                     return def.get();
                 if (containsCI(diffuseLower, rule.mTextureSubstr))
                     return def.get();
-                // mRefId comparison goes through the Phase 8c plumb
-                // (refId stamped on the node) — skipped in MVP.
+                if (containsCI(refIdLower, rule.mRefId))
+                    return def.get();
             }
         }
         return nullptr;

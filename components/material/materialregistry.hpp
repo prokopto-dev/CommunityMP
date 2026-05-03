@@ -24,12 +24,18 @@ namespace Material
         explicit Registry(const VFS::Manager* vfs);
         ~Registry();
 
+        // Phase 8c — drop the current materials and re-parse all
+        // YAML files from the VFS. Caller is responsible for
+        // triggering a shader reload to pick up the new programs.
+        void reload(const VFS::Manager* vfs);
+
         // Returns the highest-priority MaterialDef that matches the
-        // given mesh / node / diffuse, or nullptr if none match.
-        // The returned pointer is owned by the registry and stable
-        // for the registry's lifetime.
+        // given mesh / node / diffuse / refId, or nullptr if none
+        // match. The returned pointer is owned by the registry and
+        // stable for the registry's lifetime.
+        // refId is matched case-insensitive substring (Phase 8c).
         const MaterialDef* matchMesh(const std::string& meshPath, const std::string& nodeName,
-            const std::string& diffuseFilename) const;
+            const std::string& diffuseFilename, const std::string& refId = std::string()) const;
 
         // Number of materials successfully loaded (debug / UI).
         std::size_t size() const { return mMaterials.size(); }
