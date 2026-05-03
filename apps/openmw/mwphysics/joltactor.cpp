@@ -72,10 +72,16 @@ namespace MWPhysics
         settings->mMaxSlopeAngle = 0.25f * JPH::JPH_PI;
 
         // Predictive contact distance: how far Jolt scans outside
-        // the shape to find an upcoming wall. 0.1 cm is too tight at
-        // MW's centimetre-scale; 5 cm avoids the "stuck on a corner"
-        // failure mode without ghost collisions.
+        // the shape to find an upcoming wall. Default 0.1 (m) is
+        // microscopic at MW's "1 m ≈ 70 unit" scale; 5 MW units
+        // (~7 cm) avoids the "stuck on a corner" failure mode without
+        // ghost collisions.
         settings->mPredictiveContactDistance = 5.0f;
+
+        // Character padding: how far Jolt tries to keep the shape
+        // from geometry. Default 0.02 (m) → 1.4 MW units. Keep at
+        // that scale so step-up doesn't ghost-collide.
+        settings->mCharacterPadding = 1.5f;
 
         // Inner body on the dedicated ACTOR_PROBE layer. Without one,
         // ray casts / sphere casts go through creatures (arrows fly

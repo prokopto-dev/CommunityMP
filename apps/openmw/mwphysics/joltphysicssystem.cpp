@@ -824,6 +824,13 @@ namespace MWPhysics
             = JPH::Vec3(0.0f, 0.0f, -MWPhysics::sStepSizeDown);
         updateSettings.mWalkStairsStepUp
             = JPH::Vec3(0.0f, 0.0f, ::Constants::sStepSizeUp);
+        // Walk-stairs forward-test geometry, scaled from Jolt's
+        // metre-based defaults (0.02 / 0.15 m) to MW units (1 m ≈ 70).
+        // Without this scaling the forward test fires for a smaller
+        // distance than the per-frame velocity — the actor's capsule
+        // just collides with the stair riser and stops, no step-up.
+        updateSettings.mWalkStairsMinStepForward = 1.5f;   // ~2 cm
+        updateSettings.mWalkStairsStepForwardTest = 10.0f; // ~14 cm
         const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
         const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
         const IgnoreSensorsBodyFilter playerBodyFilter;
@@ -1162,19 +1169,45 @@ namespace MWPhysics
     osg::Vec3f JoltPhysicsSystem::traceDown(
         const MWWorld::Ptr& ptr, const osg::Vec3f& position, float maxHeight)
     {
-        // Drop a ray straight down. Returns where it hit ground, or
-        // (position - maxHeight*Z) if the ray escapes to free space.
-        // The actor's own inner body sits at its position and would
-        // otherwise be the first hit (zero distance) — World::adjustPosition
-        // calls us right after a teleport, so the ray starts inside or
-        // just above the actor's capsule. Without the self-ignore the
-        // result is "snap to your own current z", which made cell-change
-        // teleports look like they did nothing.
+        // Sweep a sphere downward instead of a thin ray. A thin ray
+        // can slip through slivers in MW collision meshes (door
+        // entries are placed at z values that catch the bottom face
+        // of a hollow floor box, putting the player one floor-thickness
+        // below the walkable surface — the user-reported "téléport
+        // m'apporte dessous une map"). A sphere matched to the actor's
+        // capsule radius lands on the actual walkable surface, same
+        // as Bullet's ActorTracer::findGround.
+        //
+        // The sphere radius comes from the actor's own capsule
+        // (`getHalfExtents().x()` is the capsule radius) so a Khajiit
+        // and a Daedroth get the right footprint. Ignore the actor
+        // itself so the sphere doesn't park on its own inner body
+        // before reaching the floor.
+        const auto ait = mActors.find(ptr.mRef);
+        const float sphereRadius = (ait != mActors.end())
+            ? std::max(ait->second->getHalfExtents().x(), 16.0f)
+            : 16.0f;
+
         const osg::Vec3f to(position.x(), position.y(), position.z() - maxHeight);
-        const std::vector<MWWorld::ConstPtr> ignore{ ptr };
-        const RayCastingResult hit = castRay(position, to, ignore, {},
-            CollisionType_World | CollisionType_HeightMap, 0xff);
-        return hit.mHit ? hit.mHitPos : to;
+        const JPH::Vec3 direction(0.0f, 0.0f, -maxHeight);
+        const JPH::RShapeCast cast(new JPH::SphereShape(sphereRadius),
+            JPH::Vec3::sReplicate(1.0f),
+            JPH::RMat44::sTranslation(JPH::RVec3(position.x(), position.y(), position.z())),
+            direction);
+
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        const JPH::ShapeCastSettings settings;
+        const std::vector<MWWorld::ConstPtr> ignoreList{ ptr };
+        const std::vector<MWWorld::Ptr> emptyTargets;
+        const JoltIgnoreFilter bodyFilter(mBodyOwners, ignoreList, emptyTargets);
+        mJoltSystem->GetNarrowPhaseQuery().CastShape(
+            cast, settings, JPH::RVec3::sZero(), collector,
+            JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
+
+        if (!collector.HadHit())
+            return to;
+        const float f = collector.mHit.mFraction;
+        return osg::Vec3f(position.x(), position.y(), position.z() - f * maxHeight);
     }
 
     bool JoltPhysicsSystem::isOnGround(const MWWorld::Ptr& ptr)
