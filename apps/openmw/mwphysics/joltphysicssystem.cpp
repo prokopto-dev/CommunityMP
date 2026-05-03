@@ -40,6 +40,7 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwmechanics/actorutil.hpp"
+#include "../mwmechanics/creaturestats.hpp"
 #include "../mwworld/class.hpp"
 
 #include "constants.hpp"
@@ -1030,6 +1031,15 @@ namespace MWPhysics
             auto* cv = actor->getCharacter();
             if (!cv)
                 continue;
+            // Snapshot z + ground state BEFORE ExtendedUpdate so we
+            // can detect "started supported, ended in air" (begin
+            // fall) and "started in air, ended supported" (land —
+            // accumulate fall height + reset). Mirrors mtphysics.cpp:
+            // 264-270 in the Bullet path.
+            const float preZ = cv->GetPosition().GetZ();
+            const auto preGround = cv->GetGroundState();
+            const bool preSupported = (preGround == JPH::CharacterVirtual::EGroundState::OnGround);
+
             if (actor->getCollisionMode())
             {
                 JPH::CharacterVirtual::ExtendedUpdateSettings perActor = updateSettings;
@@ -1072,6 +1082,35 @@ namespace MWPhysics
                     p.GetY() + v.GetY() * dt, p.GetZ() + v.GetZ() * dt));
             }
             actor->refreshState();
+
+            // Fall-height tracking — mirrors mtphysics.cpp:264-270
+            // in the Bullet path. addToFallHeight on each frame the
+            // actor is in the air with negative z delta; stats.land()
+            // when the actor reconnects with the ground (or is
+            // swimming / flying / under slowfall — all paths that
+            // cancel the accumulated fall).
+            const float postZ = cv->GetPosition().GetZ();
+            const auto postGround = cv->GetGroundState();
+            const bool postSupported
+                = (postGround == JPH::CharacterVirtual::EGroundState::OnGround);
+            const float heightDiff = postZ - preZ;
+            const MWWorld::Ptr ptr = actor->getPtr();
+            if (ptr.getClass().isActor())
+            {
+                MWMechanics::CreatureStats& cstats = ptr.getClass().getCreatureStats(ptr);
+                const bool buoyant = worldRef.isSwimming(ptr) || worldRef.isFlying(ptr);
+                const bool stillOnGround = preSupported && postSupported;
+                if (stillOnGround || buoyant)
+                {
+                    // land() with isOnPlatform = (player flying/swimming
+                    // — same condition used in mtphysics.cpp:268).
+                    cstats.land(ptr == MWMechanics::getPlayer() && buoyant);
+                }
+                else if (heightDiff < 0.0f)
+                {
+                    cstats.addToFallHeight(-heightDiff);
+                }
+            }
 
             if (traceThisFrame)
             {
