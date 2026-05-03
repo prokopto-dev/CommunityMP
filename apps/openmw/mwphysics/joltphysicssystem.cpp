@@ -556,56 +556,17 @@ namespace MWPhysics
         }
         else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
         {
-            // Pause-set-snap-resume teleport pattern (per user
-            // suggestion): the script sets a target position, the CV
-            // moves there, we sweep its capsule downward to find the
-            // walkable floor immediately and re-set the position
-            // there, then continue normally. Without this in-place
-            // snap, the +20 safety nudge from World::adjustPosition
-            // leaves the player visibly hovering for a frame or two
-            // before gravity catches up.
-            auto& actor = *ait->second;
-            actor.updatePosition(); // sets mInertiaZ=0, mNeedsGroundSnap=true, calls cv->SetPosition
-            if (auto* cv = actor.getCharacter())
-            {
-                const float halfHeightZ = actor.getHalfExtents().z();
-                const float kProbeDepth = 500.0f; // ~7 m — covers door spawns and place-at-mark
-                const JPH::RVec3 sweepStart(jpos.GetX(), jpos.GetY(), jpos.GetZ() + halfHeightZ);
-                const JPH::Vec3 direction(0.0f, 0.0f, -kProbeDepth);
-                const JPH::RShapeCast cast(cv->GetShape(),
-                    JPH::Vec3::sReplicate(1.0f),
-                    JPH::RMat44::sTranslation(sweepStart),
-                    direction);
-
-                JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-                const JPH::ShapeCastSettings cs;
-                // Ignore the actor's own inner body so the sweep
-                // doesn't terminate on the capsule it just placed.
-                const JPH::IgnoreSingleBodyFilter bodyFilter(cv->GetInnerBodyID());
-                mJoltSystem->GetNarrowPhaseQuery().CastShape(
-                    cast, cs, JPH::RVec3::sZero(), collector,
-                    JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
-
-                if (collector.HadHit())
-                {
-                    const float fr = collector.mHit.mFraction;
-                    // Capsule center at first contact, then subtract
-                    // halfHeightZ to get the feet position.
-                    const float feetZ = jpos.GetZ() + halfHeightZ
-                        - fr * kProbeDepth - halfHeightZ;
-                    cv->SetPosition(JPH::RVec3(jpos.GetX(), jpos.GetY(), feetZ));
-                    static const bool sTrace = []() {
-                        const char* env = std::getenv("OPENMW_JOLT_TRACE");
-                        return env != nullptr && env[0] != '0' && env[0] != '\0';
-                    }();
-                    if (sTrace)
-                        Log(Debug::Info) << "[jolt-teleport-snap] "
-                            << ptr.getCellRef().getRefId().toDebugString()
-                            << " requested=" << jpos.GetZ()
-                            << " floor=" << feetZ
-                            << " drop=" << (jpos.GetZ() - feetZ);
-                }
-            }
+            // Just set the position — JoltActor::updatePosition
+            // handles inertia reset + ground-snap request flag. The
+            // earlier in-place capsule sweep was causing exterior
+            // cells to spuriously load right after an interior
+            // teleport (cell preloader appears to re-evaluate when
+            // position deltas are large) so the player ended up
+            // visually rendered against the wrong region. The
+            // post-teleport stick-to-floor in stepSimulation
+            // (kPostTeleportSnap = 100 units) handles the actual
+            // ground snap on the next physics tick.
+            ait->second->updatePosition();
         }
         if (auto eit = mObjectEntries.find(ptr.mRef); eit != mObjectEntries.end())
         {
