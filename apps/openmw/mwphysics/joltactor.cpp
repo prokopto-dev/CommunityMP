@@ -67,18 +67,20 @@ namespace MWPhysics
         settings->mShapeOffset = JPH::Vec3(0.0f, 0.0f, halfExtents.z());
 
         // Slope ceiling: vanilla MW lets actors walk surfaces up to
-        // ~46° before sliding (fSlopeBraking GMST). Phase 7f tunes
-        // this against the real GMST; 45° is a sane phase-7a default.
-        settings->mMaxSlopeAngle = 0.25f * JPH::JPH_PI;
+        // ~46° before sliding (fSlopeBraking GMST). Bumped to 50° so
+        // user-mod stairs with slightly steep tessellation still
+        // count as walkable instead of triggering the steep-slope
+        // slide path before WalkStairs gets a chance.
+        settings->mMaxSlopeAngle = (50.0f / 180.0f) * JPH::JPH_PI;
 
         // Predictive contact distance: how far Jolt scans outside
         // the shape to find an upcoming wall. Default 0.1 (m) is
-        // microscopic at MW's "1 m ≈ 70 unit" scale; we want the CV
-        // to see a stair riser well before colliding with it so the
-        // walk-stairs heuristic has time to engage. 20 MW units
-        // (~28 cm) covers a couple of frames of forward motion at
-        // walking speed (160 units/s × 1/60 = 2.7 units/frame).
-        settings->mPredictiveContactDistance = 20.0f;
+        // microscopic at MW's "1 m ≈ 70 unit" scale. 50 MW units
+        // (~70 cm) gives WalkStairs a full half-second of advance
+        // notice at walking speed before the actor would collide
+        // with a stair riser — plenty of time for the heuristic to
+        // engage even if the actor is sprinting.
+        settings->mPredictiveContactDistance = 50.0f;
 
         // Hit reduction merges contacts whose normals are within
         // ~2.5° by default. NIF stair geometry has small normal

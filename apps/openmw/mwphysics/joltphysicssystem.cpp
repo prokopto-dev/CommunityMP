@@ -509,42 +509,57 @@ namespace MWPhysics
         const JPH::Vec3 he(std::max(halfExtents.x(), kMinExtent),
             std::max(halfExtents.y(), kMinExtent), std::max(halfExtents.z(), kMinExtent));
 
-        JPH::RefConst<JPH::Shape> joltShape;
+        // Build the inner shape and decide whether to lift it. MW
+        // mesh pivots sit at the foot (z=0), so a primitive shape
+        // centred on the body origin would clip half into the ground.
+        // Wrap primitives in a RotatedTranslatedShape with +Z offset
+        // = halfExtents.z so the collider sits *above* the pivot,
+        // matching the visual mesh. The Mesh path doesn't need this
+        // because the convex hull preserves the NIF vertex coords.
+        JPH::RefConst<JPH::Shape> innerShape;
+        bool liftPrimitive = false;
         switch (shape)
         {
             case DynamicShape::Box:
-                joltShape = new JPH::BoxShape(he);
+                innerShape = new JPH::BoxShape(he);
+                liftPrimitive = true;
                 break;
             case DynamicShape::Cylinder:
             {
                 const float radius = 0.5f * (he.GetX() + he.GetY());
-                joltShape = new JPH::CylinderShape(he.GetZ(), radius);
+                innerShape = new JPH::CylinderShape(he.GetZ(), radius);
+                liftPrimitive = true;
                 break;
             }
             case DynamicShape::Sphere:
             {
                 const float radius = std::max({ he.GetX(), he.GetY(), he.GetZ() });
-                joltShape = new JPH::SphereShape(radius);
+                innerShape = new JPH::SphereShape(radius);
+                liftPrimitive = true;
                 break;
             }
             case DynamicShape::Mesh:
             {
-                // Build a convex hull from every triangle vertex of
-                // the source NIF. Falls back to a cylinder if the
-                // hull builder rejects the input (degenerate mesh,
-                // colinear vertices, etc.) so the spawn never fails.
                 if (meshSource && meshSource->mCollisionShape)
-                    joltShape = extractConvexHull(meshSource->mCollisionShape.get());
-                if (!joltShape)
+                    innerShape = extractConvexHull(meshSource->mCollisionShape.get());
+                if (!innerShape)
                 {
                     const float radius = 0.5f * (he.GetX() + he.GetY());
-                    joltShape = new JPH::CylinderShape(he.GetZ(), radius);
+                    innerShape = new JPH::CylinderShape(he.GetZ(), radius);
+                    liftPrimitive = true;
                 }
                 break;
             }
         }
-        if (!joltShape)
+        if (!innerShape)
             return;
+
+        JPH::RefConst<JPH::Shape> joltShape = innerShape;
+        if (liftPrimitive)
+        {
+            joltShape = new JPH::RotatedTranslatedShape(
+                JPH::Vec3(0.0f, 0.0f, he.GetZ()), JPH::Quat::sIdentity(), innerShape.GetPtr());
+        }
 
         const ESM::Position& pos = ptr.getRefData().getPosition();
         // Convert MW Euler (XYZ around -X, -Y, -Z to match the rest
@@ -1025,14 +1040,13 @@ namespace MWPhysics
         JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
         updateSettings.mStickToFloorStepDown
             = JPH::Vec3(0.0f, 0.0f, -MWPhysics::sStepSizeDown);
-        // User tuning: 0.3 m step-up cap (21 MW units) instead of
-        // vanilla MW's sStepSizeUp = 34 units (~48 cm). The vanilla
-        // value is the *maximum* MW lets you climb, but using it as
-        // the heuristic's first probe makes WalkStairs grab onto
-        // any 30-40 cm bump (clutter on floors, slightly raised
-        // tiles) and stutter. 0.3 m matches actual stair tread
-        // height in Bethesda's NIFs.
-        updateSettings.mWalkStairsStepUp = JPH::Vec3(0.0f, 0.0f, 21.0f);
+        // Step-up cap = vanilla MW sStepSizeUp (34 MW units, ≈ 48 cm).
+        // Going lower (we tried 21 = 0.3 m) blocked the heuristic on
+        // taller risers MW NIFs ship with — Bethesda staircases mix
+        // tread heights in the 25-40 cm range. 34 units accepts
+        // every stair MW expects the player to climb.
+        updateSettings.mWalkStairsStepUp
+            = JPH::Vec3(0.0f, 0.0f, ::Constants::sStepSizeUp);
         // Walk-stairs forward-test geometry, scaled from Jolt's
         // metre-based defaults (0.02 / 0.15 m) to MW units (1 m ≈ 70).
         // Without this scaling the forward test fires for a smaller
