@@ -830,15 +830,19 @@ namespace MWPhysics
         // distance than the per-frame velocity — the actor's capsule
         // just collides with the stair riser and stops, no step-up.
         // Min-step-forward is intentionally tiny (~1 mm) so even a
-        // standing-walk speed engages the heuristic; the cap is
-        // enforced by mStepForwardTest below.
+        // standing-walk speed engages the heuristic.
+        // Step-forward-test bumped to 35 units (~half a metre, big
+        // enough to overlap any reasonable stair tread depth) after
+        // user reports the heuristic kept missing risers.
         updateSettings.mWalkStairsMinStepForward = 0.1f;
-        updateSettings.mWalkStairsStepForwardTest = 14.0f;
-        // Permissive forward-contact angle threshold (cos 89°): default
-        // cos(75°) skips contacts whose normal is more vertical than
-        // a typical stair riser, so a flush riser doesn't qualify.
-        updateSettings.mWalkStairsCosAngleForwardContact
-            = std::cos(89.0f * 3.14159265f / 180.0f);
+        updateSettings.mWalkStairsStepForwardTest = 35.0f;
+        // Forward-contact angle threshold: -1 = "any angle qualifies".
+        // Default cos(75°) and even our earlier cos(89°) rejected the
+        // contacts MW stair risers actually generate (normals vary
+        // slightly because of NIF tessellation). Take everything;
+        // wrong-angle contacts get filtered later by the step-up
+        // collision sweep itself.
+        updateSettings.mWalkStairsCosAngleForwardContact = -1.0f;
         const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
         const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
         const IgnoreSensorsBodyFilter playerBodyFilter;
@@ -1175,66 +1179,27 @@ namespace MWPhysics
         return {};
     }
     osg::Vec3f JoltPhysicsSystem::traceDown(
-        const MWWorld::Ptr& ptr, const osg::Vec3f& position, float maxHeight)
+        const MWWorld::Ptr& /*ptr*/, const osg::Vec3f& position, float /*maxHeight*/)
     {
-        // Sweep the actor's own capsule downward — same approach as
-        // Bullet's ActorTracer::findGround. A thin ray would slip
-        // through slivers in MW collision meshes (door entries
-        // catch the bottom face of a hollow floor box, putting the
-        // player one floor-thickness below the walkable surface —
-        // the "téléport m'apporte dessous une map" report). Using
-        // the actor's actual capsule means we land where the actor
-        // would actually rest, accounting for the shape that the
-        // simulator will use the next frame.
+        // No-op pass-through — returning the input means
+        // World::adjustPosition does `min(pos.z+20, pos.z+20) =
+        // pos.z+20`, the player ends up exactly at the door /
+        // teleport spawn (plus the engine's 20-unit safety nudge),
+        // and the next stepSimulation's post-teleport stick-to-floor
+        // (mPostTeleportSnap = 100 in stepSimulation) snaps the CV
+        // onto whatever surface is below.
         //
-        // Result is the actor's *feet* position at the contact:
-        // ShapeCast returns the fraction at which the swept shape
-        // first contacts geometry; the shape's center is at
-        // (start - up * fraction * maxHeight) at that point, and
-        // the feet sit shapeOffset.z below the center (= halfExtents.z
-        // since JoltActor offsets the capsule that way). World::adjustPosition
-        // expects feet z, so we subtract the offset off the
-        // sphere/capsule center.
-        const auto ait = mActors.find(ptr.mRef);
-        if (ait == mActors.end() || !ait->second->getCharacter())
-        {
-            // Actor not in physics yet (cell load racing teleport).
-            // Fall back to a thin ray with self-ignore so the result
-            // is at least no-worse than the previous behaviour.
-            const osg::Vec3f to(position.x(), position.y(), position.z() - maxHeight);
-            const std::vector<MWWorld::ConstPtr> ignoreList{ ptr };
-            const RayCastingResult hit = castRay(position, to, ignoreList, {},
-                CollisionType_World | CollisionType_HeightMap, 0xff);
-            return hit.mHit ? hit.mHitPos : to;
-        }
-
-        auto* cv = ait->second->getCharacter();
-        const JPH::Vec3 direction(0.0f, 0.0f, -maxHeight);
-        // CV center starts above the feet by halfExtents.z (the
-        // mShapeOffset). Sweep from that center.
-        const float halfHeightZ = ait->second->getHalfExtents().z();
-        const JPH::RVec3 sweepStart(position.x(), position.y(), position.z() + halfHeightZ);
-        const JPH::RShapeCast cast(cv->GetShape(),
-            JPH::Vec3::sReplicate(1.0f),
-            JPH::RMat44::sTranslation(sweepStart),
-            direction);
-
-        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-        const JPH::ShapeCastSettings settings;
-        const std::vector<MWWorld::ConstPtr> ignoreList{ ptr };
-        const std::vector<MWWorld::Ptr> emptyTargets;
-        const JoltIgnoreFilter bodyFilter(mBodyOwners, ignoreList, emptyTargets);
-        mJoltSystem->GetNarrowPhaseQuery().CastShape(
-            cast, settings, JPH::RVec3::sZero(), collector,
-            JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
-
-        if (!collector.HadHit())
-            return osg::Vec3f(position.x(), position.y(), position.z() - maxHeight);
-        const float f = collector.mHit.mFraction;
-        // Sphere/capsule center at hit. Subtract halfHeightZ to get
-        // feet z (what World::adjustPosition expects in the result).
-        const float centerZAtHit = position.z() + halfHeightZ - f * maxHeight;
-        return osg::Vec3f(position.x(), position.y(), centerZAtHit - halfHeightZ);
+        // Earlier attempts replicated Bullet's ActorTracer::findGround
+        // — first via a thin ray (slipped through hollow floor
+        // boxes → "dessous la map"), then a sphere cast (off by the
+        // sphere radius), then a capsule cast using the actor's
+        // shape (still landed in surprising places, user reported
+        // "vraiment pas à la bonne endroit"). The CV-driven snap on
+        // the next physics step is closer to what the user described
+        // wanting: pause physics conceptually, set the position,
+        // refresh, resume — let the simulator decide where the
+        // ground is once the actor's CV is there.
+        return position;
     }
 
     bool JoltPhysicsSystem::isOnGround(const MWWorld::Ptr& ptr)
