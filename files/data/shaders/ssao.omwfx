@@ -1,13 +1,3 @@
-// Standalone SSAO post-process. Phase A2 of docs/ssao-and-grass-plan.md:
-// 3-pass pipeline (raw AO → bilateral blur → composite) with depth-aware
-// blur to denoise the noisy single-tap-per-direction AO without smearing
-// across geometric edges.
-//
-// Pass layout:
-//   1. ao_raw   → R8  AO factor at quarter-res, horizon-based.
-//   2. ao_blur  → bilateral cross blur, depth weights.
-//   3. main     → compose: scene * blurredAO.
-
 uniform_float uRadius {
     header = "#{OMWShaders:SSAOHeader}";
     default = 80.0;
@@ -75,12 +65,10 @@ shared {
     }
 }
 
-// Quarter-resolution single-channel AO target. R8 is enough — AO is a
-// scalar in [0, 1] and the bilateral blur softens any banding.
 render_target RT_AO {
     width_ratio = 0.5;
     height_ratio = 0.5;
-    internal_format = r8;
+    internal_format = red;
     source_type = unsigned_byte;
     source_format = red;
     mipmaps = false;
@@ -88,12 +76,10 @@ render_target RT_AO {
     mag_filter = linear;
 }
 
-// Blurred AO at the same resolution. Linear filtering so the upsample
-// in the composite pass interpolates smoothly between AO texels.
 render_target RT_AOBlurred {
     width_ratio = 0.5;
     height_ratio = 0.5;
-    internal_format = r8;
+    internal_format = red;
     source_type = unsigned_byte;
     source_format = red;
     mipmaps = false;
@@ -101,9 +87,6 @@ render_target RT_AOBlurred {
     mag_filter = linear;
 }
 
-// -----------------------------------------------------------------------
-// Pass 1: raw horizon AO
-// -----------------------------------------------------------------------
 fragment ao_raw(target=RT_AO) {
     omw_In vec2 omw_TexCoord;
 
@@ -187,11 +170,6 @@ fragment ao_raw(target=RT_AO) {
     }
 }
 
-// -----------------------------------------------------------------------
-// Pass 2: bilateral cross blur (separable would need 2 passes; cross is
-// cheap enough at quarter-res). Depth weight prevents AO from leaking
-// across silhouette edges (e.g. a creature's outline against a wall).
-// -----------------------------------------------------------------------
 fragment ao_blur(target=RT_AOBlurred, rt1=RT_AO) {
     omw_In vec2 omw_TexCoord;
 
@@ -230,9 +208,6 @@ fragment ao_blur(target=RT_AOBlurred, rt1=RT_AO) {
     }
 }
 
-// -----------------------------------------------------------------------
-// Pass 3: composite — scene color × blurred AO
-// -----------------------------------------------------------------------
 fragment main(rt1=RT_AOBlurred) {
     omw_In vec2 omw_TexCoord;
 
