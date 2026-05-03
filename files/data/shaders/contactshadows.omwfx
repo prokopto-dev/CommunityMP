@@ -236,11 +236,6 @@ fragment cshadow_raw(target=RT_ContactShadows) {
     }
 }
 
-// -----------------------------------------------------------------------
-// Bilateral cross blur: 5x5 depth-weighted Gaussian. Mirror of
-// ssao.omwfx's ao_blur — denoises the raymarche output without leaking
-// across geometric edges.
-// -----------------------------------------------------------------------
 fragment cshadow_blur(target=RT_ContactShadowsBlurred, rt1=RT_ContactShadows) {
     omw_In vec2 omw_TexCoord;
 
