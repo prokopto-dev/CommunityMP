@@ -47,6 +47,11 @@ namespace Shader
     class ShaderVisitor;
 }
 
+namespace Material
+{
+    class Registry;
+}
+
 namespace Resource
 {
     class TemplateRef : public osg::Object
@@ -231,6 +236,7 @@ namespace Resource
         mutable std::mutex mSharedStateMutex;
 
         std::unique_ptr<Shader::ShaderManager> mShaderManager;
+        std::unique_ptr<Material::Registry> mMaterialRegistry;
         std::string mNormalMapPattern;
         std::string mNormalHeightMapPattern;
         std::string mSpecularMapPattern;

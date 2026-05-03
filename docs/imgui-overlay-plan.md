@@ -158,14 +158,18 @@ Fusion de l'ancien Phase 8 (per-instance live preview) avec `docs/material-overr
 - `Resource::SceneManager` partage les StateSets entre instances (`SHARE_DUPLICATE_STATE`, `scenemanager.cpp:1003`). Pour un override par-RefId il faut un copy-on-write au moment de l'insertion (Phase 2 du material plan, ligne 153-163).
 - `osg::UserValue("refId", ...)` n'est pas posé sur les nodes aujourd'hui ; à ajouter dans `mwrender/objects.cpp:60` pour permettre le matching par RefId.
 
-### Phase 8a — registry YAML + matching mesh par diffuse/path (~6 h)
-Implémente Phase 1 de `material-override-plan.md` :
-- `components/material/{materialdef,materialregistry,materialapplier}.{hpp,cpp}` neufs.
-- Linker `yaml-cpp` (déjà dispo dans le tree).
-- `Resource::SceneManager` owner du registry, parser tout `data/materials/**/*.yaml` au boot.
-- Hook `ShaderVisitor::createProgram` : si `MaterialRegistry::matchMesh(meshPath, nodeName, diffuseFilename)` retourne un hit, override `shaderPrefix` + merge `defineMap`, push uniforms/textures/state.
+### Phase 8a — registry YAML + matching mesh (DONE)
+Backend matériel posé.
+- `components/material/{materialdef,materialregistry,materialapplier}.{hpp,cpp}` neufs, ajoutés à `add_component_dir(material …)`.
+- `Material::Registry` parsé au constructeur du `Resource::SceneManager` via le VFS — itère `materials/**/*.yaml`, tolérant aux malformés (log + skip).
+- `MaterialDef` : nom, vector<MatchRule> (mesh path / node name / texture substring / refid), shader fragment template, defines map, uniforms typés (float / int / bool / vec2-3-4), priority. Les rules d'un même matériel sont OR'd.
+- `MatchRule` matching : substring case-insensitive (MVP). Glob et regex pour Phases 8c/d.
+- `Material::pushUniforms` utilise `std::visit` sur `UniformValue` pour pousser le bon `osg::Uniform` (OVERRIDE flag).
+- `Shader::ShaderVisitor::createProgram` : juste avant `getProgram`, query `mMaterialRegistry->matchMesh(meshPath, nodeName, diffuseFilename)`. Si hit → swap `shaderPrefix`, merge `defineMap`, push uniforms.
+- `ShaderRequirements` gagne `mDiffuseFilename` (capturé pendant `applyStateSet` au même endroit que le parallax override).
+- Limite MVP : `meshPath` est passé vide. Le matching opère sur le node name + diffuse + texture substring. Plumber `meshPath` depuis `getTemplate` requiert un nouveau paramètre — Phase 8c en même temps que le RefId.
 
-**Critère** : un YAML qui matche `tx_lantern` rend les lanternes avec un fragment shader custom ET un uniform animé. Aucune régression sur les autres meshes.
+**Critère** : un YAML qui matche `tx_lantern` (substring) rend les lanternes avec un fragment shader custom ET un uniform pushé. Aucune régression sur les autres meshes (registry vide = no-op).
 
 ### Phase 8b — pane ImGui "Material" (~1 j)
 Once 8a ships, l'inspector ImGui gagne un pane Material :

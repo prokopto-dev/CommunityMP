@@ -19,6 +19,8 @@
 #include <osgUtil/TangentSpaceGenerator>
 
 #include <components/debug/debuglog.hpp>
+#include <components/material/materialapplier.hpp>
+#include <components/material/materialregistry.hpp>
 #include <components/misc/osguservalues.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/resource/imagemanager.hpp>
@@ -413,6 +415,8 @@ namespace Shader
                                     float ov = lookupParallaxOverride(fn);
                                     if (ov >= 0.0f)
                                         mRequirements.back().mParallaxScaleOverride = ov;
+                                    // Phase 8a — stash for material registry.
+                                    mRequirements.back().mDiffuseFilename = fn;
                                 }
                             }
                             else if (texName == "specularMap")
@@ -787,6 +791,24 @@ namespace Shader
         std::string shaderPrefix;
         if (!node.getUserValue("shaderPrefix", shaderPrefix))
             shaderPrefix = mDefaultShaderPrefix;
+
+        // Phase 8a — material override registry. If a YAML matches the
+        // diffuse / node name, swap the shaderPrefix and merge defines
+        // before the ShaderManager builds the program. Uniforms are
+        // pushed straight onto the writable StateSet (OVERRIDE flag).
+        const Material::MaterialDef* matched = nullptr;
+        if (mMaterialRegistry != nullptr)
+        {
+            matched = mMaterialRegistry->matchMesh(/*meshPath=*/"",
+                node.getName(), reqs.mDiffuseFilename);
+            if (matched != nullptr)
+            {
+                if (!matched->mShaderPrefix.empty())
+                    shaderPrefix = matched->mShaderPrefix;
+                Material::mergeDefines(*matched, defineMap);
+                Material::pushUniforms(*matched, writableStateSet);
+            }
+        }
 
         auto program = mShaderManager.getProgram(shaderPrefix, defineMap, mProgramTemplate);
         writableStateSet->setAttributeAndModes(program, osg::StateAttribute::ON);

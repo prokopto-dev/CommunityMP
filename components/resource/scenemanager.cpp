@@ -25,6 +25,7 @@
 
 #include <components/debug/debuglog.hpp>
 
+#include <components/material/materialregistry.hpp>
 #include <components/nifosg/controller.hpp>
 #include <components/nifosg/nifloader.hpp>
 
@@ -444,6 +445,7 @@ namespace Resource
         Resource::NifFileManager* nifFileManager, Resource::BgsmFileManager* bgsmFileManager, double expiryDelay)
         : ResourceManager(vfs, expiryDelay)
         , mShaderManager(new Shader::ShaderManager)
+        , mMaterialRegistry(std::make_unique<Material::Registry>(vfs))
         , mSharedStateManager(new SharedStateManager)
         , mImageManager(imageManager)
         , mNifFileManager(nifFileManager)
@@ -1224,6 +1226,7 @@ namespace Resource
         shaderVisitor->setAdjustCoverageForAlphaTest(mAdjustCoverageForAlphaTest);
         shaderVisitor->setSupportsNormalsRT(mSupportsNormalsRT);
         shaderVisitor->setWeatherParticleOcclusion(mWeatherParticleOcclusion);
+        shaderVisitor->setMaterialRegistry(mMaterialRegistry.get());
         return shaderVisitor;
     }
 }

@@ -67,6 +67,10 @@ add_component_dir (l10n
     messagebundles manager
     )
 
+add_component_dir (material
+    materialdef materialregistry materialapplier
+    )
+
 add_component_dir (settings
     categories
     categories/camera

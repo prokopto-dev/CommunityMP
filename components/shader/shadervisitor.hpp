@@ -9,6 +9,11 @@ namespace Resource
     class ImageManager;
 }
 
+namespace Material
+{
+    class Registry;
+}
+
 namespace Shader
 {
 
@@ -20,6 +25,11 @@ namespace Shader
     public:
         ShaderVisitor(
             ShaderManager& shaderManager, Resource::ImageManager& imageManager, const std::string& defaultShaderPrefix);
+
+        // Phase 8a — material override registry (data/materials/*.yaml).
+        // Optional; null = no overrides. Owned by SceneManager, lifetime
+        // outlives this visitor.
+        void setMaterialRegistry(const Material::Registry* registry) { mMaterialRegistry = registry; }
 
         void setProgramTemplate(const osg::Program* programTemplate) { mProgramTemplate = programTemplate; }
 
@@ -112,12 +122,19 @@ namespace Shader
             // stateset, replacing the global value.
             float mParallaxScaleOverride;
 
+            // Phase 8a — diffuse texture filename, captured during
+            // applyStateSet so createProgram can run it against the
+            // material registry's substring matchers.
+            std::string mDiffuseFilename;
+
             // the Node that requested these requirements
             osg::Node* mNode;
         };
         std::vector<ShaderRequirements> mRequirements;
 
         std::string mDefaultShaderPrefix;
+
+        const Material::Registry* mMaterialRegistry = nullptr;
 
         void createProgram(const ShaderRequirements& reqs);
         bool adjustGeometry(osg::Geometry& sourceGeometry, const ShaderRequirements& reqs);
