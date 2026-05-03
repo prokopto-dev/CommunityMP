@@ -259,8 +259,32 @@ namespace MWPhysics
             // Sync subtracts `bodyRotation * mPivotLift` so the
             // offset tracks correctly when the body tips over.
             osg::Vec3f mPivotLift;
+
+            // Phase 6d — navmesh integration. Built once at promote
+            // time (synthetic primitive, or reused mesh source).
+            // Held alive here so navigator.addObject can reference
+            // its mCollisionShape across many sleep/wake cycles
+            // without rebuilding.
+            osg::ref_ptr<Resource::BulletShapeInstance> mNavmeshShape;
+
+            // Sleep-driven navmesh state machine. Jolt's IsActive()
+            // is polled each frame; we transition mInNavmesh after
+            // a 1s settled hold-down so a baril repeatedly bumped
+            // by an NPC doesn't thrash navmesh tile rebuilds.
+            bool mInNavmesh = false;
+            bool mWasActive = true;
+            float mHoldTimer = 0.0f; // seconds since last state flip
         };
         std::unordered_map<const MWWorld::LiveCellRefBase*, DynamicBody> mDynamicBodies;
+
+        // Phase 6d — events emitted from the dynamic-body sleep poll
+        // and drained by Scene each frame to forward to the
+        // DetourNavigator. Kept opaque to outside callers via
+        // IPhysicsBackend::DynamicBodyEvent.
+    public:
+        std::vector<DynamicBodyEvent> drainDynamicBodyEvents() override;
+    private:
+        std::vector<DynamicBodyEvent> mPendingDynamicEvents;
 
         // Per-actor character controllers (phase 7).
         std::unordered_map<const MWWorld::LiveCellRefBase*, std::unique_ptr<JoltActor>> mActors;

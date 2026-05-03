@@ -1393,6 +1393,37 @@ namespace MWWorld
             if (const auto object = mPhysics->getObject(door.first))
                 updateNavigatorObject(*object, navigatorUpdateGuard.get());
 
+        // Phase 6d of docs/imgui-overlay-plan.md — drain sleep-driven
+        // events from dynamic Jolt bodies and forward them to the
+        // navigator. The throttle is enforced backend-side; here we
+        // just translate Add → addObject + Remove → removeObject.
+        for (auto& ev : mPhysics->drainDynamicBodyEvents())
+        {
+            if (ev.mPtr.isEmpty())
+                continue;
+            const DetourNavigator::ObjectId id(ev.mPtr.mRef);
+            if (ev.mType == MWPhysics::IPhysicsBackend::DynamicBodyEvent::Type::Remove)
+            {
+                mNavigator->removeObject(id, navigatorUpdateGuard.get());
+                continue;
+            }
+            if (ev.mNavmeshShape == nullptr)
+                continue;
+            const ESM::Position pos{
+                { ev.mPosition.x(), ev.mPosition.y(), ev.mPosition.z() },
+                { 0.0f, 0.0f, 0.0f } // recast doesn't care about pivot rot here
+            };
+            const DetourNavigator::ObjectShapes shapes(ev.mNavmeshShape,
+                DetourNavigator::ObjectTransform{ pos, ev.mScale });
+            // Build a btTransform mirroring the Jolt body: position +
+            // quat. That's what the existing static path passes.
+            btTransform xf;
+            xf.setOrigin(btVector3(ev.mPosition.x(), ev.mPosition.y(), ev.mPosition.z()));
+            xf.setRotation(btQuaternion(ev.mRotation.x(), ev.mRotation.y(),
+                ev.mRotation.z(), ev.mRotation.w()));
+            mNavigator->addObject(id, shapes, xf, navigatorUpdateGuard.get());
+        }
+
         mNavigator->update(getPlayerPtr().getRefData().getPosition().asVec3(), navigatorUpdateGuard.get());
     }
 

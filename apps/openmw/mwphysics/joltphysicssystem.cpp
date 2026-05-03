@@ -6,6 +6,10 @@
 #include <stdexcept>
 #include <thread>
 
+#include <BulletCollision/CollisionShapes/btBoxShape.h>
+#include <BulletCollision/CollisionShapes/btCylinderShape.h>
+#include <BulletCollision/CollisionShapes/btSphereShape.h>
+
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
@@ -606,7 +610,51 @@ namespace MWPhysics
         settings.mAngularDamping = 0.2f;
 
         const JPH::BodyID id = bi.CreateAndAddBody(settings, JPH::EActivation::Activate);
-        mDynamicBodies.emplace(ptr.mRef, DynamicBody{ id, ptr, pivotLift });
+
+        // Phase 6d — synthesize a Bullet shape for the DetourNavigator.
+        // For Mesh we reuse the source NIF instance (cheaper, vertex
+        // data already loaded). For primitives we fabricate a minimal
+        // BulletShape wrapping the matching btShape. Held alive on
+        // the DynamicBody so navigator.addObject's reference stays
+        // valid across sleep / wake cycles.
+        osg::ref_ptr<Resource::BulletShapeInstance> navmeshShape;
+        if (shape == DynamicShape::Mesh && meshSource != nullptr && meshSource->mCollisionShape)
+        {
+            navmeshShape = meshSource;
+        }
+        else
+        {
+            osg::ref_ptr<Resource::BulletShape> synth = new Resource::BulletShape();
+            const btVector3 btHe(he.GetX(), he.GetY(), he.GetZ());
+            switch (shape)
+            {
+                case DynamicShape::Box:
+                    synth->mCollisionShape.reset(new btBoxShape(btHe));
+                    break;
+                case DynamicShape::Cylinder:
+                    // Z-up cylinder, matching MW convention.
+                    synth->mCollisionShape.reset(new btCylinderShapeZ(btHe));
+                    break;
+                case DynamicShape::Sphere:
+                {
+                    const float radius = std::max({ he.GetX(), he.GetY(), he.GetZ() });
+                    synth->mCollisionShape.reset(new btSphereShape(radius));
+                    break;
+                }
+                case DynamicShape::Mesh:
+                    // Mesh fell through (no source); approximate with
+                    // a box AABB so the NPCs at least see something.
+                    synth->mCollisionShape.reset(new btBoxShape(btHe));
+                    break;
+            }
+            synth->mCollisionBox.mExtents = osg::Vec3f(he.GetX(), he.GetY(), he.GetZ());
+            synth->mCollisionBox.mCenter = pivotLift;
+            navmeshShape = Resource::makeInstance(synth);
+        }
+
+        mDynamicBodies.emplace(ptr.mRef,
+            DynamicBody{ id, ptr, pivotLift, navmeshShape, /*mInNavmesh*/ false,
+                /*mWasActive*/ true, /*mHoldTimer*/ 0.0f });
         mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), ptr);
     }
 
@@ -614,6 +662,17 @@ namespace MWPhysics
     {
         if (auto dit = mDynamicBodies.find(ptr.mRef); dit != mDynamicBodies.end())
         {
+            // Phase 6d — emit a final Remove if the body was sitting
+            // in the navmesh, so the navigator drops the obstacle
+            // before the underlying ref unloads.
+            if (dit->second.mInNavmesh)
+            {
+                DynamicBodyEvent ev;
+                ev.mType = DynamicBodyEvent::Type::Remove;
+                ev.mPtr = dit->second.mPtr;
+                ev.mNavmeshShape = dit->second.mNavmeshShape;
+                mPendingDynamicEvents.push_back(std::move(ev));
+            }
             auto& bi = mJoltSystem->GetBodyInterface();
             mBodyOwners.erase(dit->second.mBodyId.GetIndexAndSequenceNumber());
             bi.RemoveBody(dit->second.mBodyId);
@@ -1053,6 +1112,50 @@ namespace MWPhysics
                 {
                     base->setPosition(visualPos);
                     base->setAttitude(osgRot);
+                }
+
+                // Phase 6d — sleep-driven navmesh integration.
+                // Poll IsActive to drive the per-body state machine.
+                // Transitions only fire after a 1s hold-down to
+                // avoid thrashing tile rebuilds when an NPC bumps
+                // a baril repeatedly. mInNavmesh = false initially:
+                // the first add waits for the body to settle.
+                constexpr float kHoldSeconds = 1.0f;
+                const bool active = bi.IsActive(dyn.mBodyId);
+                if (active != dyn.mWasActive)
+                {
+                    dyn.mHoldTimer = 0.0f;
+                    dyn.mWasActive = active;
+                }
+                else
+                {
+                    dyn.mHoldTimer += dt;
+                }
+                if (active && dyn.mInNavmesh && dyn.mHoldTimer >= kHoldSeconds)
+                {
+                    DynamicBodyEvent ev;
+                    ev.mType = DynamicBodyEvent::Type::Remove;
+                    ev.mPtr = dyn.mPtr;
+                    ev.mNavmeshShape = dyn.mNavmeshShape;
+                    ev.mPosition = visualPos;
+                    ev.mRotation = osgRot;
+                    mPendingDynamicEvents.push_back(std::move(ev));
+                    dyn.mInNavmesh = false;
+                    dyn.mHoldTimer = 0.0f;
+                }
+                else if (!active && !dyn.mInNavmesh && dyn.mHoldTimer >= kHoldSeconds
+                    && dyn.mNavmeshShape != nullptr)
+                {
+                    DynamicBodyEvent ev;
+                    ev.mType = DynamicBodyEvent::Type::Add;
+                    ev.mPtr = dyn.mPtr;
+                    ev.mNavmeshShape = dyn.mNavmeshShape;
+                    ev.mPosition = visualPos;
+                    ev.mRotation = osgRot;
+                    ev.mScale = dyn.mPtr.getCellRef().getScale();
+                    mPendingDynamicEvents.push_back(std::move(ev));
+                    dyn.mInNavmesh = true;
+                    dyn.mHoldTimer = 0.0f;
                 }
             }
         }
@@ -1670,6 +1773,13 @@ namespace MWPhysics
     void JoltPhysicsSystem::reportStats(unsigned int, osg::Stats&) const
     {
         // No-op: phase 12 will populate Jolt-specific stats.
+    }
+
+    std::vector<IPhysicsBackend::DynamicBodyEvent> JoltPhysicsSystem::drainDynamicBodyEvents()
+    {
+        std::vector<DynamicBodyEvent> out;
+        out.swap(mPendingDynamicEvents);
+        return out;
     }
 
     IPhysicsActor* JoltPhysicsSystem::getActor(const MWWorld::Ptr& ptr)

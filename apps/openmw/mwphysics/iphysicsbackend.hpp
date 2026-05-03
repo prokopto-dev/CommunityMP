@@ -61,6 +61,7 @@
 namespace Resource
 {
     class BulletShapeManager;
+    class BulletShapeInstance;
 }
 
 #include <components/vfs/pathutil.hpp>
@@ -133,6 +134,30 @@ namespace MWPhysics
             const osg::Quat* /*initialRotation*/ = nullptr)
         {
         }
+
+        // Phase 6d — sleep-driven navmesh integration for dynamic
+        // bodies. The backend tracks per-body settled state and emits
+        // an event whenever a body should be added or removed from
+        // the DetourNavigator. Scene drains the queue each frame and
+        // forwards the events to the Navigator (the backend itself
+        // doesn't hold a Navigator pointer to keep the boundary clean).
+        // mNavmeshShape is borrowed (the body keeps it alive) and
+        // must outlive the consumer's call to navigator.addObject.
+        struct DynamicBodyEvent
+        {
+            enum class Type
+            {
+                Add,    // body settled — register as obstacle
+                Remove, // body woke up — drop the obstacle
+            };
+            Type mType;
+            MWWorld::Ptr mPtr;
+            osg::ref_ptr<const Resource::BulletShapeInstance> mNavmeshShape;
+            osg::Vec3f mPosition;
+            osg::Quat mRotation;
+            float mScale = 1.0f;
+        };
+        virtual std::vector<DynamicBodyEvent> drainDynamicBodyEvents() { return {}; }
 
         virtual int addProjectile(const MWWorld::Ptr& caster, const osg::Vec3f& position,
             VFS::Path::NormalizedView mesh, bool computeRadius)

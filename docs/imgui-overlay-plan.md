@@ -98,52 +98,26 @@ Pas de helper Jolt natif pour la flottaison sur mesh.
 4. Drag linéaire/angulaire proportionnel à la vitesse pour amortir.
 5. **Critère de réussite** : pousser un baril dans la mer à Seyda Neen, il flotte et oscille.
 
-### Phase 6d — dynamic bodies dans le navmesh Recast/Detour (~1.5 j)
+### Phase 6d — dynamic bodies dans le navmesh Recast/Detour (DONE)
 
-**État actuel** : un baril spawn dynamique tombe et roule, mais le navmesh ne le voit pas. Les NPCs lui marchent dedans (Jolt les bloque physiquement, mais ils essayent quand même → trajectoires mochent, IA confuse). Pour que le navmesh enregistre le baril comme obstacle, il faut le déclarer à `DetourNavigator::Navigator`.
+NPCs ne marchent plus dans les barils settled. Implémentation finale ≠ spec d'origine — pas de `JPH::BodyActivationListener`, juste un poll par-frame côté main thread. Plus simple, pas de lock contention.
 
-**Problème de perf** : le navmesh utilise des tiles ; chaque `updateObject` invalide les tiles touchées et déclenche un rebuild dans le worker thread. Faire ça à 60 Hz pour chaque dynamic body écraserait le frame budget. Il faut une stratégie d'update.
+1. **`JoltPhysicsSystem::DynamicBody`** gagne 4 champs : `mNavmeshShape` (osg::ref_ptr alive pour la durée de vie du body), `mInNavmesh`, `mWasActive`, `mHoldTimer`.
+2. **Au `promoteToDynamic`** : synthèse d'un `Resource::BulletShape` minimaliste — `btBoxShape`/`btCylinderShapeZ`/`btSphereShape` selon le DynamicShape, ou réutilisation de `meshSource` pour la branche Mesh. Wrappé dans `BulletShapeInstance` via `makeInstance()`. `mCollisionBox` rempli pour que le navigator l'accepte.
+3. **Dans `stepSimulation`**, post-update transform : poll `bi.IsActive(bodyId)`. Track les transitions ; émet un `DynamicBodyEvent` (Add/Remove) quand l'état hold-down dépasse 1s — évite les rebuilds quand un NPC bouscule un baril en boucle.
+4. **`IPhysicsBackend::DynamicBodyEvent`** + `drainDynamicBodyEvents()` exposés sur l'interface backend (Bullet retourne vide). Type opaque pour ne pas leaker `Resource::*` dans les call sites tiers.
+5. **`World::updateNavigator()`** drain les events après le bloc animated objects + doors. Ajout via `mNavigator->addObject(ObjectId(ptr.mRef), shapes, btTransform, guard)`. Suppression via `mNavigator->removeObject(id, guard)`.
+6. **`JoltPhysicsSystem::remove(ptr)`** pour un dynamic body inscrit émet d'abord un Remove final — assure que le navmesh n'a pas d'`ObjectId` orphelin à l'unload.
 
-**Stratégie retenue : sleep-driven + throttle.** Jolt a un système de sleep natif — un body s'endort quand sa vitesse est sous un seuil pendant ~0.5s. C'est exactement le moment où il a une position stable utile au pathfinding.
+**Limites acceptées** :
+- ObjectId construit depuis `ptr.mRef` (LiveCellRefBase*) — collision pointer extrêmement improbable avec les ObjectIds statiques (`IPhysicsObject*`) qui vivent dans une autre région mémoire.
+- Pour la branche Mesh sans source (cas pathologique), fallback btBoxShape de halfExtents.
+- Throttle 1s peut empêcher l'inscription si un baril ne tient pas en place > 1s — acceptable, l'NPC le bumpera physiquement.
 
-#### Implémentation
-
-1. **Hook `JPH::BodyActivationListener`**
-   - Une instance attachée à `JPH::PhysicsSystem` via `SetBodyActivationListener`.
-   - `OnBodyActivated(BodyID)` : si le body est dans `mDynamicBodies`, le retirer du navmesh (`mNavigator->removeObject(id, guard)`). Le baril en mouvement n'est plus un obstacle valide.
-   - `OnBodyDeactivated(BodyID)` : si le body est dans `mDynamicBodies`, le réinscrire au navmesh à sa position settled.
-
-2. **Shape pour le navmesh**
-   - Recast veut un `BulletShape` (cf. `updateNavigatorObject` dans `worldimp.cpp:1399`). On a deux cas :
-     - **Mesh** dynamique : le `BulletShapeInstance` source est déjà capturé (cf. `meshSource` dans `promoteToDynamic`), on le réutilise tel quel.
-     - **Primitives** : créer un `btBoxShape` synthétique aux dimensions `halfExtents` au moment du sleep, l'envelopper dans un `Resource::BulletShape` minimaliste.
-   - Stocker ce shape sur la `DynamicBody` struct pour ne pas le reconstruire à chaque sleep/wake.
-
-3. **Throttle anti-thrashing**
-   - Un baril tapé répétitivement par un NPC = wake/sleep cycle court. Si on remove + add à chaque cycle, on lessivera les tiles.
-   - Garder un timestamp du dernier `OnBodyDeactivated`. Si `OnBodyActivated` arrive < 1.0s plus tard, supprimer un timer pending au lieu de removeObject (le navmesh n'a pas encore vu le déactivation).
-   - Symétrique : ne pas réinscrire avant un délai post-sleep (1s) ; garder un timer "à réinscrire à T+1s" dans une queue.
-
-4. **Lifecycle au remove**
-   - Si un dynamic body est remove (cell unload, F1 entity inspector delete, etc.), s'assurer qu'il est aussi remove du navmesh — sinon `ObjectId` orphan dans Recast.
-
-5. **Cell-edge case**
-   - Un baril qui roule traverse une frontière de tile : les deux tiles voisines se rebuilds. Acceptable car ça arrive déjà pour les doors et c'est rare en pratique.
-
-#### Critère de réussite
+**Critère de réussite** (à valider in-game) :
 - Spawn 5 barils dans un couloir étroit, attendre qu'ils s'arrêtent.
-- NPC patrouille → trajectoire les contourne (visible dans le navmesh debug `togglepathgrid`).
+- NPC patrouille → trajectoire les contourne (visible avec `togglepathgrid` console).
 - Pousser un baril : NPC ne le voit plus comme obstacle pendant qu'il roule, le re-considère après stabilisation.
-
-#### Risques
-- **Lock contention** : `mNavigator` est multi-thread. Le BodyActivationListener est appelé depuis le thread Jolt, mais `addObject`/`removeObject` doivent passer par le main thread (ou utiliser le guard). À vérifier — sinon enqueuer les events et les drainer en `stepSimulation`.
-- **Shape miss pour primitives** : un `Resource::BulletShape` minimaliste fabriqué à la volée n'a pas tous les champs (mCollisionBox, mIsAnimated...). Tester que le navigator les tolère.
-- **Throttle trop agressif** : si un NPC s'enferme entre 3 barils tous instables, les barils ne sont jamais ajoutés au navmesh. Acceptable — l'NPC les bumpera physiquement.
-
-#### Effort
-- Listener + plumbing : 0.5j
-- Shape synthèse pour primitives : 0.5j
-- Throttle + tests in-game : 0.5j
 
 ### Phase 6c — persistance dynamique dans les saves (DONE)
 Sans rien faire, un baril spawné dynamic via le spawner revient static après save+reload. Persistance ajoutée :
@@ -235,11 +209,10 @@ Phase 3 de `material-override-plan.md`. Pas piloté par l'ImGui (sélection terr
 - **Save game** : objets spawnés via `placeObject` persistent normalement (runtime copie dans le cell). Pour les éditions phase 4 idem. Le couplage save+dynamic body est traité en Phase 6c.
 
 ## Estimation restante
-- Phase 6d (navmesh dynamic) : ~1.5 j
 - Phase 7 (polissage) : ~0.5 j si désirée
 - Phase 8a (registry YAML mesh match) : ~6 h
 - Phase 8b (pane ImGui Material) : ~1 j
 - Phase 8c (RefId match + hot-reload) : ~1 j
 - Phase 8d (terrain override) : ~5 h optionnel
 
-**Total minimum** (6d + 7 + 8a-c) : ~5 j. **Total complet** : ~6 j avec terrain.
+**Total minimum** (7 + 8a-c) : ~3.5 j. **Total complet** : ~4.5 j avec terrain.
