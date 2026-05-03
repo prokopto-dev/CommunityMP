@@ -837,24 +837,6 @@ void OMW::Engine::prepareEngine()
         keybinderUserExists, userGameControllerdb, gameControllerdb, mGrab);
     mEnvironment.setInputManager(*mInputManager);
 
-    // Phase 2 of docs/imgui-overlay-plan.md: stand up the in-engine
-    // ImGui overlay and wire it as the first-pass SDL event
-    // interceptor. F1 toggles visibility (Alt-F1 stays available
-    // for OSG screenshot etc. — the modifier check below skips us).
-    mImGuiOverlay = std::make_unique<MWGui::ImGuiOverlay>(mWindow, mViewer->getCamera());
-    if (auto* wrapper = mInputManager->getInputWrapper())
-    {
-        wrapper->setEventInterceptor([this](const SDL_Event& evt) -> bool {
-            if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_F1
-                && (evt.key.keysym.mod & KMOD_ALT) == 0)
-            {
-                mImGuiOverlay->toggleVisible();
-                return true;
-            }
-            return mImGuiOverlay->processEvent(evt);
-        });
-    }
-
     // Create sound system
     mSoundManager = std::make_unique<MWSound::SoundManager>(mVFS.get(), mUseSound);
     mEnvironment.setSoundManager(*mSoundManager);
@@ -932,6 +914,13 @@ void OMW::Engine::prepareEngine()
     mEnvironment.setWorldScene(mWorld->getWorldScene());
     mWorld->setupPlayer();
     mWorld->setRandomSeed(mRandomSeed);
+
+    // ImGui overlay disabled — pressing F1 crashes inside
+    // ImGui_ImplOpenGL3_RenderDrawData → glDrawElements on macOS
+    // (vertex attribute deref at 0x0, likely OSG/ImGui GL state
+    // conflict). Re-enable once docs/imgui-overlay-plan.md phase 2.5
+    // wraps the draw with osg::State::disableAllVertexArrays.
+
     mWindowManager->initUI();
     mLuaManager->initPostLoad();
 

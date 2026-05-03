@@ -47,6 +47,12 @@ namespace MWGui
         bool wantsKeyboard() const;
         bool wantsMouse() const;
 
+        // Lazy-init flag for the OpenGL3 backend. Mutated from the
+        // OSG draw thread on first render — the only place a GL
+        // context is reliably current.
+        bool isGLInitialized() const { return mGLInitialized; }
+        void markGLInitialized() { mGLInitialized = true; }
+
     private:
         // Forward-declared OSG camera that runs ImGui rendering as a
         // post-draw callback. Owned by the camera's parent node.
@@ -54,6 +60,7 @@ namespace MWGui
 
         bool mVisible = false;
         bool mInitialized = false;
+        bool mGLInitialized = false;
     };
 }
 

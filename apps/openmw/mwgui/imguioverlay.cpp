@@ -22,7 +22,7 @@ namespace MWGui
         class ImGuiDrawable : public osg::Drawable
         {
         public:
-            ImGuiDrawable(const ImGuiOverlay& owner)
+            ImGuiDrawable(ImGuiOverlay& owner)
                 : mOwner(&owner)
             {
                 setSupportsDisplayList(false);
@@ -34,6 +34,18 @@ namespace MWGui
             {
                 if (!mOwner->isVisible())
                     return;
+                if (!mOwner->isGLInitialized())
+                {
+                    // GLSL 130 = OpenGL 3.0; OpenMW targets at least
+                    // that. Init must happen here, not in the
+                    // ImGuiOverlay constructor, because the OpenGL3
+                    // loader calls glGetString() which needs a
+                    // current GL context — only true on the OSG draw
+                    // thread.
+                    if (!ImGui_ImplOpenGL3_Init("#version 130"))
+                        return;
+                    mOwner->markGLInitialized();
+                }
                 ImGui_ImplOpenGL3_NewFrame();
                 ImGui_ImplSDL2_NewFrame();
                 ImGui::NewFrame();
@@ -45,7 +57,7 @@ namespace MWGui
             }
 
         private:
-            const ImGuiOverlay* mOwner;
+            ImGuiOverlay* mOwner;
         };
     }
 
@@ -62,8 +74,9 @@ namespace MWGui
         io.IniFilename = nullptr; // no on-disk config; sessions are clean
 
         ImGui_ImplSDL2_InitForOpenGL(window, nullptr);
-        // GLSL 130 = OpenGL 3.0; OpenMW targets at least that.
-        ImGui_ImplOpenGL3_Init("#version 130");
+        // OpenGL3 backend init is deferred to first draw — its
+        // loader calls glGetString() which needs a current GL
+        // context, and only the OSG draw thread has one.
 
         // HUD camera that runs after the main scene camera, with
         // ImGuiDrawable as its only geode. Attached to the main
@@ -84,8 +97,10 @@ namespace MWGui
     {
         if (!mInitialized)
             return;
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplSDL2_Shutdown();
+        // Skip ImGui_ImplOpenGL3_Shutdown / ImGui_ImplSDL2_Shutdown:
+        // they touch GL state, but this destructor runs on the main
+        // thread where the context isn't current. The process is
+        // exiting, so the OS reclaims the GL objects regardless.
         ImGui::DestroyContext();
     }
 
