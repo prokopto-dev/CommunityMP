@@ -41,6 +41,8 @@
 #include "../mwbase/world.hpp"
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
+#include "../mwworld/cell.hpp"
+#include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 
 #include "constants.hpp"
@@ -478,6 +480,14 @@ namespace MWPhysics
     void JoltPhysicsSystem::promoteToDynamic(
         const MWWorld::Ptr& ptr, DynamicShape shape, const osg::Vec3f& halfExtents, float mass)
     {
+        // Hold onto the source BulletShape before we drop the static
+        // body — extractConvexHull walks it for the Mesh path. Once
+        // mObjectEntries.erase runs, the osg::ref_ptr release could
+        // free the shape if the manager's cache had no other holder.
+        osg::ref_ptr<Resource::BulletShapeInstance> meshSource;
+        if (auto eit = mObjectEntries.find(ptr.mRef); eit != mObjectEntries.end())
+            meshSource = eit->second.mShapeInstance;
+
         // Tear down the existing static body if there is one — the
         // ImGui spawner places the ref via the normal addObject path
         // first so the rendering node exists, then upgrades it here.
@@ -515,6 +525,21 @@ namespace MWPhysics
             {
                 const float radius = std::max({ he.GetX(), he.GetY(), he.GetZ() });
                 joltShape = new JPH::SphereShape(radius);
+                break;
+            }
+            case DynamicShape::Mesh:
+            {
+                // Build a convex hull from every triangle vertex of
+                // the source NIF. Falls back to a cylinder if the
+                // hull builder rejects the input (degenerate mesh,
+                // colinear vertices, etc.) so the spawn never fails.
+                if (meshSource && meshSource->mCollisionShape)
+                    joltShape = extractConvexHull(meshSource->mCollisionShape.get());
+                if (!joltShape)
+                {
+                    const float radius = 0.5f * (he.GetX() + he.GetY());
+                    joltShape = new JPH::CylinderShape(he.GetZ(), radius);
+                }
                 break;
             }
         }
@@ -927,6 +952,7 @@ namespace MWPhysics
         if (!mDynamicBodies.empty())
         {
             auto& bi = mJoltSystem->GetBodyInterfaceNoLock();
+            const JPH::Vec3 gravity = mJoltSystem->GetGravity();
             for (auto& [_, dyn] : mDynamicBodies)
             {
                 if (dyn.mPtr.isEmpty())
@@ -934,6 +960,28 @@ namespace MWPhysics
                 JPH::RVec3 jpos;
                 JPH::Quat jrot;
                 bi.GetPositionAndRotation(dyn.mBodyId, jpos, jrot);
+
+                // Buoyancy: if the body's centre is under the cell's
+                // water level, push it back up via Jolt's native
+                // helper. Buoyancy=1.5 ⇒ floats with the top third
+                // poking above the surface; >1 floats, <1 sinks.
+                // Linear/angular drag values come from Jolt's docs
+                // for "object floating in water" (typical pond drag).
+                if (auto* cell = dyn.mPtr.getCell();
+                    cell != nullptr && cell->getCell() != nullptr && cell->getCell()->hasWater())
+                {
+                    const float waterZ = cell->getWaterLevel();
+                    if (jpos.GetZ() < waterZ)
+                    {
+                        const JPH::RVec3 surfacePos(jpos.GetX(), jpos.GetY(), waterZ);
+                        const JPH::Vec3 surfaceNormal(0.0f, 0.0f, 1.0f);
+                        constexpr float kBuoyancy = 1.5f;
+                        constexpr float kLinearDrag = 0.5f;
+                        constexpr float kAngularDrag = 0.3f;
+                        bi.ApplyBuoyancyImpulse(dyn.mBodyId, surfacePos, surfaceNormal, kBuoyancy,
+                            kLinearDrag, kAngularDrag, JPH::Vec3::sZero(), gravity, dt);
+                    }
+                }
 
                 // Persist transform to CellRef so saves and the
                 // entity inspector see the live position.
@@ -977,8 +1025,14 @@ namespace MWPhysics
         JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
         updateSettings.mStickToFloorStepDown
             = JPH::Vec3(0.0f, 0.0f, -MWPhysics::sStepSizeDown);
-        updateSettings.mWalkStairsStepUp
-            = JPH::Vec3(0.0f, 0.0f, ::Constants::sStepSizeUp);
+        // User tuning: 0.3 m step-up cap (21 MW units) instead of
+        // vanilla MW's sStepSizeUp = 34 units (~48 cm). The vanilla
+        // value is the *maximum* MW lets you climb, but using it as
+        // the heuristic's first probe makes WalkStairs grab onto
+        // any 30-40 cm bump (clutter on floors, slightly raised
+        // tiles) and stutter. 0.3 m matches actual stair tread
+        // height in Bethesda's NIFs.
+        updateSettings.mWalkStairsStepUp = JPH::Vec3(0.0f, 0.0f, 21.0f);
         // Walk-stairs forward-test geometry, scaled from Jolt's
         // metre-based defaults (0.02 / 0.15 m) to MW units (1 m ≈ 70).
         // Without this scaling the forward test fires for a smaller
