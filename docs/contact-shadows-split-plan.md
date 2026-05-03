@@ -70,7 +70,7 @@ Le seul "couplage caméra" résiduel est la **projection** (nécessaire pour sam
 
 ## Plan d'extraction
 
-### Phase 1 — Création de `files/data/shaders/contactshadows.omwfx` (~1 h)
+### Phase 1 — Création de `files/data/shaders/contactshadows.omwfx` — **DONE** (commit `44169d0350` + sky-skip fix `cbbc1aed76`)
 
 Nouveau fichier, structure identique à `ssao.omwfx` :
 
@@ -181,15 +181,11 @@ technique {
 
 **Critère** : visuellement identique à `uContactShadows=true` dans `internal_raycast` à paramètres équivalents, fadait correctement à l'aube/crépuscule via `omw.sunVis`.
 
-### Phase 2 — Désactiver le code dans `internal_raycast.omwfx` (~30 min)
+### Phase 2 — Documentation in-raycast pour éviter le double effet — **DONE**
 
-- Garder les uniforms `uContactShadows*` pour compat avec saves existants.
-- Faire que `contactShadow(uv)` retourne **toujours** `1.0` quand le standalone est actif. Solution : un nouveau define `OMW_USE_INTERNAL_CONTACT_SHADOWS` (par défaut 0), pré-conditionne le calcul. L'utilisateur passe sur le standalone via la chain post-process.
-- Documenter dans le commit qu'un user qui veut l'ancien chemin doit retirer `contactshadows` de la chain et activer `uContactShadows=true` dans le panneau.
-
-**Critère** : avec `internal_raycast` seul (sans `contactshadows`), l'effet contact shadow vient encore de `internal_raycast`. Avec `contactshadows` ajouté à la chain, l'effet du standalone l'écrase (gardé pour A/B-test).
-
-Optionnel : ajouter dans `internal_raycast` un test `if (chain contains "contactshadows") return 1.0;` — pas trivial à faire en GLSL, on s'en passe et on documente.
+- Le `display_name` et `description` du `uContactShadows` dans `internal_raycast.omwfx` annoncent maintenant le standalone et indiquent au user de désactiver l'in-raycast quand `contactshadows` est dans la chain.
+- Pas de gate dynamique GLSL (impossible sans nouveau pipeline d'introspection de chain) — c'est UI-driven : le user décoche manuellement la case dans le panneau F2.
+- Compat saves intacte — les `uContactShadows*` uniforms gardent leurs valeurs par défaut.
 
 ### Phase 3 — Refacto pour purer world-space + lighting (~2 h, optionnel)
 

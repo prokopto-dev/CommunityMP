@@ -1,5 +1,7 @@
 uniform_bool uContactShadows {
     default = false;
+    display_name = "Contact Shadows (legacy, in-raycast)";
+    description = "Legacy in-raycast contact-shadow path. Prefer the standalone contactshadows.omwfx (added to the chain via the post-process panel) — it's tuneable in isolation, fades cleanly with omw.sunVis at dawn / dusk, and skips skybox pixels. Keep this OFF if contactshadows is in the chain to avoid stacking the effect.";
 }
 uniform_int uContactShadowsSteps {
     default = 12;
