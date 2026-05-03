@@ -195,8 +195,17 @@ Nouvelle fenêtre `Materials` au-dessus du registry de Phase 8a (toggle F1 → c
 - Save to YAML (write-back depuis le pane). Demande sérialisation YAML — Phase 8c-bis.
 - Per-instance override (copy-on-write StateSet sur Ptr courant).
 
-### Phase 8d (optionnel) — terrain override (~5 h)
-Phase 3 de `material-override-plan.md`. Pas piloté par l'ImGui (sélection terrain pas exposée dans l'inspector aujourd'hui — ce serait une Phase 9 séparée).
+### Phase 8d — terrain override (DONE, MVP non-composite)
+Phase 3 de `material-override-plan.md`.
+- `MaterialDef` gagne `mTerrainRules` : `vector<{worldspace, vector<{x,y}>}>`. YAML `match.terrain.{worldspace, cells: [{x,y}]}`. Worldspace vide = wildcard.
+- `Material::Registry::matchTerrain(worldspaceLower, cellX, cellY)` itère les rules, retourne le premier match (registry trié par priority desc → priorité respectée).
+- `Terrain::createPasses` gagne `(ESM::RefId worldspace, osg::Vec2f chunkCenter)` en fin de signature (defaultés pour back-compat). Patch les 2 callers dans `chunkmanager.cpp`.
+- Hook dans `material.cpp` : juste avant `getProgram("terrain", defineMap)`, query `matchTerrain`, swap templateName + merge defines + push uniforms.
+- Skip si `isComposite==true` (RTT bake) ou si `worldspace.empty()` (path composite-consumer pour distant chunks). Documenté côté plan : les overrides terrain ne s'appliquent qu'au LOD0/LOD1 live.
+
+**Pas dans le MVP** :
+- Composite map bake — les distant chunks restent vanilla, frontière LOD visible. Phase 8d-bis si besoin.
+- Multi-pass override (un matériel produit plusieurs StateSets empilés).
 
 ### Pièges / risques
 - **Conflit `SHARE_DUPLICATE_STATE`** : le pane Phase 8b option "Per-instance only" doit forcer un `setStateSet(new StateSet(*old, SHALLOW_COPY))` avant édition, comme `getWritableStateSet` (`shadervisitor.cpp:277`).
@@ -224,9 +233,7 @@ Phase 3 de `material-override-plan.md`. Pas piloté par l'ImGui (sélection terr
 
 ## Estimation restante
 - Phase 7 (polissage) : ~0.5 j si désirée
-- Phase 8a (registry YAML mesh match) : ~6 h
-- Phase 8b (pane ImGui Material) : ~1 j
-- Phase 8c (RefId match + hot-reload) : ~1 j
-- Phase 8d (terrain override) : ~5 h optionnel
+- Phase 8c-bis (mtime watch + Save-to-YAML) : optionnel
+- Phase 8d-bis (composite map override) : optionnel
 
-**Total minimum** (7 + 8a-c) : ~3.5 j. **Total complet** : ~4.5 j avec terrain.
+Tout le coeur est en place : overlay + inspector + spawner + Jolt dynamic + saves + navmesh + matériel mesh/refid/terrain.

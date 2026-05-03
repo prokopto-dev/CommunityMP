@@ -41,10 +41,25 @@ namespace Material
         std::string mRefId;          // exact match (case-insensitive)
     };
 
+    // Phase 8d — terrain match: a chunk hits if its (worldspace, cellX,
+    // cellY) appears in mCells. Worldspace is matched lower-case
+    // string; empty worldspace = wildcard.
+    struct TerrainCell
+    {
+        int mX = 0;
+        int mY = 0;
+    };
+    struct TerrainRule
+    {
+        std::string mWorldspace; // lower-case; empty = any worldspace
+        std::vector<TerrainCell> mCells;
+    };
+
     struct MaterialDef
     {
         std::string mName;
-        std::vector<MatchRule> mRules; // OR'd at evaluation time
+        std::vector<MatchRule> mRules;        // mesh / texture / refid (OR)
+        std::vector<TerrainRule> mTerrainRules; // terrain chunk rules (OR)
 
         std::string mShaderPrefix;     // optional; empty = keep default
         std::map<std::string, std::string> mDefines;

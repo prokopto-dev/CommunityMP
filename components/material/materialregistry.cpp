@@ -66,8 +66,8 @@ namespace Material
 
             if (auto match = root["match"])
             {
-                // Support `any: [ ... ]` list of rules, or a single
-                // inline rule.
+                // Mesh / texture / refid rules — `any: [...]` list or
+                // a single inline rule.
                 auto pushRule = [&](const YAML::Node& r) {
                     MatchRule mr;
                     if (r["mesh"])
@@ -85,9 +85,32 @@ namespace Material
                     for (const auto& r : match["any"])
                         pushRule(r);
                 }
-                else
+                else if (!match["terrain"])
                 {
                     pushRule(match);
+                }
+
+                // Phase 8d — terrain rule, separate node:
+                //   match:
+                //     terrain:
+                //       worldspace: morrowind
+                //       cells: [{ x: -3, y: -10 }, { x: -3, y: -9 }]
+                if (auto terrain = match["terrain"])
+                {
+                    TerrainRule tr;
+                    if (terrain["worldspace"])
+                        tr.mWorldspace = toLower(terrain["worldspace"].as<std::string>());
+                    if (auto cells = terrain["cells"]; cells && cells.IsSequence())
+                    {
+                        for (const auto& c : cells)
+                        {
+                            TerrainCell tc;
+                            tc.mX = c["x"] ? c["x"].as<int>() : 0;
+                            tc.mY = c["y"] ? c["y"].as<int>() : 0;
+                            tr.mCells.push_back(tc);
+                        }
+                    }
+                    def->mTerrainRules.push_back(std::move(tr));
                 }
             }
 
@@ -165,6 +188,25 @@ namespace Material
         // Sort by priority desc so matchMesh's first-hit wins.
         std::stable_sort(mMaterials.begin(), mMaterials.end(),
             [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
+    }
+
+    const MaterialDef* Registry::matchTerrain(
+        const std::string& worldspaceLower, int cellX, int cellY) const
+    {
+        for (const auto& def : mMaterials)
+        {
+            for (const auto& rule : def->mTerrainRules)
+            {
+                if (!rule.mWorldspace.empty() && rule.mWorldspace != worldspaceLower)
+                    continue;
+                for (const auto& cell : rule.mCells)
+                {
+                    if (cell.mX == cellX && cell.mY == cellY)
+                        return def.get();
+                }
+            }
+        }
+        return nullptr;
     }
 
     const MaterialDef* Registry::matchMesh(const std::string& meshPath, const std::string& nodeName,

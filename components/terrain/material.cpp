@@ -8,8 +8,12 @@
 #include <osg/TexMat>
 #include <osg/Texture2D>
 
+#include <algorithm>
 #include <cmath>
 
+#include <components/material/materialapplier.hpp>
+#include <components/material/materialdef.hpp>
+#include <components/material/materialregistry.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/patchparameter.hpp>
@@ -266,9 +270,27 @@ namespace Terrain
     std::vector<osg::ref_ptr<osg::StateSet>> createPasses(Resource::SceneManager* sceneManager,
         const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
         int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain, bool useTessellation,
-        bool useDisplacementEmulation)
+        bool useDisplacementEmulation, const ESM::RefId& worldspace, osg::Vec2f chunkCenter)
     {
         auto& shaderManager = sceneManager->getShaderManager();
+
+        // Phase 8d — terrain material override. Skipped when:
+        //  - this is the composite-map RTT bake (MVP scope, see plan),
+        //  - the caller didn't provide a worldspace (default empty
+        //    refid means "not a live chunk path").
+        const Material::MaterialDef* terrainOverride = nullptr;
+        if (!isComposite && !worldspace.empty())
+        {
+            if (auto* registry = sceneManager->getMaterialRegistry())
+            {
+                std::string ws = worldspace.toDebugString();
+                std::transform(ws.begin(), ws.end(), ws.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                const int cellX = static_cast<int>(std::floor(chunkCenter.x()));
+                const int cellY = static_cast<int>(std::floor(chunkCenter.y()));
+                terrainOverride = registry->matchTerrain(ws, cellX, cellY);
+            }
+        }
         std::vector<osg::ref_ptr<osg::StateSet>> passes;
 
         // Compositing rasterises into a 2D RTT and is not amenable to a 3-stage
@@ -398,7 +420,15 @@ namespace Terrain
                 }
                 else
                 {
-                    stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                    std::string templateName = "terrain";
+                    if (terrainOverride != nullptr)
+                    {
+                        if (!terrainOverride->mShaderPrefix.empty())
+                            templateName = terrainOverride->mShaderPrefix;
+                        Material::mergeDefines(*terrainOverride, defineMap);
+                        Material::pushUniforms(*terrainOverride, stateset);
+                    }
+                    stateset->setAttributeAndModes(shaderManager.getProgram(templateName, defineMap));
                     if (useDisplacementEmulation)
                     {
                         stateset->addUniform(new osg::Uniform(

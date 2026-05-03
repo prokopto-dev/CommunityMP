@@ -37,6 +37,12 @@ namespace Material
         const MaterialDef* matchMesh(const std::string& meshPath, const std::string& nodeName,
             const std::string& diffuseFilename, const std::string& refId = std::string()) const;
 
+        // Phase 8d — match a terrain chunk by (worldspace, cellX, cellY).
+        // Worldspace lower-case (caller does the conversion); empty
+        // worldspace in the rule = wildcard.
+        const MaterialDef* matchTerrain(
+            const std::string& worldspaceLower, int cellX, int cellY) const;
+
         // Number of materials successfully loaded (debug / UI).
         std::size_t size() const { return mMaterials.size(); }
 
