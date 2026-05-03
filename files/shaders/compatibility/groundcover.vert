@@ -49,6 +49,12 @@ uniform mat4 osg_ViewMatrixInverse;
 uniform mat4 osg_ViewMatrix;
 uniform float windSpeed;
 uniform vec3 playerPos;
+// Wind direction (xy, world space). Default (1, 1) preserves legacy
+// behaviour when the C++ side hasn't wired a value. Phase B1 of
+// docs/ssao-and-grass-plan.md will derive it from
+// MWWorld::Weather; for now the slow drift keeps the field from
+// looking suspiciously uniform.
+uniform vec2 uWindDirection;
 
 #if @groundcoverStompMode == 0
 #else
@@ -61,7 +67,15 @@ uniform vec3 playerPos;
 
 vec2 groundcoverDisplacement(in vec3 worldpos, float h)
 {
-    vec2 windDirection = vec2(1.0);
+    // Slow rotation around the supplied direction (uWindDirection
+    // defaults to (1, 1) when unbound). The drift gives the field
+    // some life even before the C++ side feeds a weather-driven
+    // direction; once wired, the per-frame value dominates.
+    float driftAngle = osg_SimulationTime * 0.02;
+    vec2 base = length(uWindDirection) > 0.001 ? normalize(uWindDirection) : vec2(0.7071);
+    vec2 windDirection = vec2(
+        base.x * cos(driftAngle) - base.y * sin(driftAngle),
+        base.x * sin(driftAngle) + base.y * cos(driftAngle));
     vec3 footPos = playerPos;
     vec3 windVec = vec3(windSpeed * windDirection, 1.0);
 
