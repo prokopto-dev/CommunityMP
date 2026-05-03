@@ -628,6 +628,27 @@ namespace MWWorld
 
     void Scene::changeCellGrid(const osg::Vec3f& pos, ESM::ExteriorCellLocation playerCellIndex, bool changeEvent)
     {
+        // Hard guard: never run an exterior-grid update when the
+        // player is in an interior cell. The unload-loop further down
+        // would otherwise iterate mActiveCells, hit the freshly-loaded
+        // interior (which is "neither exterior nor in our worldspace"
+        // from its perspective) and evict it — exactly the user's
+        // "teleport leaves me under water in the middle of the map"
+        // bug. Reaching this function with an interior current cell
+        // means a stale request slipped through somewhere; rather than
+        // hunting the source, refuse the operation.
+        if (mCurrentCell && !mCurrentCell->isExterior())
+        {
+            static const bool sTrace = []() {
+                const char* env = std::getenv("OPENMW_JOLT_TRACE");
+                return env != nullptr && env[0] != '0' && env[0] != '\0';
+            }();
+            if (sTrace)
+                Log(Debug::Info) << "[changeCellGrid] blocked: current cell is interior ("
+                    << mCurrentCell->getCell()->getDescription() << ")";
+            return;
+        }
+
         const int halfGridSize
             = isEsm4Ext(playerCellIndex.mWorldspace) ? Constants::ESM4CellGridRadius : Constants::CellGridRadius;
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
