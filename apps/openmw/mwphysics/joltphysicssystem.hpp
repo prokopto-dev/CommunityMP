@@ -139,6 +139,8 @@ namespace MWPhysics
         void addObject(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh, osg::Quat rotation,
             int collisionType) override;
         void addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh) override;
+        void promoteToDynamic(const MWWorld::Ptr& ptr, DynamicShape shape,
+            const osg::Vec3f& halfExtents, float mass) override;
         int addProjectile(const MWWorld::Ptr& caster, const osg::Vec3f& position,
             VFS::Path::NormalizedView mesh, bool computeRadius) override;
         void setCaster(int projectileId, const MWWorld::Ptr& caster) override;
@@ -238,6 +240,26 @@ namespace MWPhysics
         std::unordered_map<const MWWorld::LiveCellRefBase*, JPH::BodyID> mObjectBodies;
         std::map<std::pair<int, int>, JPH::BodyID> mHeightFieldBodies;
         JPH::BodyID mWaterBody;
+
+        // Phase 6 of docs/imgui-overlay-plan.md — dynamic rigid bodies
+        // promoted from static objects via the ImGui spawner. Synced
+        // back to RefData + the OSG node every stepSimulation.
+        struct DynamicBody
+        {
+            JPH::BodyID mBodyId;
+            MWWorld::Ptr mPtr;
+            // Offset (in body local frame) from the visual mesh
+            // pivot to the body's local origin. Centred primitives
+            // need this lift so their geometric centre sits above
+            // the MW pivot (which is at the foot). Auto-derived from
+            // the source mesh's CollisionBox.mCenter when a NIF is
+            // available; defaults to (0, 0, halfZ). Zero for Mesh
+            // hulls (their vertices already encode the NIF pivot).
+            // Sync subtracts `bodyRotation * mPivotLift` so the
+            // offset tracks correctly when the body tips over.
+            osg::Vec3f mPivotLift;
+        };
+        std::unordered_map<const MWWorld::LiveCellRefBase*, DynamicBody> mDynamicBodies;
 
         // Per-actor character controllers (phase 7).
         std::unordered_map<const MWWorld::LiveCellRefBase*, std::unique_ptr<JoltActor>> mActors;

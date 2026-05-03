@@ -14,6 +14,7 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwgui/imguioverlay.hpp"
 #include "../mwgui/settingswindow.hpp"
 
 #include "../mwworld/player.hpp"
@@ -198,8 +199,18 @@ namespace MWInput
         bool grab = !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_MainMenu)
             && !MWBase::Environment::get().getWindowManager()->isConsoleMode();
 
+        // Treat the ImGui debug overlay like GUI mode: the user
+        // needs the cursor visible and absolute to click widgets.
+        // Exception: while right-click is held to drag the camera,
+        // we want relative mode so mouselook still drives the view
+        // even with the inspector open.
+        const auto* overlay = MWGui::ImGuiOverlay::instance();
+        const bool overlayBlockingMouse
+            = overlay != nullptr && overlay->isVisible() && !overlay->isCameraDragging();
+
         bool wasRelative = mInputWrapper->getMouseRelative();
-        bool isRelative = !MWBase::Environment::get().getWindowManager()->isGuiMode();
+        bool isRelative
+            = !MWBase::Environment::get().getWindowManager()->isGuiMode() && !overlayBlockingMouse;
 
         // don't keep the pointer away from the window edge in gui mode
         // stop using raw mouse motions and switch to system cursor movements

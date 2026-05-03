@@ -10,6 +10,7 @@
 
 #include "animationstate.hpp"
 #include "cellref.hpp"
+#include "dynamicbodystate.hpp"
 #include "locals.hpp"
 
 namespace ESM
@@ -39,6 +40,11 @@ namespace ESM
         uint32_t mFlags = 0;
         unsigned char mHasLocals = 0;
         unsigned char mEnabled = 0;
+
+        // Phase 6c — populated when this ref is a Jolt dynamic body.
+        // Read on cell load to re-promote after addObject.
+        bool mHasDynamicBody = false;
+        DynamicBodyState mDynamicBody;
 
         // Is there any class-specific state following the ObjectState
         bool mHasCustomState = true;

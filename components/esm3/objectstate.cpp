@@ -48,6 +48,11 @@ namespace ESM
         // FIXME: assuming "false" as default would make more sense, but also break compatibility with older save files
         mHasCustomState = true;
         esm.getHNOT(mHasCustomState, "HCUS");
+
+        // Phase 6c — optional Jolt dynamic-body record. Absent on
+        // saves predating the feature; default-init keeps the ref
+        // static.
+        mHasDynamicBody = esm.getOptionalComposite("DYNB", mDynamicBody);
     }
 
     void ObjectState::save(ESMWriter& esm, bool inInventory) const
@@ -77,6 +82,9 @@ namespace ESM
 
         if (!mHasCustomState)
             esm.writeHNT("HCUS", false);
+
+        if (mHasDynamicBody && !inInventory)
+            esm.writeNamedComposite("DYNB", mDynamicBody);
     }
 
     void ObjectState::blank()
@@ -91,6 +99,8 @@ namespace ESM
         }
         mFlags = 0;
         mHasCustomState = true;
+        mHasDynamicBody = false;
+        mDynamicBody = DynamicBodyState{};
     }
 
     const NpcState& ObjectState::asNpcState() const

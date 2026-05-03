@@ -676,6 +676,7 @@ namespace MWWorld
         Misc::Rng::Generator& getPrng() override;
 
         MWRender::RenderingManager* getRenderingManager() override { return mRendering.get(); }
+        MWPhysics::IPhysicsBackend* getPhysicsBackend() override { return mPhysics.get(); }
 
         MWRender::PostProcessor* getPostProcessor() override;
 

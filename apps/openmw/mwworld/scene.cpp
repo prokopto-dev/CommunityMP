@@ -38,6 +38,7 @@
 
 #include "../mwphysics/actor.hpp"
 #include "../mwphysics/heightfield.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 #include "../mwphysics/object.hpp"
 #include "../mwphysics/physicssystem.hpp"
 
@@ -137,6 +138,22 @@ namespace
 
         if (!model.empty())
             ptr.getClass().insertObject(ptr, model, rotation, physics);
+
+        // Phase 6c — re-promote any ref the player previously turned
+        // dynamic via the ImGui spawner. The static body just created
+        // by Class::insertObject is torn down inside promoteToDynamic
+        // and replaced with a Jolt rigid body using the saved shape /
+        // half-extents / mass / settled rotation.
+        if (ptr.getRefData().isDynamic())
+        {
+            const auto& dbs = ptr.getRefData().getDynamicBody();
+            const osg::Quat savedRot(
+                dbs.mRotation[0], dbs.mRotation[1], dbs.mRotation[2], dbs.mRotation[3]);
+            const osg::Vec3f he(dbs.mHalfExtents[0], dbs.mHalfExtents[1], dbs.mHalfExtents[2]);
+            physics.promoteToDynamic(ptr,
+                static_cast<MWPhysics::IPhysicsBackend::DynamicShape>(dbs.mShape),
+                he, dbs.mMass, &savedRot);
+        }
 
         MWBase::Environment::get().getLuaManager()->objectAddedToScene(ptr);
     }

@@ -110,6 +110,22 @@ namespace MWPhysics
             = 0;
         virtual void addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh) = 0;
 
+        // Phase 6 of docs/imgui-overlay-plan.md — promote an existing
+        // static object to a dynamic rigid body with a primitive
+        // collider. Default no-op so the Bullet backend stays
+        // unchanged; only Jolt implements it for now.
+        enum class DynamicShape
+        {
+            Box,
+            Cylinder,
+            Sphere,
+            Mesh, // ConvexHull extracted from the source NIF
+        };
+        virtual void promoteToDynamic(const MWWorld::Ptr& /*ptr*/, DynamicShape /*shape*/,
+            const osg::Vec3f& /*halfExtents*/, float /*mass*/)
+        {
+        }
+
         virtual int addProjectile(const MWWorld::Ptr& caster, const osg::Vec3f& position,
             VFS::Path::NormalizedView mesh, bool computeRadius)
             = 0;

@@ -828,6 +828,13 @@ void OMW::Engine::prepareEngine()
     mStereoManager->disableStereoForNode(guiRoot);
     rootNode->addChild(guiRoot);
 
+    // Phase 2 of docs/imgui-overlay-plan.md: stand up the in-engine
+    // ImGui overlay before MyGUI / WindowManager so its HUD camera
+    // sits at the same level as MyGUI's. We attach it to guiRoot —
+    // the same node MyGUI's RenderManager uses — so it bypasses the
+    // post-processor's FBO and renders straight to screen.
+    mImGuiOverlay = std::make_unique<MWGui::ImGuiOverlay>(mWindow, guiRoot.get());
+
     mWindowManager = std::make_unique<MWGui::WindowManager>(mWindow, mViewer, guiRoot, mResourceSystem.get(),
         mWorkQueue.get(), mCfgMgr.getLogPath(), mScriptConsoleMode, mTranslationDataStorage, mEncoding, mExportFonts,
         Version::getOpenmwVersionDescription(), mCfgMgr);
@@ -836,6 +843,23 @@ void OMW::Engine::prepareEngine()
     mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, mScreenCaptureHandler, keybinderUser,
         keybinderUserExists, userGameControllerdb, gameControllerdb, mGrab);
     mEnvironment.setInputManager(*mInputManager);
+
+    // F1 toggles overlay visibility (Alt-F1 stays available for the
+    // engine's quick-keys menu — the modifier check below skips us).
+    // Attach the wrapper so toggleVisible() can release the cursor.
+    if (auto* wrapper = mInputManager->getInputWrapper())
+    {
+        mImGuiOverlay->attachInputWrapper(wrapper);
+        wrapper->setEventInterceptor([this](const SDL_Event& evt) -> bool {
+            if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_F1
+                && (evt.key.keysym.mod & KMOD_ALT) == 0)
+            {
+                mImGuiOverlay->toggleVisible();
+                return true;
+            }
+            return mImGuiOverlay->processEvent(evt);
+        });
+    }
 
     // Create sound system
     mSoundManager = std::make_unique<MWSound::SoundManager>(mVFS.get(), mUseSound);

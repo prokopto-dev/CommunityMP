@@ -63,6 +63,7 @@ namespace MWPhysics
 {
     class RayCastingResult;
     class RayCastingInterface;
+    class IPhysicsBackend;
 }
 
 namespace MWRender
@@ -597,6 +598,12 @@ namespace MWBase
         virtual Misc::Rng::Generator& getPrng() = 0;
 
         virtual MWRender::RenderingManager* getRenderingManager() = 0;
+
+        // Phase 6 of docs/imgui-overlay-plan.md — direct access for
+        // the ImGui spawner to promote a static ref to a dynamic
+        // rigid body. Debug-only callers; gameplay code should not
+        // reach in here.
+        virtual MWPhysics::IPhysicsBackend* getPhysicsBackend() = 0;
 
         virtual MWRender::PostProcessor* getPostProcessor() = 0;
 

@@ -42,6 +42,8 @@ namespace MWWorld
         mDeletedByContentFile = refData.mDeletedByContentFile;
         mFlags = refData.mFlags;
         mPhysicsPostponed = refData.mPhysicsPostponed;
+        mDynamic = refData.mDynamic;
+        mDynamicBody = refData.mDynamicBody;
 
         mAnimationState = refData.mAnimationState;
 
@@ -64,6 +66,7 @@ namespace MWWorld
         , mEnabled(true)
         , mPhysicsPostponed(false)
         , mChanged(false)
+        , mDynamic(false)
     {
         for (int i = 0; i < 3; ++i)
         {
@@ -81,6 +84,7 @@ namespace MWWorld
         , mEnabled(true)
         , mPhysicsPostponed(false)
         , mChanged(false)
+        , mDynamic(false)
     {
     }
 
@@ -93,6 +97,7 @@ namespace MWWorld
         , mEnabled(!(ref.mFlags & ESM4::Rec_Disabled))
         , mPhysicsPostponed(false)
         , mChanged(false)
+        , mDynamic(false)
     {
     }
 
@@ -105,6 +110,7 @@ namespace MWWorld
         , mEnabled(!(ref.mFlags & ESM4::Rec_Disabled))
         , mPhysicsPostponed(false)
         , mChanged(false)
+        , mDynamic(false)
     {
     }
 
@@ -118,6 +124,8 @@ namespace MWWorld
         , mEnabled(objectState.mEnabled != 0)
         , mPhysicsPostponed(false)
         , mChanged(true)
+        , mDynamic(objectState.mHasDynamicBody)
+        , mDynamicBody(objectState.mDynamicBody)
     {
         // "Note that the ActivationFlag_UseEnabled is saved to the reference,
         // which will result in permanently suppressed activation if the reference script is removed.
@@ -151,6 +159,9 @@ namespace MWWorld
         objectState.mFlags = mFlags;
 
         objectState.mAnimationState = mAnimationState;
+
+        objectState.mHasDynamicBody = mDynamic;
+        objectState.mDynamicBody = mDynamicBody;
     }
 
     RefData& RefData::operator=(const RefData& refData)
@@ -310,6 +321,22 @@ namespace MWWorld
     ESM::AnimationState& RefData::getAnimationState()
     {
         return mAnimationState;
+    }
+
+    void RefData::setDynamic(const ESM::DynamicBodyState& state)
+    {
+        mDynamic = true;
+        mDynamicBody = state;
+        mChanged = true;
+    }
+
+    void RefData::clearDynamic()
+    {
+        if (!mDynamic)
+            return;
+        mDynamic = false;
+        mDynamicBody = ESM::DynamicBodyState{};
+        mChanged = true;
     }
 
 }

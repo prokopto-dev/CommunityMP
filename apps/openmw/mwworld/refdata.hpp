@@ -4,6 +4,7 @@
 #include <components/esm/position.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/animationstate.hpp>
+#include <components/esm3/dynamicbodystate.hpp>
 
 #include "../mwscript/locals.hpp"
 #include "../mwworld/customdata.hpp"
@@ -63,6 +64,8 @@ namespace MWWorld
 
     private:
         bool mChanged : 1;
+        bool mDynamic : 1;
+        ESM::DynamicBodyState mDynamicBody;
 
         void copy(const RefData& refData);
 
@@ -146,6 +149,16 @@ namespace MWWorld
 
         const ESM::AnimationState& getAnimationState() const;
         ESM::AnimationState& getAnimationState();
+
+        // Phase 6c — dynamic Jolt body promotion. Persisted to the
+        // savegame so a barrel spawned dynamic via the ImGui spawner
+        // returns dynamic on reload. setDynamic() also flips mChanged
+        // so the ref makes it into the save's "changed refs" list.
+        bool isDynamic() const { return mDynamic; }
+        const ESM::DynamicBodyState& getDynamicBody() const { return mDynamicBody; }
+        ESM::DynamicBodyState& getDynamicBody() { return mDynamicBody; }
+        void setDynamic(const ESM::DynamicBodyState& state);
+        void clearDynamic();
     };
 }
 

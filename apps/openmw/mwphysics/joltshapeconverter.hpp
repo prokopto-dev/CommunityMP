@@ -27,6 +27,16 @@ namespace MWPhysics
     // shape types: box, sphere, capsule, cylinder. Phase 6b adds
     // compound + triangle mesh; phase 6c adds height field.
     JPH::RefConst<JPH::Shape> convertBulletShape(const btCollisionShape* shape);
+
+    // Build a single ConvexHullShape from every triangle vertex
+    // reachable through processAllTriangles on the Bullet shape (or
+    // recursively through compound children). Used for Phase 6 of
+    // docs/imgui-overlay-plan.md to give dynamic rigid bodies a
+    // mesh-conforming collider — Jolt forbids MeshShape for Dynamic
+    // motion type, so a hull is the closest practical fit. Concave
+    // detail is lost (the hull "fills in" indentations) but for
+    // barrels / crates / pots that's fine.
+    JPH::RefConst<JPH::Shape> extractConvexHull(const btCollisionShape* shape);
 }
 
 #endif

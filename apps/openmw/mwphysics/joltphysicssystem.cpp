@@ -501,65 +501,76 @@ namespace MWPhysics
             mObjectEntries.erase(ptr.mRef);
         }
 
-        // Build a primitive shape with safety floors — Jolt rejects
-        // shapes whose convex radius exceeds half-extent on any axis,
-        // and CylinderShape additionally requires non-zero radius and
-        // half-height. Clamp to a sensible minimum (1 MW unit ≈ 1.4 cm).
-        constexpr float kMinExtent = 8.0f;
-        const JPH::Vec3 he(std::max(halfExtents.x(), kMinExtent),
-            std::max(halfExtents.y(), kMinExtent), std::max(halfExtents.z(), kMinExtent));
+        // Auto-size the collider when we have the source mesh on
+        // hand: NIF authors place the pivot at the foot, the mesh
+        // box centre marks where the body's COM should sit relative
+        // to that pivot, and the box extents give the actual size.
+        // Without this, the user's UI defaults (32/32/48) usually
+        // undershoot — a typical MW barrel is ~130 units tall, so
+        // a 96-unit cylinder looks correct underneath but the visual
+        // pokes out the top.
+        JPH::Vec3 he = JPH::Vec3(std::max(halfExtents.x(), 8.0f),
+            std::max(halfExtents.y(), 8.0f), std::max(halfExtents.z(), 8.0f));
+        osg::Vec3f pivotLift(0.0f, 0.0f, he.GetZ());
+        if (meshSource != nullptr)
+        {
+            const osg::Vec3f& meshExt = meshSource->mCollisionBox.mExtents;
+            if (meshExt.length2() > 1.0f)
+            {
+                he = JPH::Vec3(std::max(meshExt.x(), 8.0f), std::max(meshExt.y(), 8.0f),
+                    std::max(meshExt.z(), 8.0f));
+                pivotLift = meshSource->mCollisionBox.mCenter;
+            }
+        }
 
-        // Build the inner shape and decide whether to lift it. MW
-        // mesh pivots sit at the foot (z=0), so a primitive shape
-        // centred on the body origin would clip half into the ground.
-        // Wrap primitives in a RotatedTranslatedShape with +Z offset
-        // = halfExtents.z so the collider sits *above* the pivot,
-        // matching the visual mesh. The Mesh path doesn't need this
-        // because the convex hull preserves the NIF vertex coords.
-        JPH::RefConst<JPH::Shape> innerShape;
-        bool liftPrimitive = false;
+        // Build the shape. Jolt's CylinderShape is aligned to its
+        // local Y axis (top at +Y, bottom at -Y). MW is Z-up, so a
+        // raw Cylinder lays on its side. Wrap in a RotatedTranslated
+        // shape that maps Y → Z to stand it upright.
+        JPH::RefConst<JPH::Shape> joltShape;
         switch (shape)
         {
             case DynamicShape::Box:
-                innerShape = new JPH::BoxShape(he);
-                liftPrimitive = true;
+                joltShape = new JPH::BoxShape(he);
                 break;
             case DynamicShape::Cylinder:
             {
                 const float radius = 0.5f * (he.GetX() + he.GetY());
-                innerShape = new JPH::CylinderShape(he.GetZ(), radius);
-                liftPrimitive = true;
+                JPH::RefConst<JPH::Shape> upright = new JPH::CylinderShape(he.GetZ(), radius);
+                joltShape = new JPH::RotatedTranslatedShape(JPH::Vec3::sZero(),
+                    JPH::Quat::sRotation(JPH::Vec3::sAxisX(), -0.5f * JPH::JPH_PI), upright.GetPtr());
                 break;
             }
             case DynamicShape::Sphere:
             {
                 const float radius = std::max({ he.GetX(), he.GetY(), he.GetZ() });
-                innerShape = new JPH::SphereShape(radius);
-                liftPrimitive = true;
+                joltShape = new JPH::SphereShape(radius);
                 break;
             }
             case DynamicShape::Mesh:
             {
+                // Convex hull preserves NIF vertex coords — pivot at
+                // mesh foot baked in, no lift needed.
                 if (meshSource && meshSource->mCollisionShape)
-                    innerShape = extractConvexHull(meshSource->mCollisionShape.get());
-                if (!innerShape)
+                    joltShape = extractConvexHull(meshSource->mCollisionShape.get());
+                if (joltShape)
+                {
+                    pivotLift = osg::Vec3f(0.0f, 0.0f, 0.0f);
+                }
+                else
                 {
                     const float radius = 0.5f * (he.GetX() + he.GetY());
-                    innerShape = new JPH::CylinderShape(he.GetZ(), radius);
-                    liftPrimitive = true;
+                    JPH::RefConst<JPH::Shape> upright
+                        = new JPH::CylinderShape(he.GetZ(), radius);
+                    joltShape = new JPH::RotatedTranslatedShape(JPH::Vec3::sZero(),
+                        JPH::Quat::sRotation(JPH::Vec3::sAxisX(), -0.5f * JPH::JPH_PI),
+                        upright.GetPtr());
                 }
                 break;
             }
         }
-        if (!innerShape)
+        if (!joltShape)
             return;
-
-        JPH::RefConst<JPH::Shape> joltShape = innerShape;
-        if (liftPrimitive)
-        {
-            joltShape = new JPH::RotatedTranslatedShape(
-                JPH::Vec3(0.0f, 0.0f, he.GetZ()), JPH::Quat::sIdentity(), innerShape.GetPtr());
-        }
 
         const ESM::Position& pos = ptr.getRefData().getPosition();
         // Convert MW Euler (XYZ around -X, -Y, -Z to match the rest
@@ -569,8 +580,14 @@ namespace MWPhysics
             * osg::Quat(pos.rot[1], osg::Vec3f(0.0f, -1.0f, 0.0f))
             * osg::Quat(pos.rot[0], osg::Vec3f(-1.0f, 0.0f, 0.0f));
 
+        // Spawn position = visual pivot + lift, rotated into world
+        // by the initial body rotation. For zero rotation this is
+        // just (pos + pivotLift); the rotation matters when an
+        // object is placed already-tilted.
+        const osg::Vec3f rotatedLift = q * pivotLift;
         JPH::BodyCreationSettings settings(joltShape,
-            JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]),
+            JPH::RVec3(pos.pos[0] + rotatedLift.x(), pos.pos[1] + rotatedLift.y(),
+                pos.pos[2] + rotatedLift.z()),
             JPH::Quat(q.x(), q.y(), q.z(), q.w()), JPH::EMotionType::Dynamic, JoltLayers::MOVING);
         // Override mass; Jolt's volume-based default would be too
         // coarse for hand-tuned debug spawns. Inertia tensor is still
@@ -586,7 +603,7 @@ namespace MWPhysics
         settings.mAngularDamping = 0.2f;
 
         const JPH::BodyID id = bi.CreateAndAddBody(settings, JPH::EActivation::Activate);
-        mDynamicBodies.emplace(ptr.mRef, DynamicBody{ id, ptr });
+        mDynamicBodies.emplace(ptr.mRef, DynamicBody{ id, ptr, pivotLift });
         mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), ptr);
     }
 
@@ -972,9 +989,19 @@ namespace MWPhysics
             {
                 if (dyn.mPtr.isEmpty())
                     continue;
-                JPH::RVec3 jpos;
-                JPH::Quat jrot;
-                bi.GetPositionAndRotation(dyn.mBodyId, jpos, jrot);
+                // GetPosition returns the body's *local origin* in
+                // world (= mPosition - rot * shape.GetCenterOfMass).
+                // For Mesh hulls this already lands on the visual
+                // pivot. For centred primitives we add a per-body
+                // pivotLift offset that we subtract here, rotated by
+                // the body so it tracks tipping.
+                const JPH::RVec3 jpos = bi.GetPosition(dyn.mBodyId);
+                const JPH::Quat jrot = bi.GetRotation(dyn.mBodyId);
+                const osg::Quat osgRot(jrot.GetX(), jrot.GetY(), jrot.GetZ(), jrot.GetW());
+                const osg::Vec3f rotatedLift = osgRot * dyn.mPivotLift;
+                const osg::Vec3f visualPos(
+                    jpos.GetX() - rotatedLift.x(), jpos.GetY() - rotatedLift.y(),
+                    jpos.GetZ() - rotatedLift.z());
 
                 // Buoyancy: if the body's centre is under the cell's
                 // water level, push it back up via Jolt's native
@@ -998,28 +1025,24 @@ namespace MWPhysics
                     }
                 }
 
-                // Persist transform to CellRef so saves and the
-                // entity inspector see the live position.
+                // Persist position only — we keep the live rotation
+                // exclusively on the OSG node (BaseNode::setAttitude
+                // below). Decomposing Jolt's Quat back into MW's
+                // intrinsic-ZYX Euler picks up gimbal-lock artefacts
+                // for free-falling bodies; since the inspector / save
+                // path use RefData.rot just for the *initial* orient
+                // until we add a proper dynamic-state writer in
+                // Phase 6c, leaving it stale is the lesser evil.
                 ESM::Position pos = dyn.mPtr.getRefData().getPosition();
-                pos.pos[0] = jpos.GetX();
-                pos.pos[1] = jpos.GetY();
-                pos.pos[2] = jpos.GetZ();
-                // Decompose Quat to MW Euler. OSG's Quat::getRotate
-                // gives axis+angle around a single axis, which loses
-                // the per-axis breakdown — use intrinsic XYZ via the
-                // matrix path instead. Cheap enough for a handful of
-                // bodies per frame.
-                const osg::Quat q(jrot.GetX(), jrot.GetY(), jrot.GetZ(), jrot.GetW());
-                const osg::Matrixd m(q);
-                pos.rot[0] = std::atan2(-m(2, 1), m(2, 2));
-                pos.rot[1] = std::asin(std::clamp(m(2, 0), -1.0, 1.0));
-                pos.rot[2] = std::atan2(-m(1, 0), m(0, 0));
+                pos.pos[0] = visualPos.x();
+                pos.pos[1] = visualPos.y();
+                pos.pos[2] = visualPos.z();
                 dyn.mPtr.getRefData().setPosition(pos);
 
                 if (auto* base = dyn.mPtr.getRefData().getBaseNode())
                 {
-                    base->setPosition(osg::Vec3f(jpos.GetX(), jpos.GetY(), jpos.GetZ()));
-                    base->setAttitude(q);
+                    base->setPosition(visualPos);
+                    base->setAttitude(osgRot);
                 }
             }
         }

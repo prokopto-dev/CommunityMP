@@ -2,8 +2,12 @@
 
 #if OPENMW_PHYSICS_USES_JOLT
 
+#include <limits>
+#include <vector>
+
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -194,6 +198,91 @@ namespace MWPhysics
             }
             return result.Get();
         }
+    }
+
+    namespace
+    {
+        // Recursively walk a Bullet shape (handles compounds) and
+        // append every triangle vertex into `out`. Used by
+        // extractConvexHull to feed Jolt's ConvexHullShapeSettings.
+        void collectVertices(const btCollisionShape* shape, std::vector<JPH::Vec3>& out)
+        {
+            if (shape == nullptr)
+                return;
+            const int t = shape->getShapeType();
+            if (t == COMPOUND_SHAPE_PROXYTYPE)
+            {
+                const auto* compound = static_cast<const btCompoundShape*>(shape);
+                const int n = compound->getNumChildShapes();
+                for (int i = 0; i < n; ++i)
+                {
+                    const btTransform& xform = compound->getChildTransform(i);
+                    const size_t before = out.size();
+                    collectVertices(compound->getChildShape(i), out);
+                    // Apply child transform to its vertices.
+                    for (size_t v = before; v < out.size(); ++v)
+                    {
+                        const btVector3 lp(out[v].GetX(), out[v].GetY(), out[v].GetZ());
+                        const btVector3 wp = xform * lp;
+                        out[v] = JPH::Vec3(wp.x(), wp.y(), wp.z());
+                    }
+                }
+                return;
+            }
+            if (shape->isConcave())
+            {
+                auto callback = BulletHelpers::makeProcessTriangleCallback(
+                    [&](btVector3* tri, int /*partId*/, int /*triIndex*/) {
+                        out.emplace_back(tri[0].x(), tri[0].y(), tri[0].z());
+                        out.emplace_back(tri[1].x(), tri[1].y(), tri[1].z());
+                        out.emplace_back(tri[2].x(), tri[2].y(), tri[2].z());
+                    });
+                const btScalar inf = std::numeric_limits<btScalar>::max();
+                const btVector3 aabbMin(-inf, -inf, -inf);
+                const btVector3 aabbMax(inf, inf, inf);
+                const_cast<btConcaveShape*>(static_cast<const btConcaveShape*>(shape))
+                    ->processAllTriangles(&callback, aabbMin, aabbMax);
+                return;
+            }
+            // Convex primitives: walk their AABB corners. Cheap and
+            // generates a viable hull for boxes, spheres, cylinders.
+            btVector3 aabbMin, aabbMax;
+            btTransform identity;
+            identity.setIdentity();
+            shape->getAabb(identity, aabbMin, aabbMax);
+            for (int i = 0; i < 8; ++i)
+            {
+                out.emplace_back((i & 1) ? aabbMax.x() : aabbMin.x(),
+                    (i & 2) ? aabbMax.y() : aabbMin.y(),
+                    (i & 4) ? aabbMax.z() : aabbMin.z());
+            }
+        }
+    }
+
+    JPH::RefConst<JPH::Shape> extractConvexHull(const btCollisionShape* shape)
+    {
+        if (shape == nullptr)
+            return nullptr;
+        std::vector<JPH::Vec3> vertices;
+        collectVertices(shape, vertices);
+        if (vertices.size() < 4)
+        {
+            Log(Debug::Warning) << "Jolt ConvexHullShape: source had only " << vertices.size()
+                                << " vertices (< 4)";
+            return nullptr;
+        }
+        JPH::Array<JPH::Vec3> jphVerts;
+        jphVerts.reserve(vertices.size());
+        for (const JPH::Vec3& v : vertices)
+            jphVerts.push_back(v);
+        JPH::ConvexHullShapeSettings settings(std::move(jphVerts));
+        const auto result = settings.Create();
+        if (result.HasError())
+        {
+            Log(Debug::Warning) << "Jolt ConvexHullShape rejected: " << result.GetError();
+            return nullptr;
+        }
+        return result.Get();
     }
 
     JPH::RefConst<JPH::Shape> convertBulletShape(const btCollisionShape* shape)
