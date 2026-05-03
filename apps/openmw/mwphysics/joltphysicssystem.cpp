@@ -20,6 +20,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -516,14 +517,35 @@ namespace MWPhysics
         }
     }
 
-    void JoltPhysicsSystem::updateScale(const MWWorld::Ptr& /*ptr*/)
+    void JoltPhysicsSystem::updateScale(const MWWorld::Ptr& ptr)
     {
-        // Scaling a static body in Jolt requires either rebuilding
-        // the shape (changing extents on a primitive) or wrapping
-        // in a ScaledShape. Neither is wired up yet — vanilla MW
-        // rarely scales static objects post-load, so a phase-10
-        // task takes this on alongside the animated-collision-shape
-        // refresh path.
+        const auto bodyIt = mObjectBodies.find(ptr.mRef);
+        if (bodyIt == mObjectBodies.end())
+            return;
+
+        // Wrap (or re-wrap) the body's shape in a ScaledShape so
+        // the collision geometry tracks edits from the ImGui
+        // inspector. Re-running the BulletShape→Jolt conversion
+        // every edit would be expensive; instead we read the live
+        // shape, peel a prior ScaledShape if there is one, and
+        // attach a fresh one. Scale=1 still wraps — Jolt's
+        // ScaledShape early-outs on identity scale internally.
+        const float scale = ptr.getCellRef().getScale();
+        JPH::BodyInterface& bi = mJoltSystem->GetBodyInterface();
+        JPH::RefConst<JPH::Shape> current = bi.GetShape(bodyIt->second);
+        JPH::RefConst<JPH::Shape> base = current;
+        if (current != nullptr && current->GetSubType() == JPH::EShapeSubType::Scaled)
+        {
+            const auto* scaled = static_cast<const JPH::ScaledShape*>(current.GetPtr());
+            base = scaled->GetInnerShape();
+        }
+
+        JPH::Ref<JPH::ScaledShape> scaled = new JPH::ScaledShape(base, JPH::Vec3(scale, scale, scale));
+        bi.SetShape(bodyIt->second, scaled, /*updateMassProperties*/ false,
+            JPH::EActivation::DontActivate);
+
+        if (auto eit = mObjectEntries.find(ptr.mRef); eit != mObjectEntries.end())
+            eit->second.mChanged = true;
     }
 
     void JoltPhysicsSystem::updateRotation(const MWWorld::Ptr& ptr, osg::Quat rotate)
@@ -982,9 +1004,26 @@ namespace MWPhysics
     void JoltPhysicsSystem::moveActors()
     {
         auto world = MWBase::Environment::get().getWorld();
+        const auto& freshPlayerPtr = MWMechanics::getPlayer();
         for (auto& [_, actor] : mActors)
         {
-            world->moveObject(actor->getPtr(), actor->getPosition(),
+            // For the player specifically, use the FRESHLY-fetched
+            // Ptr (with its current cell pointer) instead of the
+            // stale Ptr we stored when the JoltActor was constructed.
+            // The stored mPtr keeps the cell from when the actor was
+            // registered (typically the exterior the game starts in),
+            // so after the player teleports to an interior, calling
+            // world->moveObject(stalePtr, interiorPos) triggers the
+            // cross-cell branch in 4-arg moveObject (currCell=oldExt,
+            // newCell=computed-from-interior-coords-as-exterior) and
+            // ends up calling Scene::changeToExteriorCell — which
+            // unloads the interior we just teleported into and
+            // teleports the player to (-162,-32,-22) interpreted as
+            // exterior coords (= under sea level near origin).
+            const MWWorld::Ptr& movePtr = (actor->getPtr().mRef == freshPlayerPtr.mRef)
+                ? freshPlayerPtr
+                : actor->getPtr();
+            world->moveObject(movePtr, actor->getPosition(),
                 /*movePhysics*/ false, /*moveToActive*/ false);
         }
     }
