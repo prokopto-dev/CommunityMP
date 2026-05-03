@@ -17,6 +17,7 @@
 #include <components/sdlutil/sdlinputwrapper.hpp>
 
 #include "entityinspector.hpp"
+#include "materialeditor.hpp"
 #include "objectspawner.hpp"
 
 namespace MWGui
@@ -76,6 +77,8 @@ namespace MWGui
                     inspector->draw();
                 if (auto* spawner = mOwner->objectSpawner())
                     spawner->draw();
+                if (auto* materials = mOwner->materialEditor())
+                    materials->draw(); // includes <materialeditor.hpp> below
                 ImGui::Render();
                 ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
 
@@ -154,6 +157,7 @@ namespace MWGui
 
         mEntityInspector = std::make_unique<EntityInspector>();
         mObjectSpawner = std::make_unique<ObjectSpawner>();
+        mMaterialEditor = std::make_unique<MaterialEditor>();
 
         sInstance = this;
         mInitialized = true;

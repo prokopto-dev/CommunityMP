@@ -22,6 +22,7 @@ union SDL_Event;
 namespace MWGui
 {
     class EntityInspector;
+    class MaterialEditor;
     class ObjectSpawner;
 
     // In-engine ImGui overlay. Phase 1 of docs/imgui-overlay-plan.md:
@@ -83,12 +84,14 @@ namespace MWGui
 
         EntityInspector* entityInspector() { return mEntityInspector.get(); }
         ObjectSpawner* objectSpawner() { return mObjectSpawner.get(); }
+        MaterialEditor* materialEditor() { return mMaterialEditor.get(); }
 
     private:
         osg::ref_ptr<osg::Camera> mCamera;
         SDLUtil::InputWrapper* mInputWrapper = nullptr;
         std::unique_ptr<EntityInspector> mEntityInspector;
         std::unique_ptr<ObjectSpawner> mObjectSpawner;
+        std::unique_ptr<MaterialEditor> mMaterialEditor;
 
         bool mVisible = false;
         bool mInitialized = false;

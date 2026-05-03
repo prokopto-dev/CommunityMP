@@ -171,13 +171,18 @@ Backend matériel posé.
 
 **Critère** : un YAML qui matche `tx_lantern` (substring) rend les lanternes avec un fragment shader custom ET un uniform pushé. Aucune régression sur les autres meshes (registry vide = no-op).
 
-### Phase 8b — pane ImGui "Material" (~1 j)
-Once 8a ships, l'inspector ImGui gagne un pane Material :
-- Liste les matériels actuellement matchés sur la sélection (lus depuis `MaterialRegistry`). Si zéro match, propose "Create override for this mesh/refid" (templated YAML).
-- Pour chaque uniform typé du matériel actif, génère le widget ImGui adapté (`DragFloat`, `ColorEdit3`, `Checkbox`).
-- Bouton "Apply (live)" : pousse les valeurs courantes dans le `MaterialDef` runtime (sans rewriter le YAML) — le hot-reload du shader manager re-trigger une compile + re-apply à toutes les instances qui matchent. Latence ≤ 500 ms.
-- Bouton "Save to YAML" : sérialise le `MaterialDef` modifié vers `data/materials/<name>.yaml` (atomic write : tmp + rename).
-- Toggle "Per-instance only" : applique l'override uniquement à la sélection (forcer copy-on-write du StateSet du Ptr courant, sans toucher au registry global). Utile pour A/B tester avant d'écrire dans le YAML.
+### Phase 8b — pane ImGui "Material" (DONE, MVP)
+Nouvelle fenêtre `Materials` au-dessus du registry de Phase 8a (toggle F1 → côté Object Spawner / Entity Inspector).
+- `MWGui::MaterialEditor` à `apps/openmw/mwgui/materialeditor.{cpp,hpp}`. Itère `Material::Registry::at(i)` ; section repliable par matériel.
+- Pour chaque uniform : widget typé via `std::visit` sur `UniformValue` (`DragFloat` pour float/int, `ColorEdit3/4` pour Vec3/Vec4, `Checkbox` pour bool, `DragFloat2` pour Vec2). Tout changement déclenche `ShaderManager::triggerShaderReload`.
+- `Material::Registry::at()` exposé pour itération séquentielle ; `getMaterialRegistry()` exposé sur `Resource::SceneManager`.
+- Affichage read-only : shader prefix override, defines map, match rules (mesh path / node / texture / refid).
+- Bouton "Reload shaders" pour forcer une recompile globale (pratique après édition externe du YAML).
+
+**Pas encore** :
+- Save to YAML (write-back) — Phase 8c.
+- Per-Ptr / per-instance override (sélection inspector + copy-on-write StateSet) — Phase 8c.
+- Hot-reload mtime watch (édition externe) — Phase 8c.
 
 ### Phase 8c — RefId matching + hot-reload (~1 j)
 Implémente Phase 2 de `material-override-plan.md` :

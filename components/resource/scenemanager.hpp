@@ -101,6 +101,12 @@ namespace Resource
 
         Shader::ShaderManager& getShaderManager();
 
+        // Phase 8a — material override registry parsed from
+        // data/materials/**/*.yaml at construction. Mutable so the
+        // ImGui editor (Phase 8b) can tweak uniforms in-memory and
+        // trigger a shader reload.
+        Material::Registry* getMaterialRegistry() { return mMaterialRegistry.get(); }
+
         /// Re-create shaders for this node, need to call this if alpha testing, texture stages or vertex color mode
         /// have changed.
         void recreateShaders(osg::ref_ptr<osg::Node> node, const std::string& shaderPrefix = "objects",

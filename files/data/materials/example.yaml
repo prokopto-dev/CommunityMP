@@ -1,0 +1,29 @@
+# Phase 8a / 8b sample material (docs/imgui-overlay-plan.md).
+# This file is loaded automatically via the VFS; the F1 ImGui overlay
+# exposes it under the "Materials" window. Tweak uniforms there → the
+# shader manager re-issues the program on the next "Reload shaders"
+# click.
+#
+# Rules are OR'd: any single matching rule fires the override. Match
+# is substring (case-insensitive) on the diffuse texture filename or
+# the NIF node name. Mesh path / RefId matching land in Phase 8c.
+
+name: example_glow
+priority: 50
+
+match:
+  any:
+    - texture: tx_lantern        # any diffuse containing "tx_lantern"
+    - node: lantern              # any NIF node containing "lantern"
+
+# Optional fragment shader template name. Empty = keep the default
+# resolved by the ShaderVisitor (usually "objects").
+shader: {}
+
+defines: {}
+
+uniforms:
+  # The default 'parallaxScale' uniform shipped by objects_fragment.glsl.
+  # Tweaking this in the ImGui pane shows the parallax depth changing
+  # immediately on any matched mesh.
+  - { name: parallaxScale, type: float, value: 0.04 }

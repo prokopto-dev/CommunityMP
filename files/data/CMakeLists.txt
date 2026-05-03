@@ -260,6 +260,8 @@ set(BUILTIN_DATA_FILES
     mygui/openmw_jail_screen.layout
     mygui/OpenMWResourcePlugin.xml
     mygui/skins.xml
+
+    materials/example.yaml
 )
 
 foreach (f ${BUILTIN_DATA_FILES})
