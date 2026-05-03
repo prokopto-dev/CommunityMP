@@ -95,12 +95,39 @@ namespace MWPhysics
         // while still showing up to ray queries (swim detection uses
         // cell water height, not Jolt sensor contact, so this doesn't
         // affect isSwimming logic).
+        //
+        // The player's CV uses this base filter so it CAN see other
+        // actors' inner bodies (ACTOR_PROBE) and physically push
+        // against NPCs.
         class IgnoreSensorsBodyFilter final : public JPH::BodyFilter
         {
         public:
             bool ShouldCollideLocked(const JPH::Body& body) const override
             {
                 return !body.IsSensor();
+            }
+        };
+
+        // NPC variant: rejects sensors AND every actor probe. Without
+        // the probe rejection, two NPCs spawned close to each other
+        // mutually support each other on their inner bodies in
+        // mid-air (the original symptom that motivated commit
+        // dce3a2f012). With it, NPCs still can't push *through* each
+        // other (their CVs don't intersect because each CV's shape
+        // sweep finds its own probe via the standard CV self-filter
+        // and the other CV's CV — which is virtual and not in the
+        // broadphase). They just stop counting probes as "ground" or
+        // "wall" support.
+        class NpcBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            bool ShouldCollideLocked(const JPH::Body& body) const override
+            {
+                if (body.IsSensor())
+                    return false;
+                if (body.GetObjectLayer() == JoltLayers::ACTOR_PROBE)
+                    return false;
+                return true;
             }
         };
     }
@@ -110,6 +137,11 @@ namespace MWPhysics
     {
         mObjectToBroadPhase[JoltLayers::NON_MOVING] = JoltBroadPhaseLayers::NON_MOVING;
         mObjectToBroadPhase[JoltLayers::MOVING] = JoltBroadPhaseLayers::MOVING;
+        // Probes share the MOVING broadphase tree so projectile
+        // raycasts (issued in the MOVING layer) find them without an
+        // extra broadphase node. Per-pair gating happens in
+        // JoltObjectLayerPairFilter below.
+        mObjectToBroadPhase[JoltLayers::ACTOR_PROBE] = JoltBroadPhaseLayers::MOVING;
     }
 
     JPH::BroadPhaseLayer JoltBPLayerInterface::GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const
@@ -136,9 +168,16 @@ namespace MWPhysics
         switch (inObject1)
         {
             case JoltLayers::NON_MOVING:
-                return inObject2 == JoltLayers::MOVING;
+                return inObject2 == JoltLayers::MOVING || inObject2 == JoltLayers::ACTOR_PROBE;
             case JoltLayers::MOVING:
                 return true;
+            case JoltLayers::ACTOR_PROBE:
+                // Probes are virtual presence markers for actors:
+                // - vs MOVING: yes (CharacterVirtual / projectiles see them)
+                // - vs NON_MOVING: yes (so probe ray-against-world still works)
+                // - vs ACTOR_PROBE: NO (else inner bodies fight each other,
+                //   the floating-NPC bug from commit dce3a2f012)
+                return inObject2 != JoltLayers::ACTOR_PROBE;
         }
         return false;
     }
@@ -150,6 +189,7 @@ namespace MWPhysics
             case JoltLayers::NON_MOVING:
                 return inLayer2 == JoltBroadPhaseLayers::MOVING;
             case JoltLayers::MOVING:
+            case JoltLayers::ACTOR_PROBE:
                 return true;
         }
         return false;
@@ -516,8 +556,15 @@ namespace MWPhysics
         }
         else if (auto ait = mActors.find(ptr.mRef); ait != mActors.end())
         {
-            if (auto* cv = ait->second->getCharacter())
-                cv->SetPosition(jpos);
+            // Delegate to JoltActor so the inertia accumulator is
+            // reset and a ground-snap is requested for the next step.
+            // Calling cv->SetPosition directly here was the cause of
+            // "teleport leaves you in place": the CV was moved, but
+            // residual mInertiaZ from the previous frame and the
+            // missing snap meant that on cell change the actor either
+            // held its old velocity or fell into the void waiting for
+            // the new cell colliders to register.
+            ait->second->updatePosition();
         }
         if (auto eit = mObjectEntries.find(ptr.mRef); eit != mObjectEntries.end())
         {
@@ -779,8 +826,10 @@ namespace MWPhysics
             = JPH::Vec3(0.0f, 0.0f, ::Constants::sStepSizeUp);
         const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
         const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
-        const IgnoreSensorsBodyFilter bodyFilter;
+        const IgnoreSensorsBodyFilter playerBodyFilter;
+        const NpcBodyFilter npcBodyFilter;
         const JPH::ShapeFilter shapeFilter; // accept all
+        const auto& playerRef = MWMechanics::getPlayer().mRef;
         // Post-teleport snap distance. Door spawn points and
         // place-at-mark scripts can land slightly above the floor
         // mesh — a generous stick-to-floor pulls the CV down onto
@@ -825,6 +874,14 @@ namespace MWPhysics
                     perActor.mStickToFloorStepDown
                         = JPH::Vec3(0.0f, 0.0f, -kPostTeleportSnap);
                 }
+                // Player CV needs to physically push against NPCs so
+                // we feed it the inclusive filter (sensors out, probes
+                // in). NPC CVs use the npc filter so they ignore
+                // probes — fixes the floating-NPC bug without losing
+                // arrows-hit-creature behaviour.
+                const JPH::BodyFilter& bodyFilter = (ptr.mRef == playerRef)
+                    ? static_cast<const JPH::BodyFilter&>(playerBodyFilter)
+                    : static_cast<const JPH::BodyFilter&>(npcBodyFilter);
                 cv->ExtendedUpdate(dt, perActorGravity, perActor,
                     bpFilter, objFilter, bodyFilter, shapeFilter, *mTempAllocator);
             }

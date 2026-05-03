@@ -2,6 +2,8 @@
 
 #if OPENMW_PHYSICS_USES_JOLT
 
+#include "joltphysicssystem.hpp" // JoltLayers::ACTOR_PROBE
+
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 
@@ -71,15 +73,18 @@ namespace MWPhysics
         // failure mode without ghost collisions.
         settings->mPredictiveContactDistance = 5.0f;
 
-        // No inner body for now: when set, every actor's CV-internal
-        // kinematic body sits in the world at the actor's position
-        // and shows up to OTHER characters' collision queries as a
-        // solid obstacle. Two NPCs spawned near each other end up
-        // mutually supported, floating in mid-air. The downside of
-        // dropping the inner body is that ray casts / sphere casts
-        // no longer hit characters — phase 8 will reintroduce one
-        // in a dedicated broadphase layer that's filtered out of
-        // the CharacterVirtual's collision query.
+        // Inner body on the dedicated ACTOR_PROBE layer. Without one,
+        // ray casts / sphere casts go through creatures (arrows fly
+        // past). Putting the probes on their own layer lets the
+        // pair filter keep ACTOR_PROBE × ACTOR_PROBE OFF — that was
+        // the floating-NPC bug from `dce3a2f012`, where two CVs
+        // mutually supported each other on their inner bodies.
+        // The CharacterVirtual auto-filters its OWN inner body via
+        // IgnoreSingleBodyFilterChained; per-actor body filters
+        // additionally reject other actors' probes for non-player
+        // CVs so NPCs don't collide-stack at spawn.
+        settings->mInnerBodyShape = settings->mShape;
+        settings->mInnerBodyLayer = JoltLayers::ACTOR_PROBE;
 
         mCharacter = std::make_unique<JPH::CharacterVirtual>(settings,
             JPH::RVec3(position.x(), position.y(), position.z()),

@@ -47,13 +47,17 @@ namespace MWPhysics
     // CollisionType well enough for broadphase. Static world chunks
     // (terrain, walls, closed doors) live in NON_MOVING; everything
     // that needs an integrator (actors, projectiles, animated doors)
-    // lives in MOVING. Phase 6 may split further if the broadphase
-    // tree shape proves unbalanced.
+    // lives in MOVING. ACTOR_PROBE holds each CharacterVirtual's
+    // kinematic inner body — visible to projectile / ray queries so
+    // arrows can hit creatures, but the per-actor body filter rejects
+    // it from one CharacterVirtual's perspective so two actors don't
+    // mutually support each other in mid-air via their inner bodies.
     namespace JoltLayers
     {
         static constexpr JPH::ObjectLayer NON_MOVING = 0;
         static constexpr JPH::ObjectLayer MOVING = 1;
-        static constexpr JPH::uint NUM_LAYERS = 2;
+        static constexpr JPH::ObjectLayer ACTOR_PROBE = 2;
+        static constexpr JPH::uint NUM_LAYERS = 3;
     }
 
     namespace JoltBroadPhaseLayers
