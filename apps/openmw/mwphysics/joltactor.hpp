@@ -75,6 +75,21 @@ namespace MWPhysics
         // round-trip into Jolt.
         void refreshState();
 
+        // After updatePosition (script teleport, cell change, place),
+        // request that the next ExtendedUpdate use a generous
+        // stick-to-floor distance so the CV snaps onto the floor even
+        // if the spawn point sits noticeably above it (door entries
+        // are often a capsule-radius above the floor mesh) or if the
+        // surrounding cell shapes were registered just before the
+        // step. Without this, the CV starts free-falling and on
+        // interior cells with water it lands in the water sensor.
+        bool consumeGroundSnapRequest()
+        {
+            const bool v = mNeedsGroundSnap;
+            mNeedsGroundSnap = false;
+            return v;
+        }
+
         // ----- IPhysicsActor ------------------------------------------
         void enableCollisionMode(bool collision) override { mInternalCollision = collision; }
         bool getCollisionMode() const override { return mInternalCollision; }
@@ -107,6 +122,10 @@ namespace MWPhysics
         bool mExternalCollision = true;
         bool mWalkingOnWater = false;
         bool mActive = true;
+        // Spawn counts as a teleport — request a snap-to-floor on
+        // the first step so newly-added actors don't free-fall a
+        // few frames before settling.
+        bool mNeedsGroundSnap = true;
     };
 }
 

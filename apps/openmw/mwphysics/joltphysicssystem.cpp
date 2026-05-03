@@ -84,6 +84,25 @@ namespace MWPhysics
             // running the migration health check.
             throw std::logic_error(std::string("JoltPhysicsSystem: ") + method + " not implemented yet");
         }
+
+        // CharacterVirtual treats every collider returned by its
+        // collide-shape query as a wall or floor, including bodies
+        // flagged as sensors. The water plane is a sensor (so projectiles
+        // / actors don't physically bounce off it), but without this
+        // filter the CV walks across the water surface like it's
+        // solid ground. Reject sensors at the per-body filter step so
+        // they're invisible to the character's collision resolution
+        // while still showing up to ray queries (swim detection uses
+        // cell water height, not Jolt sensor contact, so this doesn't
+        // affect isSwimming logic).
+        class IgnoreSensorsBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            bool ShouldCollideLocked(const JPH::Body& body) const override
+            {
+                return !body.IsSensor();
+            }
+        };
     }
 
     // ----- JoltBPLayerInterface ---------------------------------------
@@ -335,7 +354,13 @@ namespace MWPhysics
             return;
 
         // Half-extents from the BulletShape's collision box.
-        const osg::Vec3f halfExtents = shape->mCollisionBox.mExtents * 0.5f;
+        // mExtents is already half-extents (computed as
+        // (max - min) / 2 in BulletShapeManager); the Bullet path
+        // also uses it directly via mOriginalHalfExtents. An earlier
+        // version multiplied by 0.5 here, which quartered the
+        // capsule and combined with the missing shape offset to
+        // float actors ~0.5 m off the ground.
+        const osg::Vec3f halfExtents = shape->mCollisionBox.mExtents;
         if (halfExtents.length2() < 1e-6f)
             return; // shape has no usable bounds
 
@@ -754,8 +779,17 @@ namespace MWPhysics
             = JPH::Vec3(0.0f, 0.0f, ::Constants::sStepSizeUp);
         const JPH::DefaultBroadPhaseLayerFilter bpFilter(mObjectVsBroadPhaseLayerFilter, JoltLayers::MOVING);
         const JPH::DefaultObjectLayerFilter objFilter(mObjectLayerPairFilter, JoltLayers::MOVING);
-        const JPH::BodyFilter bodyFilter; // accept all (no per-body exclusions yet)
+        const IgnoreSensorsBodyFilter bodyFilter;
         const JPH::ShapeFilter shapeFilter; // accept all
+        // Post-teleport snap distance. Door spawn points and
+        // place-at-mark scripts can land slightly above the floor
+        // mesh — a generous stick-to-floor pulls the CV down onto
+        // the surface instead of letting it free-fall the first
+        // frame. Kept small (~1.4 m): too generous and the snap
+        // teleports the player past intended landing spots
+        // (e.g. balcony door entries snap to the ground floor).
+        constexpr float kPostTeleportSnap = 100.0f;
+        auto& worldRef = *MWBase::Environment::get().getWorld();
         for (auto& [_, actor] : mActors)
         {
             if (!actor->isActive())
@@ -770,7 +804,28 @@ namespace MWPhysics
                 continue;
             if (actor->getCollisionMode())
             {
-                cv->ExtendedUpdate(dt, gravity, updateSettings,
+                JPH::CharacterVirtual::ExtendedUpdateSettings perActor = updateSettings;
+                JPH::Vec3 perActorGravity = gravity;
+                // Buoyant (swim or fly): gameplay drives a full 3D
+                // velocity directly. Letting Jolt apply gravity inside
+                // ExtendedUpdate fights that input, and stick-to-floor
+                // / walk-stairs heuristics try to snap the actor onto
+                // the bed of the water (or the ground below a flying
+                // actor). Disable both for buoyant actors.
+                const MWWorld::Ptr ptr = actor->getPtr();
+                const bool buoyant = worldRef.isSwimming(ptr) || worldRef.isFlying(ptr);
+                if (buoyant)
+                {
+                    perActor.mStickToFloorStepDown = JPH::Vec3::sZero();
+                    perActor.mWalkStairsStepUp = JPH::Vec3::sZero();
+                    perActorGravity = JPH::Vec3::sZero();
+                }
+                else if (actor->consumeGroundSnapRequest())
+                {
+                    perActor.mStickToFloorStepDown
+                        = JPH::Vec3(0.0f, 0.0f, -kPostTeleportSnap);
+                }
+                cv->ExtendedUpdate(dt, perActorGravity, perActor,
                     bpFilter, objFilter, bodyFilter, shapeFilter, *mTempAllocator);
             }
             else
@@ -794,6 +849,44 @@ namespace MWPhysics
                         << " postV=(" << v.GetX() << "," << v.GetY() << "," << v.GetZ() << ")"
                         << " ground=" << static_cast<int>(cv->GetGroundState())
                         << " supported=" << (cv->IsSupported() ? 1 : 0);
+                }
+            }
+        }
+
+        // Phase-A water diagnostic: player only, every trace frame, dump
+        // active contacts so we can see what's actually supporting the CV
+        // (sensor body? cell static? heightfield?). The contact list is
+        // populated by Jolt's NarrowPhaseQuery, filtered by our
+        // IgnoreSensorsBodyFilter — if a sensor still appears here, the
+        // filter is being bypassed somewhere we don't expect.
+        if (traceThisFrame)
+        {
+            const auto& playerPtr = MWMechanics::getPlayer();
+            const auto pit = mActors.find(playerPtr.mRef);
+            if (pit != mActors.end())
+            {
+                if (auto* cv = pit->second->getCharacter())
+                {
+                    const auto& contacts = cv->GetActiveContacts();
+                    const auto p = cv->GetPosition();
+                    Log(Debug::Info) << "[jolt-water] f=" << frameNumber
+                        << " pos.z=" << p.GetZ()
+                        << " waterBodyValid=" << (mWaterBody.IsInvalid() ? 0 : 1)
+                        << " isSwimming=" << (worldRef.isSwimming(playerPtr) ? 1 : 0)
+                        << " isFlying=" << (worldRef.isFlying(playerPtr) ? 1 : 0)
+                        << " contacts=" << contacts.size();
+                    for (const auto& c : contacts)
+                    {
+                        Log(Debug::Info) << "[jolt-contact] body=" << c.mBodyB.GetIndexAndSequenceNumber()
+                            << " sensor=" << (c.mIsSensorB ? 1 : 0)
+                            << " hadColl=" << (c.mHadCollision ? 1 : 0)
+                            << " discarded=" << (c.mWasDiscarded ? 1 : 0)
+                            << " dist=" << c.mDistance
+                            << " surfN=(" << c.mSurfaceNormal.GetX() << ","
+                                          << c.mSurfaceNormal.GetY() << ","
+                                          << c.mSurfaceNormal.GetZ() << ")"
+                            << " isWaterBody=" << ((c.mBodyB == mWaterBody) ? 1 : 0);
+                    }
                 }
             }
         }

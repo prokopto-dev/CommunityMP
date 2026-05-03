@@ -49,6 +49,17 @@ namespace MWPhysics
         settings->mUp = JPH::Vec3(0.0f, 0.0f, 1.0f); // MW Z-up
         settings->mMass = 90.0f;                     // ~90 kg adult human, vanilla-ish
 
+        // Shape sits half-height above the CV's reference position.
+        // OpenMW gives us the actor's *feet* position, but Jolt's
+        // CharacterVirtual centers its shape on its own position by
+        // default — without this offset the capsule center is at
+        // the feet, the bottom is underground, and the CV lifts the
+        // body to settle, leaving the visual mesh hovering above
+        // the ground by ~halfExtent.z. Mirrors how the Bullet path
+        // adds mCollisionBox.mCenter (= (0, 0, halfExtent.z) for
+        // auto-generated NPC capsules) to the feet position.
+        settings->mShapeOffset = JPH::Vec3(0.0f, 0.0f, halfExtents.z());
+
         // Slope ceiling: vanilla MW lets actors walk surfaces up to
         // ~46° before sliding (fSlopeBraking GMST). Phase 7f tunes
         // this against the real GMST; 45° is a sane phase-7a default.
@@ -99,6 +110,7 @@ namespace MWPhysics
         const auto& pos = mPtr.getRefData().getPosition();
         mCharacter->SetPosition(JPH::RVec3(pos.pos[0], pos.pos[1], pos.pos[2]));
         mInertiaZ = 0.0f; // teleports clear the fall accumulator
+        mNeedsGroundSnap = true;
     }
 
     void JoltActor::adjustPosition(const osg::Vec3f& offset)
