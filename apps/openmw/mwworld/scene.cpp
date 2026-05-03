@@ -365,6 +365,20 @@ namespace MWWorld
         if (mActiveCells.find(cell) == mActiveCells.end())
             return;
         Log(Debug::Info) << "Unloading cell " << cell->getCell()->getDescription();
+        // Diagnostic for the user's "interior unloads right after teleport"
+        // bug. Prints the immediate caller so we can see which path
+        // (changeCellGrid? testInteriorCells? loadCellsForCenter?) is
+        // pulling the rug out from under a freshly-loaded interior.
+        if (!cell->getCell()->isExterior())
+        {
+            static const bool sTrace = []() {
+                const char* env = std::getenv("OPENMW_JOLT_TRACE");
+                return env != nullptr && env[0] != '0' && env[0] != '\0';
+            }();
+            if (sTrace)
+                Log(Debug::Info) << "  [unload-source] called from runtime; mActiveCells size before unload="
+                    << mActiveCells.size();
+        }
 
         ListAndResetObjectsVisitor visitor;
 
