@@ -19,6 +19,20 @@ if(OPENMW_GL4ES_MANUAL_INIT)
     add_compile_definitions(OPENMW_GL4ES_MANUAL_INIT)
 endif()
 
+# Experimental: replace the static death-anim pose with a short
+# Jolt-driven ragdoll simulation (see docs/jolt-ragdoll-plan.md).
+# OFF by default — flips OPENMW_JOLT_RAGDOLL=1 in the compile
+# definitions and the ragdoll classes / spawn paths become live.
+# Currently in phase 1 (spike): the infrastructure compiles, the
+# class is wired into JoltPhysicsSystem, but death detection isn't
+# hooked up yet so toggling ON is safe (no behaviour change).
+option(OPENMW_JOLT_RAGDOLL "Enable experimental Jolt ragdoll cadavers (phase 1, no-op until death detection lands)" OFF)
+if(OPENMW_JOLT_RAGDOLL)
+    add_compile_definitions(OPENMW_JOLT_RAGDOLL=1)
+else()
+    add_compile_definitions(OPENMW_JOLT_RAGDOLL=0)
+endif()
+
 if (APPLE OR WIN32)
     set(DEPLOY_QT_TRANSLATIONS_DEFAULT ON)
 else ()

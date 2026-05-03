@@ -91,7 +91,7 @@ add_openmw_dir (mwphysics
     physicssystem trace collisiontype actor convert object heightfield closestnotmerayresultcallback
     contacttestresultcallback stepper movementsolver projectile
     actorconvexcallback raycasting mtphysics contacttestwrapper projectileconvexcallback
-    physicsbackend joltphysicssystem joltshapeconverter joltactor
+    physicsbackend joltphysicssystem joltshapeconverter joltactor joltragdoll
     )
 
 add_openmw_dir (mwclass
