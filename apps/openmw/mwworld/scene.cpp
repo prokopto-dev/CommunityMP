@@ -1044,6 +1044,17 @@ namespace MWWorld
     void Scene::changeToExteriorCell(
         const ESM::RefId& extCellId, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent)
     {
+        // Diagnostic: log entry point so we can see if this is being
+        // called inappropriately (e.g. right after an interior
+        // teleport, which the user reproduces).
+        static const bool sTrace = []() {
+            const char* env = std::getenv("OPENMW_JOLT_TRACE");
+            return env != nullptr && env[0] != '0' && env[0] != '\0';
+        }();
+        if (sTrace)
+            Log(Debug::Info) << "[changeToExteriorCell] target=" << extCellId.toDebugString()
+                << " pos=(" << position.pos[0] << "," << position.pos[1] << "," << position.pos[2] << ")"
+                << " currentCell=" << (mCurrentCell ? mCurrentCell->getCell()->getDescription() : "<none>");
 
         if (changeEvent)
             MWBase::Environment::get().getWindowManager()->fadeScreenOut(0.5);
