@@ -28,25 +28,33 @@ Limites :
 
 ## SSAO — plan en 3 phases
 
-### Phase A1 — extraire en `.omwfx` standalone (1 commit, ~2 h)
-- Créer `files/data/shaders/ssao.omwfx`. `pass_normals = true`. Une seule passe pour l'instant.
-- Copier la logique `ambientOcclusion()` actuelle telle quelle, transformée en passe complète qui écrit le facteur AO dans un render-target unique (R8 ou R16F).
-- Le shader de sortie multiplie `omw_GetLastShader(uv)` par l'AO, écrit `omw_FragColor`.
-- **Critère** : visuellement identique à l'actuel `uSsao=true` dans `internal_raycast.omwfx` quand l'effet est activé seul. Désactiver le code SSAO du méga-shader (le laisser en place mais documenter qu'il est dépassé par le standalone).
+### Phase A1 — extraire en `.omwfx` standalone — **DONE** (commit `0f35c61f7f`)
+- `files/data/shaders/ssao.omwfx` créé, `pass_normals = true`.
+- Logique horizon-AO copiée depuis `internal_raycast.omwfx`.
+- Sortie multiplie `omw_GetLastShader(uv)` par AO.
 
-### Phase A2 — bilateral blur + range check (1 commit, ~3 h)
-- Ajouter une **2e passe** de blur bilatéral 4×4 (filtré par profondeur + normale) qui denoise le R8 AO.
-- **3e passe** combine `omw_GetLastShader * blurredAO`.
-- Range check explicite : ignorer un sample si `abs(sampledDepth - originDepth) > radius`.
-- Sample kernel hémisphérique cosine-weighted avec rotation aléatoire par-pixel (4×4 noise texture pré-baked). Gain qualité énorme à samples=8 vs l'horizon-only actuel.
-- **Critère** : à 8 samples, qualité visuelle ≥ l'actuel à 16 samples, sans bruit grain.
+### Phase A2 — pipeline 3 passes — **DONE** (commit `0ee4c98d89`)
+- `ao_raw` → R8 quarter-res, range check, hemisphere 2-tap.
+- `ao_blur` → 5×5 bilateral cross blur depth-weighted.
+- `main` → composite scene × blurredAO.
+- 2 fix de syntaxe omwfx découverts pendant l'intégration: top-level `//` interdit (commit `e1f8582b2b`) et `internal_format=r8` non supporté → `red`.
 
-### Phase A3 — paramétrage utilisateur + intégration UI (1 commit, ~1 h)
-- Exposer dans le menu post-process MyGUI les uniforms : Radius (cm), Strength (0-2), Samples (4/8/16/32), Bilateral Blur (on/off).
-- Ajouter un toggle global "Use legacy integrated SSAO" pour A/B-tester contre l'ancien chemin sans recompiler.
-- **Critère** : utilisateur peut basculer entre SSAO standalone et SSAO intégré sans relancer.
+### Phase A3 — paramétrage utilisateur — **DONE de facto**
+- Le panneau post-process auto-discover les `uniform_*` du `.omwfx` (Radius / Strength / Samples / Power / Bilateral Blur / Blur Depth Sigma exposés).
+- Le toggle global "internal_raycast SSAO vs standalone" se fait via le `uSsaoStrength=0` du raycast + ajout du standalone à la chain.
 
-**Estimation SSAO** : ~6 h, 3 commits indépendants.
+### Phase A4 — qualité visuelle (non-fait, à débattre)
+Constat utilisateur: l'effet SSAO, même bien câblé, est peu perceptible visuellement à `uRadius=80, uStrength=1`. Causes probables:
+- Pas de noise texture rotation par-pixel — variance de samples pas amortie.
+- Range check trop restrictive sur les arêtes lointaines.
+- AO multiplié au stade composite, après tone-map → contrastes écrasés.
+**Pistes** (~4 h):
+- Pré-multiplier l'AO sur la couleur AVANT le tone-map (intégrer le composite dans `internal_raycast.omwfx` au lieu d'un pass séparé en aval).
+- Ajouter une 4×4 blue-noise texture pour la rotation.
+- Exposer un slider "AO darkening" non-linéaire (`pow(ao, gamma)` côté composite, pas seulement le `uPower` côté raw).
+- A/B contre un GTAO Reference qui shade en hémisphère pleine et compare visuellement.
+
+**Estimation SSAO restante** : Phase A4 si on veut un effet vraiment visible.
 
 ## Grass — plan en 3 phases
 

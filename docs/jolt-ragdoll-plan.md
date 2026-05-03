@@ -17,12 +17,34 @@ Jolt fournit nativement les pièces (`RagdollSettings`, `Ragdoll`, `SkeletalAnim
 
 ## Phases
 
-### Phase 1 — Audit & infrastructure (~3-4 h)
+### Phase 1 — Audit & infrastructure — **DONE** (commit `86b18f160e`)
 
-- Repérer le point de mort canonique: `MWMechanics::CreatureStats::isDead()` + transition d'état `Animation::play("death*")`. Hook l'événement.
-- Ajouter `MWPhysics::JoltRagdoll` (nouvelle classe) à côté de `JoltActor`. Owner: `JoltPhysicsSystem` via une `std::unordered_map<ESM::RefNum, std::unique_ptr<JoltRagdoll>> mRagdolls`.
-- Spike: créer un ragdoll simple à partir d'un squelette MW connu (ex. `meshes/b/b_n_imperial_m_skeleton.nif`) en hardcodant les os principaux (Bip01 Spine, Bip01 Pelvis, Bip01 L UpperArm, etc.) — pour valider que Jolt simule correctement avant d'industrialiser le rigging.
-- Définir le mapping OS → forme physique: `Capsule` pour les membres (radius depuis l'épaisseur du mesh skinning, length depuis la distance os parent → enfant), `Box` pour le torse / pelvis, `Sphere` pour la tête.
+- CMake option `OPENMW_JOLT_RAGDOLL` (OFF par défaut, ajout de `OPENMW_JOLT_RAGDOLL=0/1` aux compile definitions).
+- Classe `MWPhysics::JoltRagdoll` déclarée et implémentée en stub (`apps/openmw/mwphysics/joltragdoll.{hpp,cpp}`).
+- Topologie humanoïde figée dans le `.cpp` (pelvis / spine / head / 2× bras / 2× jambes, 7 bodies). Sera remplacée en phase 2.
+- Distribution de masse réaliste (sum = 90 kg).
+- Stub: `ctor` log "would spawn", `postStep()` force-mark stable au premier tick → dispatch path testable end-to-end sans laisser d'ombres dans la simulation.
+
+**Restes phase 1**: aucun call site ne crée de `JoltRagdoll` (death detection = phase 3). Le binaire build avec `joltragdoll.cpp.o has no symbols` warning (attendu côté OFF).
+
+### Phase 2 — Rigging à partir du NIF (~6-8 h) — **NEXT**
+
+- Lire le `NiSkinInstance` du mesh principal pour obtenir la liste des os qui ont une influence ≥ 5 % sur des vertices. C'est notre "set ragdoll" — 12 à 18 os typiquement.
+- Calculer pour chaque os:
+  - `parent` (depuis la hiérarchie NIF)
+  - `bind pose transform`
+  - `bounding capsule` à partir des vertices skinnés à cet os
+- Construire `JPH::RagdollSettings` avec:
+  - 1 `JPH::BodyCreationSettings` par os (motion type Dynamic, layer ACTOR_PROBE → on filtre déjà, OK)
+  - 1 `JPH::SwingTwistConstraint` par paire parent-enfant, avec angles humains réalistes (épaule: swing 90° / twist 60°, coude: hinge 0°-150°, etc.). Table de limites par nom d'os.
+  - Mass distribution réaliste: tête ~5 kg, torse ~30 kg, bras ~5 kg, jambes ~12 kg.
+- Cache le `RagdollSettings` par RefId-de-mesh (pas par instance) pour éviter de re-rigger à chaque mort de garde imperial.
+
+**Sous-tâches concrètes pour démarrer la phase 2**:
+1. Trouver l'API NIF dans `components/nif` qui expose le NiSkinInstance + skeleton.
+2. Écrire `MWPhysics::buildRagdollSettings(const NifSkeleton&)` qui retourne un `JPH::Ref<JPH::RagdollSettings>`.
+3. Cache local dans `JoltPhysicsSystem` keyed par mesh path.
+4. Connecter le ctor de `JoltRagdoll` au cache (au lieu du log stub actuel).
 
 ### Phase 2 — Rigging à partir du NIF (~6-8 h)
 
