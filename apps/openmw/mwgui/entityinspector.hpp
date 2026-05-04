@@ -1,6 +1,8 @@
 #ifndef MWGUI_ENTITYINSPECTOR_H
 #define MWGUI_ENTITYINSPECTOR_H
 
+#include <string>
+
 #include "../mwworld/ptr.hpp"
 
 namespace MWGui
@@ -33,6 +35,11 @@ namespace MWGui
     private:
         MWWorld::Ptr mSelected;
         bool mPickMode = false;
+
+        // Phase 8b-bis — last YAML override path written via the
+        // "Save as YAML override" button, shown next to the button
+        // for confirmation.
+        std::string mLastOverridePath;
 
         // Filters
         char mNameFilter[128] = {};

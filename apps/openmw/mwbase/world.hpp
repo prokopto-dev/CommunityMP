@@ -4,6 +4,7 @@
 #include "rotationflags.hpp"
 
 #include <deque>
+#include <filesystem>
 #include <set>
 #include <span>
 #include <string_view>
@@ -604,6 +605,10 @@ namespace MWBase
         // rigid body. Debug-only callers; gameplay code should not
         // reach in here.
         virtual MWPhysics::IPhysicsBackend* getPhysicsBackend() = 0;
+
+        // Phase 8b-bis — user data root, used by the ImGui inspector
+        // to write material override YAMLs to a writable location.
+        virtual const std::filesystem::path& getUserDataPath() const = 0;
 
         virtual MWRender::PostProcessor* getPostProcessor() = 0;
 

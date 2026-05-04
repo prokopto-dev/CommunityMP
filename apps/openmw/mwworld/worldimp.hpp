@@ -678,6 +678,8 @@ namespace MWWorld
         MWRender::RenderingManager* getRenderingManager() override { return mRendering.get(); }
         MWPhysics::IPhysicsBackend* getPhysicsBackend() override { return mPhysics.get(); }
 
+        const std::filesystem::path& getUserDataPath() const override { return mUserDataPath; }
+
         MWRender::PostProcessor* getPostProcessor() override;
 
         DateTimeManager* getTimeManager() override { return mTimeManager.get(); }

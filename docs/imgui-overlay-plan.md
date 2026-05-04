@@ -194,6 +194,15 @@ Quand un Ptr est sélectionné dans l'inspector :
 
 Limite : multi-material mesh n'expose que le premier sub-material (premier Geode avec TU0). Pour un wall + window dans le même NIF, la window n'apparaît pas — Phase 8b-ter si besoin.
 
+Bouton "**Save as YAML override**" :
+- Écrit `<userdata>/data/materials/<refId>.yaml` (sanitisé pour fs).
+- Stub avec `record_id: <refId>`, `priority: 100`, hint diffuse en commentaire.
+- Si un matériel matchait déjà, copie ses uniforms verbatim — sinon, valeur de départ `parallaxScale: 0.04`.
+- Reload registry + trigger shader reload après écriture, donc l'override apparaît live (le sous-dir `<userdata>/data` est sur le data-path par défaut, pas besoin d'éditer openmw.cfg sur la plupart des installs).
+- Path écrit affiché à côté du bouton pour copy/paste vers un éditeur externe.
+
+Sérialisation YAML basique (float + commentaires). Les vec2/3/4 et int/bool sont écrits en `0` placeholder pour le MVP — Phase 8c-bis enrichira le writer.
+
 ### Phase 8c — RefId matching + reload-from-disk (DONE, MVP)
 - `mwrender/objects.cpp:Objects::insertBegin` stamp `setUserValue("refId", ptr.getCellRef().getRefId().toDebugString())` sur le `BaseNode`.
 - `Shader::ShaderVisitor::createProgram` walk le node + ses parents pour lire la RefId UserValue (les Geode enfants n'ont pas le user value direct).
