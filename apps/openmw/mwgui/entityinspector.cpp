@@ -6,6 +6,12 @@
 
 #include <imgui.h>
 
+#include <osg/Geode>
+#include <osg/Image>
+#include <osg/NodeVisitor>
+#include <osg/StateSet>
+#include <osg/Texture>
+
 #include <components/esm/defs.hpp>
 #include <components/esm3/cellref.hpp>
 #include <components/esm3/loadacti.hpp>
@@ -16,6 +22,12 @@
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadstat.hpp>
+#include <components/material/materialdef.hpp>
+#include <components/material/materialregistry.hpp>
+#include <components/resource/resourcesystem.hpp>
+#include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/positionattitudetransform.hpp>
+#include <components/shader/shadermanager.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -25,6 +37,8 @@
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/scene.hpp"
+
+#include "materialeditor.hpp"
 
 namespace MWGui
 {
@@ -45,6 +59,49 @@ namespace MWGui
                 default: return "Other";
             }
         }
+
+        // Phase 8b-bis — walk a Ptr's BaseNode subtree to grab the
+        // first diffuse texture filename and a meaningful node name.
+        // Used to query Material::Registry for matching overrides
+        // from the EntityInspector. Stops at the first hit; multi-
+        // material meshes only get their first sub-material exposed.
+        struct DiffuseProbe : public osg::NodeVisitor
+        {
+            DiffuseProbe()
+                : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            {
+            }
+
+            std::string mDiffuse;
+            std::string mNodeName;
+
+            void apply(osg::Node& node) override
+            {
+                if (mDiffuse.empty() && node.getStateSet())
+                    inspect(*node.getStateSet(), node.getName());
+                if (mDiffuse.empty())
+                    traverse(node);
+            }
+
+            void apply(osg::Drawable& drawable) override
+            {
+                if (mDiffuse.empty() && drawable.getStateSet())
+                    inspect(*drawable.getStateSet(), drawable.getName());
+            }
+
+            void inspect(const osg::StateSet& ss, const std::string& candidateName)
+            {
+                // Only the diffuse map (TU0) is relevant for matching;
+                // OpenMW's shader visitor uses the same convention.
+                const osg::Texture* tex
+                    = dynamic_cast<const osg::Texture*>(ss.getTextureAttribute(0, osg::StateAttribute::TEXTURE));
+                if (tex == nullptr || tex->getImage(0) == nullptr)
+                    return;
+                mDiffuse = tex->getImage(0)->getFileName();
+                if (mNodeName.empty())
+                    mNodeName = candidateName;
+            }
+        };
     }
 
     EntityInspector::EntityInspector() = default;
@@ -289,6 +346,50 @@ namespace MWGui
 
             ImGui::Spacing();
             ImGui::TextDisabled("Drag the values, or Ctrl+click to type.");
+
+            // Phase 8b-bis — Material section. Probes the BaseNode for
+            // a diffuse texture, queries the registry for any rule
+            // matching by refId / texture / node name, and renders the
+            // editable uniforms inline. Triggers shader reload on edit.
+            ImGui::Spacing();
+            ImGui::Separator();
+            auto* sceneMgr = MWBase::Environment::get().getResourceSystem()->getSceneManager();
+            auto* registry = sceneMgr ? sceneMgr->getMaterialRegistry() : nullptr;
+            if (registry == nullptr)
+            {
+                ImGui::TextDisabled("Material registry not available.");
+            }
+            else
+            {
+                std::string diffuse;
+                std::string nodeName;
+                if (auto* base = mSelected.getRefData().getBaseNode())
+                {
+                    DiffuseProbe probe;
+                    base->accept(probe);
+                    diffuse = std::move(probe.mDiffuse);
+                    nodeName = std::move(probe.mNodeName);
+                }
+                const std::string refIdStr = cellRef.getRefId().toDebugString();
+                const Material::MaterialDef* matched
+                    = registry->matchMesh(/*meshPath=*/"", nodeName, diffuse, refIdStr);
+                if (matched == nullptr)
+                {
+                    ImGui::TextDisabled("Material: no override matches this object.");
+                    if (!diffuse.empty())
+                        ImGui::TextDisabled("(diffuse: %s)", diffuse.c_str());
+                }
+                else
+                {
+                    ImGui::Text("Material: %s", matched->mName.c_str());
+                    // matchMesh returned a const pointer but the
+                    // registry's storage is mutable — cast through to
+                    // expose the editable uniforms (no other observer
+                    // mutates the def at runtime).
+                    if (drawMaterialDefInline(*const_cast<Material::MaterialDef*>(matched)))
+                        sceneMgr->getShaderManager().triggerShaderReload();
+                }
+            }
         }
         ImGui::EndChild();
 

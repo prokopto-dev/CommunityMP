@@ -184,6 +184,16 @@ Nouvelle fenêtre `Materials` au-dessus du registry de Phase 8a (toggle F1 → c
 - Per-Ptr / per-instance override (sélection inspector + copy-on-write StateSet) — Phase 8c.
 - Hot-reload mtime watch (édition externe) — Phase 8c.
 
+#### Phase 8b-bis — pane Material dans EntityInspector (DONE)
+Quand un Ptr est sélectionné dans l'inspector :
+- Walk le `BaseNode` via un petit `osg::NodeVisitor` (`DiffuseProbe`) pour extraire la diffuse texture (TU0) + nom de node.
+- Query `Material::Registry::matchMesh("", nodeName, diffuse, refId)` — retourne le matériel qui s'applique réellement à cet objet.
+- Affiche les uniforms en widgets éditables inline via `MWGui::drawMaterialDefInline` (helper extrait de `MaterialEditor` pour partage).
+- Édition pousse les valeurs en mémoire et trigger `triggerShaderReload`.
+- Si zéro match : affiche "no override matches this object" + le path diffuse pour aider à écrire la rule.
+
+Limite : multi-material mesh n'expose que le premier sub-material (premier Geode avec TU0). Pour un wall + window dans le même NIF, la window n'apparaît pas — Phase 8b-ter si besoin.
+
 ### Phase 8c — RefId matching + reload-from-disk (DONE, MVP)
 - `mwrender/objects.cpp:Objects::insertBegin` stamp `setUserValue("refId", ptr.getCellRef().getRefId().toDebugString())` sur le `BaseNode`.
 - `Shader::ShaderVisitor::createProgram` walk le node + ses parents pour lire la RefId UserValue (les Geode enfants n'ont pas le user value direct).

@@ -17,7 +17,47 @@ namespace MWGui
 {
     namespace
     {
-        bool drawUniformWidget(Material::UniformDef& u)
+        bool drawUniformWidgetImpl(Material::UniformDef& u);
+    }
+
+    bool drawMaterialDefInline(Material::MaterialDef& def)
+    {
+        bool changed = false;
+        if (!def.mShaderPrefix.empty())
+            ImGui::Text("shader: %s", def.mShaderPrefix.c_str());
+        if (!def.mDefines.empty())
+        {
+            ImGui::TextDisabled("Defines:");
+            for (const auto& [k, v] : def.mDefines)
+                ImGui::BulletText("%s = %s", k.c_str(), v.c_str());
+        }
+        if (!def.mUniforms.empty())
+        {
+            ImGui::TextDisabled("Uniforms:");
+            for (auto& u : def.mUniforms)
+                changed |= drawUniformWidgetImpl(u);
+        }
+        if (!def.mRules.empty())
+        {
+            ImGui::TextDisabled("Match rules:");
+            for (const auto& r : def.mRules)
+            {
+                if (!r.mMeshPath.empty())
+                    ImGui::BulletText("mesh contains: %s", r.mMeshPath.c_str());
+                if (!r.mNodeName.empty())
+                    ImGui::BulletText("node contains: %s", r.mNodeName.c_str());
+                if (!r.mTextureSubstr.empty())
+                    ImGui::BulletText("texture contains: %s", r.mTextureSubstr.c_str());
+                if (!r.mRefId.empty())
+                    ImGui::BulletText("refId: %s", r.mRefId.c_str());
+            }
+        }
+        return changed;
+    }
+
+    namespace
+    {
+        bool drawUniformWidgetImpl(Material::UniformDef& u)
         {
             return std::visit(
                 [&](auto&& v) -> bool {
@@ -116,38 +156,8 @@ namespace MWGui
             if (ImGui::CollapsingHeader(label.c_str()))
             {
                 ImGui::Indent();
-                if (!def->mShaderPrefix.empty())
-                    ImGui::Text("shader: %s", def->mShaderPrefix.c_str());
-                if (!def->mDefines.empty())
-                {
-                    ImGui::TextDisabled("Defines:");
-                    for (const auto& [k, v] : def->mDefines)
-                        ImGui::BulletText("%s = %s", k.c_str(), v.c_str());
-                }
-                if (!def->mUniforms.empty())
-                {
-                    ImGui::TextDisabled("Uniforms:");
-                    bool changed = false;
-                    for (auto& u : def->mUniforms)
-                        changed |= drawUniformWidget(u);
-                    if (changed)
-                        sceneMgr->getShaderManager().triggerShaderReload();
-                }
-                if (!def->mRules.empty())
-                {
-                    ImGui::TextDisabled("Match rules:");
-                    for (const auto& r : def->mRules)
-                    {
-                        if (!r.mMeshPath.empty())
-                            ImGui::BulletText("mesh contains: %s", r.mMeshPath.c_str());
-                        if (!r.mNodeName.empty())
-                            ImGui::BulletText("node contains: %s", r.mNodeName.c_str());
-                        if (!r.mTextureSubstr.empty())
-                            ImGui::BulletText("texture contains: %s", r.mTextureSubstr.c_str());
-                        if (!r.mRefId.empty())
-                            ImGui::BulletText("refId: %s", r.mRefId.c_str());
-                    }
-                }
+                if (drawMaterialDefInline(*def))
+                    sceneMgr->getShaderManager().triggerShaderReload();
                 ImGui::Unindent();
             }
             ImGui::PopID();
