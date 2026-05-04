@@ -8,11 +8,13 @@ namespace Material
 
 namespace MWGui
 {
-    // Render an inline editor for a single MaterialDef (uniforms +
-    // read-only metadata). Returns true if the user changed any
-    // uniform — caller is responsible for triggering a shader reload.
-    // Shared between the standalone "Materials" window and the
-    // EntityInspector's per-Ptr Material pane (Phase 8b-bis).
+    // Render an inline editor for a single MaterialDef (priority,
+    // shader prefix, defines, uniforms, match rules). Returns true
+    // if the user changed any value — caller is responsible for
+    // triggering a shader reload (and optionally Registry::resort()
+    // when priority changed). Shared between the standalone
+    // "Materials" window and the EntityInspector's per-Ptr Material
+    // pane (Phase 8b-bis / 8b-ter).
     bool drawMaterialDefInline(Material::MaterialDef& def);
 
     // Phase 8b of docs/imgui-overlay-plan.md — ImGui pane on top of

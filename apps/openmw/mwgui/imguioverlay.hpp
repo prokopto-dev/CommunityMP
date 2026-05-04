@@ -24,6 +24,7 @@ namespace MWGui
     class EntityInspector;
     class MaterialEditor;
     class ObjectSpawner;
+    class ShaderSettings;
 
     // In-engine ImGui overlay. Phase 1 of docs/imgui-overlay-plan.md:
     // wires ImGui's SDL2 + OpenGL2 backends behind a hotkey toggle
@@ -85,6 +86,7 @@ namespace MWGui
         EntityInspector* entityInspector() { return mEntityInspector.get(); }
         ObjectSpawner* objectSpawner() { return mObjectSpawner.get(); }
         MaterialEditor* materialEditor() { return mMaterialEditor.get(); }
+        ShaderSettings* shaderSettings() { return mShaderSettings.get(); }
 
     private:
         osg::ref_ptr<osg::Camera> mCamera;
@@ -92,6 +94,7 @@ namespace MWGui
         std::unique_ptr<EntityInspector> mEntityInspector;
         std::unique_ptr<ObjectSpawner> mObjectSpawner;
         std::unique_ptr<MaterialEditor> mMaterialEditor;
+        std::unique_ptr<ShaderSettings> mShaderSettings;
 
         bool mVisible = false;
         bool mInitialized = false;

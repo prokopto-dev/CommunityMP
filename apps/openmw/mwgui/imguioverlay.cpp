@@ -19,6 +19,7 @@
 #include "entityinspector.hpp"
 #include "materialeditor.hpp"
 #include "objectspawner.hpp"
+#include "shadersettings.hpp"
 
 namespace MWGui
 {
@@ -79,6 +80,8 @@ namespace MWGui
                     spawner->draw();
                 if (auto* materials = mOwner->materialEditor())
                     materials->draw(); // includes <materialeditor.hpp> below
+                if (auto* shaderSettings = mOwner->shaderSettings())
+                    shaderSettings->draw();
                 ImGui::Render();
                 ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
 
@@ -158,6 +161,7 @@ namespace MWGui
         mEntityInspector = std::make_unique<EntityInspector>();
         mObjectSpawner = std::make_unique<ObjectSpawner>();
         mMaterialEditor = std::make_unique<MaterialEditor>();
+        mShaderSettings = std::make_unique<ShaderSettings>();
 
         sInstance = this;
         mInitialized = true;

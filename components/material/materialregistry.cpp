@@ -191,6 +191,21 @@ namespace Material
             [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
     }
 
+    void Registry::resort()
+    {
+        std::stable_sort(mMaterials.begin(), mMaterials.end(),
+            [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
+    }
+
+    bool Registry::removeByName(const std::string& name)
+    {
+        const auto before = mMaterials.size();
+        mMaterials.erase(std::remove_if(mMaterials.begin(), mMaterials.end(),
+                             [&](const auto& p) { return p->mName == name; }),
+            mMaterials.end());
+        return mMaterials.size() != before;
+    }
+
     bool Registry::loadFile(const std::string& fsPath)
     {
         try

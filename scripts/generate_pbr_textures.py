@@ -567,10 +567,11 @@ def _convert_to_dds(out_dir: Path, src: Path, root: Path):
         return
     bin_ = shutil.which("magick") or shutil.which("convert")
     pairs = [
-        (base.parent / (base.name + ".png"),    base.parent / (base.name + ".dds"),    "dxt1"),
-        (base.parent / (base.name + "_n.png"),  base.parent / (base.name + "_n.dds"),  "dxt5"),
-        (base.parent / (base.name + "_h.png"),  base.parent / (base.name + "_h.dds"),  "dxt5"),
-        (base.parent / (base.name + "_s.png"),  base.parent / (base.name + "_s.dds"),  "dxt5"),
+        (base.parent / (base.name + ".png"),     base.parent / (base.name + ".dds"),     "dxt1"),
+        (base.parent / (base.name + "_n.png"),   base.parent / (base.name + "_n.dds"),   "dxt5"),
+        (base.parent / (base.name + "_h.png"),   base.parent / (base.name + "_h.dds"),   "dxt5"),
+        (base.parent / (base.name + "_s.png"),   base.parent / (base.name + "_s.dds"),   "dxt5"),
+        (base.parent / (base.name + "_spec.png"),base.parent / (base.name + "_spec.dds"),"dxt5"),
     ]
     for png, dds, fmt in pairs:
         if not png.exists():
@@ -593,8 +594,12 @@ def save_pack(out_dir: Path, src: Path, root: Path, pack: PBRResult):
     # 'specular' slot currently holds the height map for parallax.
     if pack.specular:
         (base.parent / (base.name + "_h.png")).write_bytes(pack.specular)
+    # OpenMW's default specular map pattern is `_spec` (cf
+    # files/settings-default.cfg : `specular map pattern = _spec`).
+    # We also keep `_s` for legacy / alternate-pattern users.
     if pack.roughness:
         (base.parent / (base.name + "_s.png")).write_bytes(pack.roughness)
+        (base.parent / (base.name + "_spec.png")).write_bytes(pack.roughness)
 
 
 def make_provider(name: str, upscale: int = 1) -> Provider:
@@ -663,6 +668,21 @@ def main():
         hint = infer_prompt_hint(src.name)
         try:
             data = src.read_bytes()
+            # Replicate models expect PNG bytes; transcode TGA / DDS /
+            # JPEG via Pillow first so the data URI's mime claim
+            # matches the actual payload.
+            if src.suffix.lower() in (".tga", ".dds", ".jpg", ".jpeg", ".bmp"):
+                try:
+                    from PIL import Image
+                    import io
+                    img = Image.open(io.BytesIO(data))
+                    if img.mode not in ("RGB", "RGBA"):
+                        img = img.convert("RGBA")
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    data = buf.getvalue()
+                except Exception as e:
+                    raise RuntimeError(f"PNG transcode failed: {e}")
             t0 = time.time()
             pack = provider.generate(data, hint)
             save_pack(args.output, src, args.input, pack)

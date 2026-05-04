@@ -55,6 +55,17 @@ namespace Material
         // Number of materials successfully loaded (debug / UI).
         std::size_t size() const { return mMaterials.size(); }
 
+        // Re-sort the material list by priority desc. Call after the
+        // ImGui editor has mutated mPriority on any def, so the next
+        // matchMesh / matchTerrain query honours the new order.
+        void resort();
+
+        // Phase 8b-quater — drop a single material from the in-memory
+        // registry by name. The on-disk YAML, if any, is left alone
+        // (caller may want to delete it via std::filesystem::remove
+        // or keep it as a backup).
+        bool removeByName(const std::string& name);
+
         // Direct access by index — for the ImGui editor (Phase 8b).
         // Mutable so the UI can tweak uniforms in-memory; the caller
         // is responsible for triggering a shader reload to pick up
