@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 #include <sstream>
 
 #include <yaml-cpp/yaml.h>
@@ -188,6 +189,39 @@ namespace Material
         // Sort by priority desc so matchMesh's first-hit wins.
         std::stable_sort(mMaterials.begin(), mMaterials.end(),
             [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
+    }
+
+    bool Registry::loadFile(const std::string& fsPath)
+    {
+        try
+        {
+            std::ifstream in(fsPath);
+            if (!in)
+                return false;
+            std::stringstream buffer;
+            buffer << in.rdbuf();
+            YAML::Node root = YAML::Load(buffer.str());
+            auto def = parseMaterial(root, fsPath);
+            if (!def)
+                return false;
+            // Replace existing entry with the same name so the saved
+            // override doesn't pile duplicates on each click.
+            const std::string newName = def->mName;
+            mMaterials.erase(std::remove_if(mMaterials.begin(), mMaterials.end(),
+                                 [&](const auto& p) { return p->mName == newName; }),
+                mMaterials.end());
+            Log(Debug::Info) << "[material] loaded " << fsPath << " (name=" << def->mName
+                             << ", priority=" << def->mPriority << ")";
+            mMaterials.push_back(std::move(def));
+            std::stable_sort(mMaterials.begin(), mMaterials.end(),
+                [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "[material] failed to load " << fsPath << ": " << e.what();
+            return false;
+        }
     }
 
     const MaterialDef* Registry::matchTerrain(

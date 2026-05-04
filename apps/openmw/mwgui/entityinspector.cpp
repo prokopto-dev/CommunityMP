@@ -458,7 +458,11 @@ namespace MWGui
                         }
                     }
                     Log(Debug::Info) << "[material] wrote override to " << outPath.string();
-                    registry->reload(MWBase::Environment::get().getResourceSystem()->getVFS());
+                    // Pull the just-written file straight into the
+                    // registry — VFS may not be scanning <userdata>/data
+                    // (depends on user's openmw.cfg), so reload(vfs)
+                    // alone wouldn't make it appear.
+                    registry->loadFile(outPath.string());
                     sceneMgr->getShaderManager().triggerShaderReload();
                     mLastOverridePath = outPath.string();
                 }

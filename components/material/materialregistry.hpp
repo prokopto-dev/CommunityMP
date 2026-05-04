@@ -29,6 +29,15 @@ namespace Material
         // triggering a shader reload to pick up the new programs.
         void reload(const VFS::Manager* vfs);
 
+        // Phase 8b-bis — load a single YAML from disk (filesystem
+        // path, not VFS). Used by the EntityInspector "Save as YAML
+        // override" button so the freshly written file shows up in
+        // the registry immediately without waiting for a full VFS
+        // reload (the user data dir may not be on the VFS data path
+        // list at boot). If a material with the same name already
+        // exists, it is replaced. Returns true on success.
+        bool loadFile(const std::string& fsPath);
+
         // Returns the highest-priority MaterialDef that matches the
         // given mesh / node / diffuse / refId, or nullptr if none
         // match. The returned pointer is owned by the registry and
