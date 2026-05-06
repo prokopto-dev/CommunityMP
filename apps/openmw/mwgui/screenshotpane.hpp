@@ -26,11 +26,13 @@ namespace MWGui
         explicit ScreenshotPane(ImGuiOverlay* overlay);
 
         void draw();
+        bool& visibleFlag() { return mVisible; }
 
     private:
         ImGuiOverlay* mOverlay;
         bool mHideOverlayDuringCapture = true;
         std::string mLastStatus;
+        bool mVisible = false;
     };
 }
 

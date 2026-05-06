@@ -580,8 +580,10 @@ namespace MWGui
 
     void MaterialEditor::draw()
     {
+        if (!mVisible)
+            return;
         ImGui::SetNextWindowSize(ImVec2(420.0f, 480.0f), ImGuiCond_FirstUseEver);
-        if (!ImGui::Begin("Materials"))
+        if (!ImGui::Begin("Materials", &mVisible))
         {
             ImGui::End();
             return;

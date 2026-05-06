@@ -14,7 +14,17 @@
 #include <imgui_impl_sdl2.h>
 
 #include <components/debug/debuglog.hpp>
+#include <components/material/materialregistry.hpp>
+#include <components/resource/resourcesystem.hpp>
+#include <components/resource/scenemanager.hpp>
 #include <components/sdlutil/sdlinputwrapper.hpp>
+#include <components/shader/shadermanager.hpp>
+#include <components/vfs/manager.hpp>
+
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
+#include "../mwrender/objects.hpp"
+#include "../mwrender/renderingmanager.hpp"
 
 #include "entityinspector.hpp"
 #include "materialeditor.hpp"
@@ -24,6 +34,101 @@
 
 namespace MWGui
 {
+    namespace
+    {
+        // Phase 8b-nonies — main menu bar with View / Tools / Help
+        // sections. Drawn first each frame so the bar sits above the
+        // pane windows; toggling visibility writes through references
+        // so the X-close button on each pane mirrors the menu state.
+        void drawMainMenuBar(ImGuiOverlay& overlay)
+        {
+            if (!ImGui::BeginMainMenuBar())
+                return;
+
+            if (ImGui::BeginMenu("View"))
+            {
+                if (auto* p = overlay.entityInspector())
+                    ImGui::MenuItem("Entity Inspector", nullptr, &p->visibleFlag());
+                if (auto* p = overlay.materialEditor())
+                    ImGui::MenuItem("Material Editor", nullptr, &p->visibleFlag());
+                if (auto* p = overlay.objectSpawner())
+                    ImGui::MenuItem("Object Spawner", nullptr, &p->visibleFlag());
+                if (auto* p = overlay.shaderSettings())
+                    ImGui::MenuItem("Shader Settings", nullptr, &p->visibleFlag());
+                if (auto* p = overlay.screenshotPane())
+                    ImGui::MenuItem("Screenshot", nullptr, &p->visibleFlag());
+                ImGui::Separator();
+                if (ImGui::MenuItem("Hide all"))
+                {
+                    if (auto* p = overlay.entityInspector())
+                        p->visibleFlag() = false;
+                    if (auto* p = overlay.materialEditor())
+                        p->visibleFlag() = false;
+                    if (auto* p = overlay.objectSpawner())
+                        p->visibleFlag() = false;
+                    if (auto* p = overlay.shaderSettings())
+                        p->visibleFlag() = false;
+                    if (auto* p = overlay.screenshotPane())
+                        p->visibleFlag() = false;
+                }
+                if (ImGui::MenuItem("Show all"))
+                {
+                    if (auto* p = overlay.entityInspector())
+                        p->visibleFlag() = true;
+                    if (auto* p = overlay.materialEditor())
+                        p->visibleFlag() = true;
+                    if (auto* p = overlay.objectSpawner())
+                        p->visibleFlag() = true;
+                    if (auto* p = overlay.shaderSettings())
+                        p->visibleFlag() = true;
+                    if (auto* p = overlay.screenshotPane())
+                        p->visibleFlag() = true;
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Tools"))
+            {
+                auto* sceneMgr
+                    = MWBase::Environment::get().getResourceSystem()->getSceneManager();
+                if (ImGui::MenuItem("Reload shaders"))
+                {
+                    if (sceneMgr)
+                        sceneMgr->getShaderManager().triggerShaderReload();
+                }
+                if (ImGui::MenuItem("Recreate shaders (full pass)"))
+                {
+                    if (sceneMgr)
+                    {
+                        if (auto* r = MWBase::Environment::get().getWorld()->getRenderingManager())
+                            if (auto* root = r->getObjects().getRootNode())
+                                sceneMgr->recreateShaders(root);
+                    }
+                }
+                if (ImGui::MenuItem("Reload materials from disk"))
+                {
+                    if (sceneMgr && sceneMgr->getMaterialRegistry())
+                    {
+                        sceneMgr->getMaterialRegistry()->reload(
+                            MWBase::Environment::get().getResourceSystem()->getVFS());
+                        sceneMgr->getShaderManager().triggerShaderReload();
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Help"))
+            {
+                ImGui::TextDisabled("F1            toggle overlay");
+                ImGui::TextDisabled("Esc           cancel pick mode");
+                ImGui::TextDisabled("Right-click   drag world camera through overlay");
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMainMenuBar();
+        }
+    }
+
     ImGuiOverlay* ImGuiOverlay::sInstance = nullptr;
 
     namespace
@@ -81,6 +186,7 @@ namespace MWGui
                 ImGui_ImplOpenGL2_NewFrame();
                 ImGui_ImplSDL2_NewFrame();
                 ImGui::NewFrame();
+                drawMainMenuBar(*mOwner);
                 if (auto* inspector = mOwner->entityInspector())
                     inspector->draw();
                 if (auto* spawner = mOwner->objectSpawner())

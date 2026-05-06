@@ -33,8 +33,10 @@ namespace MWGui
 
     void ShaderSettings::draw()
     {
+        if (!mVisible)
+            return;
         ImGui::SetNextWindowSize(ImVec2(420.0f, 280.0f), ImGuiCond_FirstUseEver);
-        if (!ImGui::Begin("Shader Settings"))
+        if (!ImGui::Begin("Shader Settings", &mVisible))
         {
             ImGui::End();
             return;
@@ -56,8 +58,16 @@ namespace MWGui
             s.mAutoUseObjectSpecularMaps.set(autoSpec);
             changed = true;
         }
+        bool autoBump = s.mAutoUseObjectBumpMaps.get();
+        if (ImGui::Checkbox("Auto use object bump maps", &autoBump))
+        {
+            s.mAutoUseObjectBumpMaps.set(autoBump);
+            changed = true;
+        }
         ImGui::TextDisabled(
             "Parallax mapping fires automatically when a *_nh.dds is present.");
+        ImGui::TextDisabled(
+            "Bump maps only affect meshes with an env map (Morrowind-style).");
 
         ImGui::Separator();
 
@@ -73,6 +83,26 @@ namespace MWGui
         {
             s.mParallaxBias.set(pBias);
             changed = true;
+        }
+
+        // Parallax occlusion mapping — true depth via ray-march. Costs
+        // ~12-24 extra heightmap taps per parallax fragment.
+        bool pom = s.mParallaxOcclusion.get();
+        if (ImGui::Checkbox("Parallax occlusion (POM)", &pom))
+        {
+            s.mParallaxOcclusion.set(pom);
+            changed = true;
+        }
+        ImGui::TextDisabled(
+            "POM ray-marches the heightmap so bricks visibly hide those behind.");
+        if (pom)
+        {
+            int pomSamples = s.mParallaxOcclusionSamples.get();
+            if (ImGui::SliderInt("POM sample count", &pomSamples, 4, 64))
+            {
+                s.mParallaxOcclusionSamples.set(pomSamples);
+                changed = true;
+            }
         }
 
         ImGui::Separator();
@@ -96,6 +126,12 @@ namespace MWGui
             s.mSpecularMapPattern.set(spec);
             changed = true;
         }
+        std::string bump = s.mBumpMapPattern.get();
+        if (inputStringInline("Bump map pattern", bump))
+        {
+            s.mBumpMapPattern.set(bump);
+            changed = true;
+        }
 
         ImGui::Separator();
         ImGui::TextDisabled("Settings live in ~/Library/Preferences/openmw/settings.cfg.");
@@ -108,7 +144,21 @@ namespace MWGui
         {
             if (auto* sceneMgr
                 = MWBase::Environment::get().getResourceSystem()->getSceneManager())
+            {
+                // SceneManager caches these at construction (cf
+                // RenderingManager ctor); the live ShaderVisitor reads
+                // them when a recreate runs. Re-push so the next
+                // "Recreate shaders (full)" picks up the toggle without
+                // requiring a restart.
+                sceneMgr->setAutoUseNormalMaps(s.mAutoUseObjectNormalMaps);
+                sceneMgr->setAutoUseSpecularMaps(s.mAutoUseObjectSpecularMaps);
+                sceneMgr->setAutoUseBumpMaps(s.mAutoUseObjectBumpMaps);
+                sceneMgr->setNormalMapPattern(s.mNormalMapPattern);
+                sceneMgr->setNormalHeightMapPattern(s.mNormalHeightMapPattern);
+                sceneMgr->setSpecularMapPattern(s.mSpecularMapPattern);
+                sceneMgr->setBumpMapPattern(s.mBumpMapPattern);
                 sceneMgr->getShaderManager().triggerShaderReload();
+            }
         }
 
         ImGui::End();

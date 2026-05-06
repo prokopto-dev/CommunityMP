@@ -203,8 +203,10 @@ namespace MWGui
 
     void EntityInspector::draw()
     {
+        if (!mVisible)
+            return;
         ImGui::SetNextWindowSize(ImVec2(720.0f, 540.0f), ImGuiCond_FirstUseEver);
-        if (!ImGui::Begin("Entity Inspector"))
+        if (!ImGui::Begin("Entity Inspector", &mVisible))
         {
             ImGui::End();
             return;

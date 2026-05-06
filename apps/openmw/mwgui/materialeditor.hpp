@@ -113,9 +113,11 @@ namespace MWGui
     {
     public:
         void draw();
+        bool& visibleFlag() { return mVisible; }
 
     private:
         int mSelected = -1;
+        bool mVisible = false;
     };
 }
 

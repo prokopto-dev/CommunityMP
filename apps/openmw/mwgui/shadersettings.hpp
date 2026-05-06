@@ -11,6 +11,10 @@ namespace MWGui
     {
     public:
         void draw();
+        bool& visibleFlag() { return mVisible; }
+
+    private:
+        bool mVisible = false;
     };
 }
 

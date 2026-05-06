@@ -67,8 +67,10 @@ namespace MWGui
 
     void ObjectSpawner::draw()
     {
+        if (!mVisible)
+            return;
         ImGui::SetNextWindowSize(ImVec2(560.0f, 520.0f), ImGuiCond_FirstUseEver);
-        if (!ImGui::Begin("Object Spawner"))
+        if (!ImGui::Begin("Object Spawner", &mVisible))
         {
             ImGui::End();
             return;

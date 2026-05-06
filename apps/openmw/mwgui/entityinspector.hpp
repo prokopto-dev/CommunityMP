@@ -43,7 +43,16 @@ namespace MWGui
         void onWorldPick(float normalizedX, float normalizedY);
         void onTerrainPick(float normalizedX, float normalizedY);
 
+        // Phase 8b-nonies — main menu bar toggles share this bool
+        // with the window's close button (passed as `&mVisible` to
+        // ImGui::Begin). Returning a reference lets the menu bar
+        // bind a MenuItem checkmark directly.
+        bool& visibleFlag() { return mVisible; }
+
     private:
+        // Default true so F1 has the Entity Inspector ready to use
+        // — it's the entry point to picking + material editing.
+        bool mVisible = true;
         MWWorld::Ptr mSelected;
         bool mPickMode = false;
 

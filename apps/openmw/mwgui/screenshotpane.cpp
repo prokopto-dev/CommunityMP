@@ -17,8 +17,10 @@ namespace MWGui
 
     void ScreenshotPane::draw()
     {
+        if (!mVisible)
+            return;
         ImGui::SetNextWindowSize(ImVec2(360.0f, 0.0f), ImGuiCond_FirstUseEver);
-        if (!ImGui::Begin("Screenshot"))
+        if (!ImGui::Begin("Screenshot", &mVisible))
         {
             ImGui::End();
             return;
