@@ -1,6 +1,7 @@
 #include "entityinspector.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <vector>
 
@@ -33,6 +34,7 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
+#include <components/sceneutil/util.hpp>
 #include <components/shader/shadermanager.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -66,100 +68,44 @@ namespace MWGui
             }
         }
 
-        // Phase 8b-bis — walk a Ptr's BaseNode subtree, capture the
-        // first sub-material's full texture set + node name. The
-        // EntityInspector uses this both to query Material::Registry
-        // for matching overrides AND to surface parallax / normal /
-        // specular state so the user can tell at a glance whether
-        // a parallaxScale uniform will actually do anything (it
-        // only fires when a heightmap exists, which OpenMW autoloads
-        // from the normal map's alpha channel or via the normal-
-        // height pattern e.g. `_nh.dds`).
-        struct MaterialProbe : public osg::NodeVisitor
+        // Slot identity used by EntityInspector to re-resolve the UI
+        // selection across frames. Pointer-based identity (StateSet*)
+        // wouldn't survive a cell reload; nodePath + diffuse is a
+        // stable string-based key the slot collector emits anyway.
+        std::string slotKeyOf(const MaterialSlot& s)
         {
-            MaterialProbe()
-                : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
-            {
-            }
+            return s.mNodePath + "|" + s.mDiffuse;
+        }
 
-            std::string mDiffuse;
-            std::string mNormal;
-            std::string mSpecular;
-            std::string mNodeName;
-            bool mHasHeightInNormalAlpha = false;
-            bool mFound = false;
+        // Strip the path prefix on a NIF / texture path so a per-mesh
+        // or per-texture rule remains user-friendly even when the
+        // engine resolves the asset to a fully-qualified VFS string.
+        std::string basenamePath(const std::string& path)
+        {
+            const auto pos = path.find_last_of("/\\");
+            return pos == std::string::npos ? path : path.substr(pos + 1);
+        }
 
-            void apply(osg::Node& node) override
+        // Same sanitising rule as makeMaterialDefForSlot — kept local
+        // here so the inspector can build the on-disk filename and
+        // the "<refId>__" prefix used to filter saved defs without
+        // depending on materialeditor.cpp internals.
+        std::string sanitiseFilename(const std::string& s)
+        {
+            std::string out;
+            out.reserve(s.size());
+            for (char c : s)
             {
-                if (!mFound && node.getStateSet())
-                    inspect(*node.getStateSet(), node.getName());
-                if (!mFound)
-                    traverse(node);
+                const unsigned char uc = static_cast<unsigned char>(c);
+                if (std::isalnum(uc) || c == '_' || c == '.' || c == '-')
+                    out += c;
+                else
+                    out += '_';
             }
-
-            void apply(osg::Drawable& drawable) override
-            {
-                if (!mFound && drawable.getStateSet())
-                    inspect(*drawable.getStateSet(), drawable.getName());
-            }
-
-            void inspect(const osg::StateSet& ss, const std::string& candidateName)
-            {
-                auto getFn = [&](unsigned int unit) -> std::string {
-                    const osg::Texture* tex = dynamic_cast<const osg::Texture*>(
-                        ss.getTextureAttribute(unit, osg::StateAttribute::TEXTURE));
-                    if (tex == nullptr || tex->getImage(0) == nullptr)
-                        return {};
-                    return tex->getImage(0)->getFileName();
-                };
-                const std::string diffuse = getFn(0);
-                if (diffuse.empty())
-                    return;
-                mFound = true;
-                mDiffuse = diffuse;
-                // OpenMW shader visitor binds normal map at TU1 and
-                // specular at TU2 once auto-detection runs (cf
-                // ShaderVisitor::createProgram); inspect both.
-                mNormal = getFn(1);
-                if (mNormal.empty())
-                    mNormal = getFn(2);
-                mSpecular = getFn(3);
-                if (!mNormal.empty())
-                {
-                    // Heuristic for parallax-eligibility: the normal
-                    // map carries a height channel either via the
-                    // engine's `*_nh.dds` pattern or via an actual
-                    // RGBA image (alpha == height). Both are what
-                    // ShaderVisitor flips on for `parallax = 1`.
-                    const osg::Texture* nrm = dynamic_cast<const osg::Texture*>(
-                        ss.getTextureAttribute(1, osg::StateAttribute::TEXTURE));
-                    if (nrm == nullptr)
-                        nrm = dynamic_cast<const osg::Texture*>(
-                            ss.getTextureAttribute(2, osg::StateAttribute::TEXTURE));
-                    if (nrm != nullptr && nrm->getImage(0) != nullptr)
-                    {
-                        const auto* img = nrm->getImage(0);
-                        const GLenum fmt = img->getPixelFormat();
-                        mHasHeightInNormalAlpha = (fmt == GL_RGBA || fmt == GL_BGRA);
-                    }
-                    if (!mHasHeightInNormalAlpha)
-                    {
-                        const std::string lower = [&]() {
-                            std::string s = mNormal;
-                            std::transform(s.begin(), s.end(), s.begin(),
-                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                            return s;
-                        }();
-                        // Default normal-height pattern (Settings: shaders mNormalHeightMapPattern, "_nh").
-                        if (lower.find("_nh.") != std::string::npos
-                            || lower.find("_nh_") != std::string::npos)
-                            mHasHeightInNormalAlpha = true;
-                    }
-                }
-                if (mNodeName.empty())
-                    mNodeName = candidateName;
-            }
-        };
+            if (out.empty())
+                out = "_";
+            return out;
+        }
     }
 
     EntityInspector::EntityInspector() = default;
@@ -405,10 +351,13 @@ namespace MWGui
             ImGui::Spacing();
             ImGui::TextDisabled("Drag the values, or Ctrl+click to type.");
 
-            // Phase 8b-bis — Material section. Probes the BaseNode for
-            // a diffuse texture, queries the registry for any rule
-            // matching by refId / texture / node name, and renders the
-            // editable uniforms inline. Triggers shader reload on edit.
+            // Phase 8b-quinquies — Material section. Enumerates EVERY
+            // distinct StateSet in the entity's subtree (multi-slot),
+            // lets the user pick one, then resolves the per-slot
+            // override (if any) and renders the editable uniforms
+            // inline. Override creation supports four scopes
+            // (per-child, per-texture, per-record, per-mesh) which
+            // OR together as MatchRules at lookup time.
             ImGui::Spacing();
             ImGui::Separator();
             auto* sceneMgr = MWBase::Environment::get().getResourceSystem()->getSceneManager();
@@ -419,186 +368,294 @@ namespace MWGui
             }
             else
             {
-                MaterialProbe probe;
+                std::vector<MaterialSlot> slots;
                 if (auto* base = mSelected.getRefData().getBaseNode())
-                    base->accept(probe);
-                const std::string& diffuse = probe.mDiffuse;
-                const std::string& nodeName = probe.mNodeName;
-                const std::string refIdStr = cellRef.getRefId().toDebugString();
+                    slots = collectMaterialSlots(*base);
 
-                // --- Texture diagnostic block ---------------------------
-                if (diffuse.empty())
+                const std::string refIdStr = cellRef.getRefId().toDebugString();
+                const std::string meshBasename = basenamePath(
+                    std::string(mSelected.getClass().getModel(mSelected)));
+
+                // Re-resolve the slot selection by string key first,
+                // index second. Pointer-based identity wouldn't survive
+                // a cell reload, but (nodePath, diffuse) does.
+                if (slots.empty())
                 {
-                    ImGui::TextDisabled("Material: no diffuse texture found on this mesh.");
+                    mSelectedSlot = -1;
+                    mSelectedSlotKey.clear();
                 }
                 else
                 {
-                    ImGui::Text("Diffuse  : %s", diffuse.c_str());
-                    ImGui::Text("Normal   : %s",
-                        probe.mNormal.empty() ? "(none — auto-loading off or no _n.dds)"
-                                              : probe.mNormal.c_str());
-                    ImGui::Text("Specular : %s",
-                        probe.mSpecular.empty() ? "(none)" : probe.mSpecular.c_str());
-                    if (probe.mHasHeightInNormalAlpha)
-                        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f),
-                            "Heightmap: present  → parallaxScale will work");
-                    else
-                        ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
-                            "Heightmap: absent   → parallaxScale will be a no-op");
-                    if (!nodeName.empty())
-                        ImGui::TextDisabled("Node: %s", nodeName.c_str());
+                    int resolved = -1;
+                    if (!mSelectedSlotKey.empty())
+                    {
+                        for (std::size_t i = 0; i < slots.size(); ++i)
+                        {
+                            if (slotKeyOf(slots[i]) == mSelectedSlotKey)
+                            {
+                                resolved = static_cast<int>(i);
+                                break;
+                            }
+                        }
+                    }
+                    if (resolved < 0 && mSelectedSlot >= 0
+                        && mSelectedSlot < static_cast<int>(slots.size()))
+                        resolved = mSelectedSlot;
+                    if (resolved < 0)
+                        resolved = 0;
+                    mSelectedSlot = resolved;
+                    mSelectedSlotKey = slotKeyOf(slots[resolved]);
                 }
+
+                // --- Slot table picker ----------------------------------
+                if (slots.empty())
+                {
+                    ImGui::TextDisabled("Material: no textured slots found on this mesh.");
+                }
+                else
+                {
+                    ImGui::Text("Material slots: %zu", slots.size());
+                    if (ImGui::BeginTable("Slots", 3,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV
+                                | ImGuiTableFlags_ScrollY,
+                            ImVec2(0.0f, 110.0f)))
+                    {
+                        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 24.0f);
+                        ImGui::TableSetupColumn("Node", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+                        ImGui::TableSetupColumn("Diffuse");
+                        ImGui::TableHeadersRow();
+                        for (std::size_t i = 0; i < slots.size(); ++i)
+                        {
+                            const MaterialSlot& s = slots[i];
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn();
+                            ImGui::Text("%zu", i);
+                            ImGui::TableNextColumn();
+                            const std::string nodeLabel = s.mAnonymous
+                                ? std::string("(drawable #" + std::to_string(i) + ")")
+                                : s.mNodeName;
+                            const bool selected = (static_cast<int>(i) == mSelectedSlot);
+                            ImGui::PushID(static_cast<int>(i));
+                            if (ImGui::Selectable(nodeLabel.c_str(), selected,
+                                    ImGuiSelectableFlags_SpanAllColumns))
+                            {
+                                mSelectedSlot = static_cast<int>(i);
+                                mSelectedSlotKey = slotKeyOf(s);
+                            }
+                            ImGui::PopID();
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted(
+                                s.mDiffuse.empty() ? "(no diffuse)" : basenamePath(s.mDiffuse).c_str());
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+
                 ImGui::Separator();
 
-                const Material::MaterialDef* matched
-                    = registry->matchMesh(/*meshPath=*/"", nodeName, diffuse, refIdStr);
-                if (matched == nullptr)
-                {
-                    ImGui::TextDisabled("Material: no override matches this object.");
-                }
-                else
-                {
-                    ImGui::Text("Material: %s", matched->mName.c_str());
-                    ImGui::SameLine();
-                    if (ImGui::Button("Delete override"))
-                    {
-                        // Drop the in-memory entry. If the YAML lives
-                        // under <userdata>/data/materials/, also unlink
-                        // it on disk so the next launch doesn't reload
-                        // the deletion away.
-                        const std::string name = matched->mName;
-                        const std::filesystem::path baseDir
-                            = MWBase::Environment::get().getWorld()->getUserDataPath()
-                            / "data" / "materials";
-                        // The save path filename mirrors the refId
-                        // (sanitised) — we try both conventions.
-                        std::string sanitised = refIdStr;
-                        for (char& c : sanitised)
-                            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_'
-                                && c != '.' && c != '-')
-                                c = '_';
-                        std::error_code ec;
-                        std::filesystem::remove(baseDir / (sanitised + ".yaml"), ec);
-                        registry->removeByName(name);
-                        sceneMgr->getShaderManager().triggerShaderReload();
-                        mLastOverridePath = "deleted: " + name;
-                    }
-                    // matchMesh returned a const pointer but the
-                    // registry's storage is mutable — cast through to
-                    // expose the editable uniforms. resort() handles
-                    // the priority-change case so the next matchMesh
-                    // honours the new ordering.
-                    else if (drawMaterialDefInline(*const_cast<Material::MaterialDef*>(matched)))
-                    {
-                        registry->resort();
-                        sceneMgr->getShaderManager().triggerShaderReload();
-                    }
-                }
+                const MaterialSlot* slot = (mSelectedSlot >= 0
+                                               && mSelectedSlot < static_cast<int>(slots.size()))
+                    ? &slots[mSelectedSlot]
+                    : nullptr;
 
-                // Phase 8b-bis — write a YAML override targeting the
-                // current RefId. Lands in <userdata>/materials/ which
-                // the VFS picks up, then we reload the registry +
-                // trigger a shader rebuild so it appears live.
-                ImGui::Spacing();
-                if (ImGui::Button("Save as YAML override"))
-                {
-                    // Land in <userdata>/data/materials/ — the
-                    // <userdata>/data subdir is on most OpenMW
-                    // installs' default data path list, so the file
-                    // gets picked up by the VFS at reload without
-                    // any cfg edit required.
-                    const std::filesystem::path baseDir
-                        = MWBase::Environment::get().getWorld()->getUserDataPath() / "data"
-                        / "materials";
-                    std::error_code ec;
-                    std::filesystem::create_directories(baseDir, ec);
-                    // Sanitise the RefId for use as a filename: only
-                    // [a-zA-Z0-9_.-] survive, everything else → '_'.
-                    std::string filename = refIdStr;
-                    for (char& c : filename)
-                    {
-                        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '.' && c != '-')
-                            c = '_';
-                    }
-                    filename += ".yaml";
-                    const std::filesystem::path outPath = baseDir / filename;
-                    if (ec)
-                    {
-                        mLastOverridePath = "mkdir failed: " + ec.message() + " (" + baseDir.string() + ")";
-                        Log(Debug::Warning) << "[material] " << mLastOverridePath;
-                    }
-                    else
-                    {
-                        std::ofstream out(outPath);
-                        if (!out)
-                        {
-                            mLastOverridePath = "open failed: " + outPath.string();
-                            Log(Debug::Warning) << "[material] " << mLastOverridePath;
-                        }
-                        else
-                        {
-                            // Single-quoted YAML scalar so refIds
-                            // containing '\', ':', etc. parse cleanly.
-                            // Escape literal ' by doubling it.
-                            auto yamlQuote = [](const std::string& s) {
-                                std::string out2 = "'";
-                                for (char c : s)
-                                {
-                                    if (c == '\'')
-                                        out2 += "''";
-                                    else
-                                        out2 += c;
-                                }
-                                out2 += '\'';
-                                return out2;
-                            };
+                // recreateShaders runs the ShaderVisitor on every
+                // loaded object so newly-added MatchRules / shader
+                // prefix swaps actually re-bind to live StateSets —
+                // triggerShaderReload alone only recompiles GLSL,
+                // which misses match-resolution changes.
+                auto recreateAll = [&]() {
+                    if (auto* rendering = MWBase::Environment::get().getWorld()->getRenderingManager())
+                        if (auto* root = rendering->getObjects().getRootNode())
+                            sceneMgr->recreateShaders(root);
+                    sceneMgr->getShaderManager().triggerShaderReload();
+                };
 
-                            out << "# Generated by EntityInspector → Save as YAML override.\n";
-                            out << "# Texture audit at save time:\n";
-                            out << "#   diffuse  : " << (diffuse.empty() ? "(none)" : diffuse) << "\n";
-                            out << "#   normal   : " << (probe.mNormal.empty() ? "(none)" : probe.mNormal)
-                                << "\n";
-                            out << "#   specular : "
-                                << (probe.mSpecular.empty() ? "(none)" : probe.mSpecular) << "\n";
-                            out << "#   heightmap: "
-                                << (probe.mHasHeightInNormalAlpha ? "yes (parallaxScale will work)"
-                                                                  : "NO (parallaxScale = no-op)")
-                                << "\n";
-                            out << "name: " << yamlQuote(refIdStr + "_override") << "\n";
-                            out << "priority: 100\n";
-                            out << "match:\n";
-                            out << "  any:\n";
-                            out << "    - record_id: " << yamlQuote(refIdStr) << "\n";
-                            if (matched != nullptr && !matched->mShaderPrefix.empty())
-                                out << "shader: " << yamlQuote(matched->mShaderPrefix) << "\n";
-                            out << "uniforms:\n";
-                            if (matched != nullptr && !matched->mUniforms.empty())
+                if (slot != nullptr)
+                {
+                    // --- Texture diagnostic block (per slot) ------------
+                    ImGui::Text("Diffuse  : %s",
+                        slot->mDiffuse.empty() ? "(none)" : slot->mDiffuse.c_str());
+                    ImGui::Text("Normal   : %s",
+                        slot->mNormal.empty() ? "(none — auto-loading off or no _n.dds)"
+                                              : slot->mNormal.c_str());
+                    ImGui::Text("Specular : %s",
+                        slot->mSpecular.empty() ? "(none — auto-loading off or no _spec.dds)"
+                                                : slot->mSpecular.c_str());
+                    ImGui::Text("Bump     : %s",
+                        slot->mBump.empty() ? "(none — comes from NIF, no auto-detect)"
+                                            : slot->mBump.c_str());
+                    if (slot->mHasHeightInNormalAlpha)
+                        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f),
+                            "Heightmap: present  → parallaxScale will work");
+                    else if (!slot->mNormal.empty())
+                        ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
+                            "Heightmap: absent   → parallaxScale will be a no-op");
+                    if (!slot->mNodePath.empty())
+                        ImGui::TextDisabled("Path: %s", slot->mNodePath.c_str());
+                    ImGui::Separator();
+
+                    // --- Per-slot override resolution -------------------
+                    const Material::MaterialDef* matchedConst = registry->matchMesh(
+                        meshBasename, slot->mNodeName, slot->mDiffuse, refIdStr);
+                    // Skip terrain-only defs — they shouldn't surface
+                    // for entity inspection even if a stray rule keys
+                    // happens to align.
+                    if (matchedConst != nullptr && matchedConst->mRules.empty()
+                        && !matchedConst->mTerrainRules.empty())
+                        matchedConst = nullptr;
+
+                    if (matchedConst != nullptr)
+                    {
+                        ImGui::Text("Material: %s", matchedConst->mName.c_str());
+                        ImGui::SameLine();
+                        const bool deleteClicked = ImGui::Button("Delete override");
+                        Material::MaterialDef* matched
+                            = const_cast<Material::MaterialDef*>(matchedConst);
+                        if (deleteClicked)
+                        {
+                            const std::string deletedName = matched->mName;
+                            registry->removeByName(deletedName);
+                            // Rewrite the entity's YAML with the
+                            // surviving overrides; if zero remain,
+                            // unlink the file so the next launch
+                            // doesn't re-load the deletion away.
+                            const std::filesystem::path baseDir
+                                = MWBase::Environment::get().getWorld()->getUserDataPath() / "data"
+                                / "materials";
+                            const std::filesystem::path outPath
+                                = baseDir / (sanitiseFilename(refIdStr) + ".yaml");
+                            const std::string nameMatchPrefix = sanitiseFilename(refIdStr) + "__";
+                            std::vector<const Material::MaterialDef*> survivors;
+                            for (std::size_t i = 0; i < registry->size(); ++i)
                             {
-                                // Write current values verbatim so the
-                                // saved YAML mirrors the live state.
-                                for (const auto& u : matched->mUniforms)
-                                {
-                                    out << "  - { name: " << u.mName << ", type: float, value: ";
-                                    if (auto* f = std::get_if<float>(&u.mValue))
-                                        out << *f;
-                                    else
-                                        out << 0.0f;
-                                    out << " }\n";
-                                }
+                                const auto* def = registry->at(i);
+                                if (def == nullptr)
+                                    continue;
+                                if (def->mName.rfind(nameMatchPrefix, 0) == 0
+                                    || def->mName == refIdStr + "_override")
+                                    survivors.push_back(def);
+                            }
+                            if (survivors.empty())
+                            {
+                                std::error_code ec;
+                                std::filesystem::remove(outPath, ec);
+                                mLastOverridePath = "deleted: " + deletedName;
                             }
                             else
                             {
-                                out << "  - { name: parallaxScale, type: float, value: 0.04 }\n";
+                                writeEntityOverrideYaml(outPath, refIdStr, survivors);
+                                mLastOverridePath = "rewrote " + outPath.string();
                             }
-                            out.close();
-                            Log(Debug::Info) << "[material] wrote override to " << outPath.string();
-                            const bool loaded = registry->loadFile(outPath.string());
-                            sceneMgr->getShaderManager().triggerShaderReload();
-                            mLastOverridePath
-                                = (loaded ? "saved → " : "saved (parse failed) → ") + outPath.string();
+                            recreateAll();
+                        }
+                        else if (drawMaterialDefInline(*matched))
+                        {
+                            registry->resort();
+                            recreateAll();
                         }
                     }
+                    else
+                    {
+                        // --- Scope picker for fresh override ------------
+                        ImGui::TextDisabled("Material: no override matches this slot.");
+                        ImGui::Text("Create override scope:");
+                        bool perChild = (mPendingScopeFlags & Scope_PerChild) != 0;
+                        bool perTexture = (mPendingScopeFlags & Scope_PerTexture) != 0;
+                        bool perRecord = (mPendingScopeFlags & Scope_PerRecord) != 0;
+                        bool perMesh = (mPendingScopeFlags & Scope_PerMesh) != 0;
+                        ImGui::BeginDisabled(slot->mAnonymous);
+                        if (ImGui::Checkbox("Per child", &perChild))
+                        {
+                            mPendingScopeFlags = (mPendingScopeFlags & ~Scope_PerChild)
+                                | (perChild ? Scope_PerChild : 0u);
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(slot->mDiffuse.empty());
+                        if (ImGui::Checkbox("Per texture", &perTexture))
+                        {
+                            mPendingScopeFlags = (mPendingScopeFlags & ~Scope_PerTexture)
+                                | (perTexture ? Scope_PerTexture : 0u);
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        if (ImGui::Checkbox("Per record id", &perRecord))
+                        {
+                            mPendingScopeFlags = (mPendingScopeFlags & ~Scope_PerRecord)
+                                | (perRecord ? Scope_PerRecord : 0u);
+                        }
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(meshBasename.empty());
+                        if (ImGui::Checkbox("Per mesh", &perMesh))
+                        {
+                            mPendingScopeFlags = (mPendingScopeFlags & ~Scope_PerMesh)
+                                | (perMesh ? Scope_PerMesh : 0u);
+                        }
+                        ImGui::EndDisabled();
+
+                        const bool canCreate = mPendingScopeFlags != 0u;
+                        ImGui::BeginDisabled(!canCreate);
+                        if (ImGui::Button("Create override"))
+                        {
+                            // Seed parallaxScale at 0.04 — matches the
+                            // engine default (settings-default.cfg
+                            // [Shaders] parallax scale) so a fresh
+                            // override starts at parity with the rest
+                            // of the world; the user can then drag.
+                            Material::MaterialDef fresh = makeMaterialDefForSlot(
+                                *slot, mPendingScopeFlags, refIdStr, meshBasename, 0.04f);
+                            registry->add(std::move(fresh));
+                            recreateAll();
+                            mLastOverridePath = "created (in-memory) — Save to persist";
+                        }
+                        ImGui::EndDisabled();
+                    }
                 }
+
+                // --- Save / status (per entity) -------------------------
+                ImGui::Spacing();
+                if (ImGui::Button("Save as YAML override"))
+                {
+                    const std::filesystem::path baseDir
+                        = MWBase::Environment::get().getWorld()->getUserDataPath() / "data"
+                        / "materials";
+                    const std::filesystem::path outPath
+                        = baseDir / (sanitiseFilename(refIdStr) + ".yaml");
+                    const std::string nameMatchPrefix = sanitiseFilename(refIdStr) + "__";
+
+                    // Collect every registry entry that belongs to
+                    // this entity: the new "<sanitisedRefId>__*" defs
+                    // built by the scope picker, plus the legacy
+                    // "<refId>_override" name still produced by
+                    // older saves so a re-save from this UI doesn't
+                    // silently lose them.
+                    std::vector<const Material::MaterialDef*> defs;
+                    for (std::size_t i = 0; i < registry->size(); ++i)
+                    {
+                        const auto* def = registry->at(i);
+                        if (def == nullptr)
+                            continue;
+                        if (def->mName.rfind(nameMatchPrefix, 0) == 0
+                            || def->mName == refIdStr + "_override")
+                            defs.push_back(def);
+                    }
+
+                    if (defs.empty())
+                    {
+                        mLastOverridePath = "nothing to save (no override on this entity)";
+                    }
+                    else if (writeEntityOverrideYaml(outPath, refIdStr, defs))
+                    {
+                        registry->loadFile(outPath.string());
+                        recreateAll();
+                        mLastOverridePath = "saved → " + outPath.string();
+                    }
+                    else
+                    {
+                        mLastOverridePath = "save failed: " + outPath.string();
+                    }
+                }
+
                 if (!mLastOverridePath.empty())
                 {
                     ImGui::SameLine();

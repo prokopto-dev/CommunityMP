@@ -66,6 +66,13 @@ namespace Material
         // or keep it as a backup).
         bool removeByName(const std::string& name);
 
+        // Phase 8b-quinquies — push a freshly-built MaterialDef into
+        // the registry from the editor (multi-slot override creation),
+        // bypassing the YAML disk round-trip. Replaces any existing
+        // entry with the same name. Returns a pointer stable for the
+        // registry's lifetime so the editor can keep editing it.
+        MaterialDef* add(MaterialDef def);
+
         // Direct access by index — for the ImGui editor (Phase 8b).
         // Mutable so the UI can tweak uniforms in-memory; the caller
         // is responsible for triggering a shader reload to pick up

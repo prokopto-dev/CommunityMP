@@ -144,6 +144,32 @@ namespace Material
 
             return def;
         }
+
+        // Phase 8b-quinquies — a YAML file may contain either a single
+        // MaterialDef at the root, or a `materials:` sequence of them
+        // (used by EntityInspector when an entity has overrides on
+        // several material slots). Returns the parsed defs in source
+        // order; an empty vector signals an unparseable file.
+        std::vector<std::unique_ptr<MaterialDef>> parseRootNode(
+            const YAML::Node& root, const std::string& sourcePath)
+        {
+            std::vector<std::unique_ptr<MaterialDef>> out;
+            if (auto materials = root["materials"]; materials && materials.IsSequence())
+            {
+                int idx = 0;
+                for (const auto& m : materials)
+                {
+                    const std::string subPath = sourcePath + "#" + std::to_string(idx++);
+                    if (auto def = parseMaterial(m, subPath))
+                        out.push_back(std::move(def));
+                }
+            }
+            else if (auto def = parseMaterial(root, sourcePath))
+            {
+                out.push_back(std::move(def));
+            }
+            return out;
+        }
     }
 
     Registry::Registry(const VFS::Manager* vfs)
@@ -173,7 +199,7 @@ namespace Material
                 std::stringstream buffer;
                 buffer << stream->rdbuf();
                 YAML::Node root = YAML::Load(buffer.str());
-                if (auto def = parseMaterial(root, str))
+                for (auto& def : parseRootNode(root, str))
                 {
                     Log(Debug::Info) << "[material] loaded " << str << " (name=" << def->mName
                                      << ", priority=" << def->mPriority << ")";
@@ -216,18 +242,22 @@ namespace Material
             std::stringstream buffer;
             buffer << in.rdbuf();
             YAML::Node root = YAML::Load(buffer.str());
-            auto def = parseMaterial(root, fsPath);
-            if (!def)
+            auto defs = parseRootNode(root, fsPath);
+            if (defs.empty())
                 return false;
-            // Replace existing entry with the same name so the saved
-            // override doesn't pile duplicates on each click.
-            const std::string newName = def->mName;
-            mMaterials.erase(std::remove_if(mMaterials.begin(), mMaterials.end(),
-                                 [&](const auto& p) { return p->mName == newName; }),
-                mMaterials.end());
-            Log(Debug::Info) << "[material] loaded " << fsPath << " (name=" << def->mName
-                             << ", priority=" << def->mPriority << ")";
-            mMaterials.push_back(std::move(def));
+            // Replace existing entries with matching names so a saved
+            // override doesn't pile duplicates on each click — applied
+            // per def so a multi-def file refreshes all its entries.
+            for (auto& def : defs)
+            {
+                const std::string newName = def->mName;
+                mMaterials.erase(std::remove_if(mMaterials.begin(), mMaterials.end(),
+                                     [&](const auto& p) { return p->mName == newName; }),
+                    mMaterials.end());
+                Log(Debug::Info) << "[material] loaded " << fsPath << " (name=" << def->mName
+                                 << ", priority=" << def->mPriority << ")";
+                mMaterials.push_back(std::move(def));
+            }
             std::stable_sort(mMaterials.begin(), mMaterials.end(),
                 [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
             return true;
@@ -237,6 +267,22 @@ namespace Material
             Log(Debug::Warning) << "[material] failed to load " << fsPath << ": " << e.what();
             return false;
         }
+    }
+
+    MaterialDef* Registry::add(MaterialDef def)
+    {
+        // Replace any existing entry with the same name so consecutive
+        // "Create override" clicks on the same slot don't accumulate
+        // ghost defs in the registry.
+        const std::string name = def.mName;
+        mMaterials.erase(std::remove_if(mMaterials.begin(), mMaterials.end(),
+                             [&](const auto& p) { return p->mName == name; }),
+            mMaterials.end());
+        mMaterials.push_back(std::make_unique<MaterialDef>(std::move(def)));
+        MaterialDef* ptr = mMaterials.back().get();
+        std::stable_sort(mMaterials.begin(), mMaterials.end(),
+            [](const auto& a, const auto& b) { return a->mPriority > b->mPriority; });
+        return ptr;
     }
 
     const MaterialDef* Registry::matchTerrain(

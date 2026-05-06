@@ -19,6 +19,7 @@
 #include "entityinspector.hpp"
 #include "materialeditor.hpp"
 #include "objectspawner.hpp"
+#include "screenshotpane.hpp"
 #include "shadersettings.hpp"
 
 namespace MWGui
@@ -51,6 +52,12 @@ namespace MWGui
             {
                 if (!mOwner->isVisible())
                     return;
+                // ScreenshotPane requests skip frames when capturing
+                // a clean shot — eat one each pass and bail before
+                // any ImGui state mutation so the framebuffer that
+                // ScreenCaptureHandler grabs has no overlay chrome.
+                if (mOwner->consumeSkipFrame())
+                    return;
                 if (!mOwner->isGLInitialized())
                 {
                     if (!ImGui_ImplOpenGL2_Init())
@@ -82,8 +89,27 @@ namespace MWGui
                     materials->draw(); // includes <materialeditor.hpp> below
                 if (auto* shaderSettings = mOwner->shaderSettings())
                     shaderSettings->draw();
+                if (auto* screenshot = mOwner->screenshotPane())
+                    screenshot->draw();
                 ImGui::Render();
                 ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+
+                // Phase 8b-quater — manage SDL text input mode
+                // ourselves: the imgui_impl_sdl2 backend stopped
+                // touching SDL_StartTextInput in 2023, and OpenMW's
+                // own UI code (MyGUI) only flips it for vanilla
+                // widgets. Without this, typing into an ImGui
+                // InputText produces no TEXTINPUT events on macOS.
+                //
+                // On macOS, SDL_Start/StopTextInput call into
+                // NSTextInputContext, which raises an Objective-C
+                // exception when invoked from any thread but the
+                // Cocoa main thread — and we're on the OSG draw
+                // thread here. Snapshot the desired state into an
+                // atomic; ImGuiOverlay::pumpMainThread() (called
+                // from Engine::frame) applies it from the right
+                // thread.
+                mOwner->setPendingTextInput(ImGui::GetIO().WantTextInput);
 
                 // Tell OSG every cached vertex array / texture state
                 // is now stale so it re-applies on the next frame.
@@ -162,6 +188,7 @@ namespace MWGui
         mObjectSpawner = std::make_unique<ObjectSpawner>();
         mMaterialEditor = std::make_unique<MaterialEditor>();
         mShaderSettings = std::make_unique<ShaderSettings>();
+        mScreenshotPane = std::make_unique<ScreenshotPane>(this);
 
         sInstance = this;
         mInitialized = true;
@@ -179,6 +206,21 @@ namespace MWGui
         // thread where the context isn't current. The process is
         // exiting, so the OS reclaims the GL objects regardless.
         ImGui::DestroyContext();
+    }
+
+    void ImGuiOverlay::pumpMainThread()
+    {
+        if (!mInitialized)
+            return;
+        const int pending = mPendingTextInput.exchange(-1, std::memory_order_acq_rel);
+        if (pending < 0)
+            return;
+        const bool want = pending != 0;
+        const bool active = SDL_IsTextInputActive();
+        if (want && !active)
+            SDL_StartTextInput();
+        else if (!want && active)
+            SDL_StopTextInput();
     }
 
     void ImGuiOverlay::toggleVisible()

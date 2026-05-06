@@ -1,6 +1,7 @@
 #ifndef MWGUI_ENTITYINSPECTOR_H
 #define MWGUI_ENTITYINSPECTOR_H
 
+#include <cstdint>
 #include <string>
 
 #include "../mwworld/ptr.hpp"
@@ -40,6 +41,21 @@ namespace MWGui
         // "Save as YAML override" button, shown next to the button
         // for confirmation.
         std::string mLastOverridePath;
+
+        // Phase 8b-quinquies — multi-slot picker state. mSelectedSlot
+        // is the index inside the freshly-collected slot vector but
+        // is only a hint; mSelectedSlotKey ("<nodePath>|<diffuse>")
+        // is the authoritative identity, re-resolved each frame so a
+        // cell reload that churns OSG pointers doesn't leave us
+        // pointing at the wrong slot.
+        int mSelectedSlot = -1;
+        std::string mSelectedSlotKey;
+
+        // Scope mask used by the "Create override" picker — bitwise
+        // OR of MWGui::MaterialScope flags. Defaults to per-record-id
+        // so the legacy single-click flow still produces an override
+        // scoped exactly to the picked entity.
+        std::uint32_t mPendingScopeFlags = 1u << 2; // Scope_PerRecord
 
         // Filters
         char mNameFilter[128] = {};
