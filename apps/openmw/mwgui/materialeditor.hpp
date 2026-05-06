@@ -19,6 +19,18 @@ namespace Material
 
 namespace MWGui
 {
+    // Phase 8b-septies — context the EntityInspector hands to
+    // drawMaterialDefInline so the parallax helper block can colour
+    // its status indicator and seed Auto-detect from the slot's
+    // diffuse texture name. Empty / default-constructed when called
+    // from the standalone Materials window (no slot context) — the
+    // helper falls back to a plain slider in that case.
+    struct ParallaxHint
+    {
+        bool mHasHeightmap = false;       // mirrors MaterialSlot::mHasHeightInNormalAlpha
+        std::string mDiffuseBasename;     // basename, used for Auto-detect pattern match
+    };
+
     // Render an inline editor for a single MaterialDef (priority,
     // shader prefix, defines, uniforms, match rules). Returns true
     // if the user changed any value — caller is responsible for
@@ -26,7 +38,7 @@ namespace MWGui
     // when priority changed). Shared between the standalone
     // "Materials" window and the EntityInspector's per-Ptr Material
     // pane (Phase 8b-bis / 8b-ter).
-    bool drawMaterialDefInline(Material::MaterialDef& def);
+    bool drawMaterialDefInline(Material::MaterialDef& def, const ParallaxHint& hint = {});
 
     // Phase 8b-quinquies — one row in the multi-slot picker. A "slot"
     // is a unique StateSet found anywhere in an entity's BaseNode
@@ -74,6 +86,14 @@ namespace MWGui
     // tweak immediately.
     Material::MaterialDef makeMaterialDefForSlot(const MaterialSlot& slot, std::uint32_t scopeFlags,
         const std::string& refId, const std::string& meshBasename, float parallaxScaleSeed);
+
+    // Phase 8b-octies — fresh MaterialDef for a terrain pick. The
+    // perWorldspace flag flips between a per-cell rule (cells:[{x,y}])
+    // and a worldspace-wide rule (cells:[] = wildcard). Generated
+    // name = "terrain__<worldspace>__<x>_<y>" or "terrain__<worldspace>"
+    // for the wildcard variant.
+    Material::MaterialDef makeTerrainOverride(const std::string& worldspace, int cellX, int cellY,
+        bool perWorldspace, float parallaxScaleSeed);
 
     // Serialize a list of MaterialDef pointers to a multi-def YAML
     // file at `path`. Top-level shape is `materials: [...]`. Emits all

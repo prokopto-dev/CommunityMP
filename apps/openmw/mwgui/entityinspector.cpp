@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -29,6 +30,7 @@
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadstat.hpp>
+#include <components/esm/refid.hpp>
 #include <components/material/materialdef.hpp>
 #include <components/material/materialregistry.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -36,6 +38,9 @@
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/sceneutil/util.hpp>
 #include <components/shader/shadermanager.hpp>
+#include <components/terrain/defs.hpp>
+#include <components/terrain/storage.hpp>
+#include <components/terrain/world.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -121,6 +126,79 @@ namespace MWGui
             /*ignoreActors*/ false);
         if (rayRes.mHit && !rayRes.mHitObject.isEmpty())
             mSelected = rayRes.mHitObject;
+    }
+
+    void EntityInspector::onTerrainPick(float normalizedX, float normalizedY)
+    {
+        mPickTerrainMode = false;
+        mTerrainPick = TerrainPick{};
+
+        auto* rendering = MWBase::Environment::get().getWorld()->getRenderingManager();
+        if (rendering == nullptr)
+            return;
+
+        const auto rayRes = rendering->castCameraToViewportRay(
+            normalizedX, normalizedY, /*maxDistance*/ 10000.0f, /*ignorePlayer*/ true,
+            /*ignoreActors*/ true);
+        // Terrain hit: ray reports mHit with no mHitObject (no Ptr).
+        // Reject hits that landed on entities — use Pick from world
+        // for those.
+        if (!rayRes.mHit || !rayRes.mHitObject.isEmpty())
+            return;
+
+        // Worldspace from the player's current cell — terrain only
+        // makes sense outdoors, and the player is always in some cell
+        // when the inspector is reachable.
+        const MWWorld::Ptr player = MWMechanics::getPlayer();
+        if (player.isEmpty() || !player.isInCell())
+            return;
+        const auto* cellPtr = player.getCell();
+        if (cellPtr == nullptr)
+            return;
+        const auto& cell = *cellPtr->getCell();
+        if (!cell.isExterior())
+            return;
+
+        const ESM::RefId worldspace = cell.getWorldSpace();
+
+        auto* terrain = rendering->getTerrain();
+        auto* storage = terrain ? terrain->getStorage() : nullptr;
+        if (storage == nullptr)
+            return;
+
+        const float cellSize = storage->getCellWorldSize(worldspace);
+        if (cellSize <= 0.0f)
+            return;
+        const int cellX = static_cast<int>(std::floor(rayRes.mHitPointWorld.x() / cellSize));
+        const int cellY = static_cast<int>(std::floor(rayRes.mHitPointWorld.y() / cellSize));
+
+        // getBlendmaps allocates blendmap textures on top of the
+        // layer list — overkill for a UI lookup but it's the only
+        // public path that exposes the texture set. Cost is bounded
+        // by the few-hundred-pixel blendmaps for one cell, fine for
+        // an interactive click.
+        Terrain::Storage::ImageVector blendmaps;
+        std::vector<Terrain::LayerInfo> layers;
+        storage->getBlendmaps(/*chunkSize*/ 1.0f,
+            osg::Vec2f(static_cast<float>(cellX) + 0.5f, static_cast<float>(cellY) + 0.5f), blendmaps,
+            layers, worldspace);
+
+        TerrainPick pick;
+        pick.mValid = true;
+        std::string ws = worldspace.toDebugString();
+        std::transform(ws.begin(), ws.end(), ws.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        pick.mWorldspace = std::move(ws);
+        pick.mCellX = cellX;
+        pick.mCellY = cellY;
+        for (const auto& l : layers)
+        {
+            pick.mLayerDiffuses.emplace_back(l.mDiffuseMap.value());
+            pick.mLayerNormals.emplace_back(l.mNormalMap.value());
+            if (l.mParallax)
+                pick.mAnyParallax = true;
+        }
+        mTerrainPick = std::move(pick);
     }
 
     void EntityInspector::draw()
@@ -548,7 +626,9 @@ namespace MWGui
                             }
                             recreateAll();
                         }
-                        else if (drawMaterialDefInline(*matched))
+                        else if (drawMaterialDefInline(*matched,
+                                     ParallaxHint{ slot->mHasHeightInNormalAlpha,
+                                         basenamePath(slot->mDiffuse) }))
                         {
                             registry->resort();
                             recreateAll();
@@ -663,6 +743,180 @@ namespace MWGui
                 }
             }
         }
+
+        // ---------------------------------------------------------------
+        // Phase 8b-octies — Terrain section. Visible regardless of entity
+        // selection so the user can edit ground material without first
+        // picking an object.
+        // ---------------------------------------------------------------
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (mPickTerrainMode)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.3f, 0.2f, 1.0f));
+            if (ImGui::Button("Cancel terrain pick (Esc)"))
+                mPickTerrainMode = false;
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextDisabled("Click on the ground to inspect a chunk.");
+        }
+        else
+        {
+            if (ImGui::Button("Pick terrain"))
+            {
+                mPickTerrainMode = true;
+                mPickMode = false; // mutually exclusive with entity pick
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("Then click on the ground.");
+        }
+
+        if (mTerrainPick.mValid)
+        {
+            auto* sceneMgr = MWBase::Environment::get().getResourceSystem()->getSceneManager();
+            auto* registry = sceneMgr ? sceneMgr->getMaterialRegistry() : nullptr;
+
+            ImGui::Text(
+                "Worldspace: %s   Cell: (%d, %d)", mTerrainPick.mWorldspace.c_str(), mTerrainPick.mCellX,
+                mTerrainPick.mCellY);
+
+            if (mTerrainPick.mLayerDiffuses.empty())
+            {
+                ImGui::TextDisabled("No layer textures resolved at this point.");
+            }
+            else
+            {
+                ImGui::TextDisabled("Layers (top → bottom blend):");
+                for (std::size_t i = 0; i < mTerrainPick.mLayerDiffuses.size(); ++i)
+                {
+                    ImGui::BulletText("L%zu  %s", i,
+                        mTerrainPick.mLayerDiffuses[i].empty()
+                            ? "(no diffuse)"
+                            : mTerrainPick.mLayerDiffuses[i].c_str());
+                    if (i < mTerrainPick.mLayerNormals.size() && !mTerrainPick.mLayerNormals[i].empty())
+                    {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(n: %s)", mTerrainPick.mLayerNormals[i].c_str());
+                    }
+                }
+                if (mTerrainPick.mAnyParallax)
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f),
+                        "At least one layer has heightmap → parallaxScale will work");
+                else
+                    ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
+                        "No layer carries a heightmap → parallaxScale is a no-op here");
+            }
+
+            auto recreateAll = [&]() {
+                if (auto* rendering = MWBase::Environment::get().getWorld()->getRenderingManager())
+                    if (auto* root = rendering->getObjects().getRootNode())
+                        sceneMgr->recreateShaders(root);
+                if (sceneMgr)
+                    sceneMgr->getShaderManager().triggerShaderReload();
+            };
+
+            const Material::MaterialDef* matchedConst = registry
+                ? registry->matchTerrain(mTerrainPick.mWorldspace, mTerrainPick.mCellX, mTerrainPick.mCellY)
+                : nullptr;
+
+            if (matchedConst != nullptr)
+            {
+                ImGui::Text("Override: %s", matchedConst->mName.c_str());
+                ImGui::SameLine();
+                Material::MaterialDef* matched = const_cast<Material::MaterialDef*>(matchedConst);
+                if (ImGui::Button("Delete terrain override"))
+                {
+                    const std::string deletedName = matched->mName;
+                    registry->removeByName(deletedName);
+                    // Save path: terrain_<worldspace>.yaml — collect
+                    // surviving terrain defs for that worldspace and
+                    // rewrite, or remove the file when none remain.
+                    const std::filesystem::path baseDir
+                        = MWBase::Environment::get().getWorld()->getUserDataPath() / "data"
+                        / "materials";
+                    const std::filesystem::path outPath
+                        = baseDir / ("terrain_" + sanitiseFilename(mTerrainPick.mWorldspace) + ".yaml");
+                    const std::string prefix = "terrain__" + sanitiseFilename(mTerrainPick.mWorldspace);
+                    std::vector<const Material::MaterialDef*> survivors;
+                    for (std::size_t i = 0; i < registry->size(); ++i)
+                    {
+                        const auto* def = registry->at(i);
+                        if (def == nullptr)
+                            continue;
+                        if (def->mName.rfind(prefix, 0) == 0)
+                            survivors.push_back(def);
+                    }
+                    if (survivors.empty())
+                    {
+                        std::error_code ec;
+                        std::filesystem::remove(outPath, ec);
+                        mLastOverridePath = "deleted: " + deletedName;
+                    }
+                    else
+                    {
+                        writeEntityOverrideYaml(outPath, mTerrainPick.mWorldspace, survivors);
+                        mLastOverridePath = "rewrote " + outPath.string();
+                    }
+                    recreateAll();
+                }
+                else if (drawMaterialDefInline(*matched, ParallaxHint{ mTerrainPick.mAnyParallax,
+                                                          mTerrainPick.mLayerDiffuses.empty()
+                                                              ? std::string()
+                                                              : basenamePath(mTerrainPick.mLayerDiffuses[0]) }))
+                {
+                    registry->resort();
+                    recreateAll();
+                }
+            }
+            else if (registry != nullptr)
+            {
+                ImGui::TextDisabled("No terrain override matches this chunk.");
+                ImGui::Checkbox("Per worldspace (otherwise per cell)", &mTerrainPerWorldspace);
+                if (ImGui::Button("Create terrain override"))
+                {
+                    Material::MaterialDef fresh = makeTerrainOverride(mTerrainPick.mWorldspace,
+                        mTerrainPick.mCellX, mTerrainPick.mCellY, mTerrainPerWorldspace, 0.04f);
+                    registry->add(std::move(fresh));
+                    recreateAll();
+                    mLastOverridePath = "created (in-memory) — Save to persist";
+                }
+            }
+
+            ImGui::Spacing();
+            if (registry != nullptr && ImGui::Button("Save terrain override"))
+            {
+                const std::filesystem::path baseDir
+                    = MWBase::Environment::get().getWorld()->getUserDataPath() / "data" / "materials";
+                const std::filesystem::path outPath
+                    = baseDir / ("terrain_" + sanitiseFilename(mTerrainPick.mWorldspace) + ".yaml");
+                const std::string prefix = "terrain__" + sanitiseFilename(mTerrainPick.mWorldspace);
+
+                std::vector<const Material::MaterialDef*> defs;
+                for (std::size_t i = 0; i < registry->size(); ++i)
+                {
+                    const auto* def = registry->at(i);
+                    if (def == nullptr)
+                        continue;
+                    if (def->mName.rfind(prefix, 0) == 0)
+                        defs.push_back(def);
+                }
+                if (defs.empty())
+                {
+                    mLastOverridePath = "nothing to save (no terrain override on this worldspace)";
+                }
+                else if (writeEntityOverrideYaml(outPath, mTerrainPick.mWorldspace, defs))
+                {
+                    registry->loadFile(outPath.string());
+                    recreateAll();
+                    mLastOverridePath = "saved → " + outPath.string();
+                }
+                else
+                {
+                    mLastOverridePath = "save failed: " + outPath.string();
+                }
+            }
+        }
+
         ImGui::EndChild();
 
         ImGui::End();

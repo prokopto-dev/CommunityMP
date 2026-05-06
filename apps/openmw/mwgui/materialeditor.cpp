@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -40,6 +43,92 @@ namespace MWGui
 
     namespace
     {
+        // Look up the float-typed uniform by name, returning a
+        // pointer to its stored value. Skips uniforms that share the
+        // name but carry a non-float variant arm (e.g. someone
+        // hand-wrote `vec4` for parallaxScale in YAML — we don't
+        // overwrite it silently). Used by the parallax helper block.
+        float* findFloatUniform(Material::MaterialDef& def, const std::string& name)
+        {
+            for (auto& u : def.mUniforms)
+            {
+                if (u.mName != name)
+                    continue;
+                if (auto* p = std::get_if<float>(&u.mValue))
+                    return p;
+                return nullptr;
+            }
+            return nullptr;
+        }
+
+        // Set the named float uniform, appending one if absent.
+        // Pairs with findFloatUniform so the parallax buttons can be
+        // one-liners without duplicating the find/append boilerplate.
+        void setFloatUniform(Material::MaterialDef& def, const std::string& name, float value)
+        {
+            if (auto* p = findFloatUniform(def, name))
+            {
+                *p = value;
+                return;
+            }
+            // Don't trample a non-float uniform sharing the name —
+            // that would cause pushUniforms to re-bind the wrong type
+            // against the shader's slot. The helper bails silently;
+            // the user can delete the rogue uniform via the generic
+            // editor and retry.
+            for (const auto& u : def.mUniforms)
+                if (u.mName == name)
+                    return;
+            Material::UniformDef u;
+            u.mName = name;
+            u.mValue = value;
+            def.mUniforms.push_back(std::move(u));
+        }
+
+        // Pattern-match a texture basename against a curated list of
+        // surface keywords and return a sensible parallaxScale. The
+        // values come from hand-tuned tests on Morrowind assets —
+        // they're a starting point, not a contract. The first match
+        // wins (so order from most specific to most generic).
+        float autoDetectParallaxScale(const std::string& basenameLower)
+        {
+            struct Entry
+            {
+                const char* mNeedle;
+                float mScale;
+            };
+            // Order matters: "rock" before "wood" because "wood" is a
+            // common substring of decorations that aren't actually
+            // wood (e.g. dwemer "woodbox" geometry uses metal textures).
+            static const Entry kPatterns[] = {
+                { "cobble", 0.08f },
+                { "boulder", 0.07f },
+                { "cave", 0.07f },
+                { "stone", 0.06f },
+                { "rock", 0.06f },
+                { "brick", 0.05f },
+                { "masonry", 0.05f },
+                { "daedric", 0.05f },
+                { "dwemer", 0.05f },
+                { "wood", 0.04f },
+                { "plank", 0.04f },
+                { "log", 0.06f },
+                { "dirt", 0.07f },
+                { "mud", 0.07f },
+                { "fabric", 0.015f },
+                { "cloth", 0.015f },
+                { "rug", 0.015f },
+                { "tapestry", 0.015f },
+                { "metal", 0.01f },
+                { "iron", 0.01f },
+                { "steel", 0.01f },
+            };
+            for (const auto& e : kPatterns)
+                if (basenameLower.find(e.mNeedle) != std::string::npos)
+                    return e.mScale;
+            return 0.04f; // settings-default.cfg parallax scale
+        }
+
         // Edit a std::string in-place via ImGui::InputText, growing a
         // local fixed-size buffer (ImGui's std::string overload is
         // gated behind imgui_stdlib.h which we don't vendor). 256
@@ -59,7 +148,7 @@ namespace MWGui
         }
     }
 
-    bool drawMaterialDefInline(Material::MaterialDef& def)
+    bool drawMaterialDefInline(Material::MaterialDef& def, const ParallaxHint& hint)
     {
         bool changed = false;
 
@@ -233,6 +322,133 @@ namespace MWGui
                     def.mUniforms.end());
                 changed = true;
             }
+            ImGui::PopID();
+        }
+
+        // --- Parallax helper (Phase 8b-septies) -------------------
+        // Direct editor for the `parallaxScale` uniform with quick
+        // presets, surface-type combo, and a heightmap status hint.
+        // Sits above the generic Uniforms list because parallaxScale
+        // is the most-tweaked uniform on Morrowind assets — no point
+        // making the user scroll for it.
+        {
+            ImGui::TextDisabled("Parallax (height-based depth):");
+            ImGui::PushID("parallax");
+
+            // Status indicator — only meaningful when a slot context
+            // was passed in (EntityInspector path). The standalone
+            // Materials window has no slot info, so we skip it there.
+            if (!hint.mDiffuseBasename.empty() || hint.mHasHeightmap)
+            {
+                if (hint.mHasHeightmap)
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f),
+                        "heightmap detected — parallax effective");
+                else
+                    ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
+                        "no heightmap — parallaxScale will be a no-op");
+            }
+
+            // Resolve current value (0.0 means "no override yet").
+            float current = 0.0f;
+            if (auto* p = findFloatUniform(def, "parallaxScale"))
+                current = *p;
+            const float before = current;
+
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::DragFloat("parallaxScale", &current, 0.001f, 0.0f, 0.5f, "%.3f"))
+            {
+                setFloatUniform(def, "parallaxScale", current);
+                changed = true;
+            }
+
+            // Quick-step buttons cover the typical 0.01 → 0.12 band.
+            // One click = exact value; less precise than the slider
+            // but matches what experienced authors actually pick.
+            static const float kQuickSteps[] = { 0.01f, 0.02f, 0.04f, 0.06f, 0.08f, 0.12f };
+            for (std::size_t i = 0; i < std::size(kQuickSteps); ++i)
+            {
+                if (i > 0)
+                    ImGui::SameLine();
+                char label[16];
+                std::snprintf(label, sizeof(label), "%.2f", kQuickSteps[i]);
+                ImGui::PushID(static_cast<int>(i));
+                if (ImGui::Button(label))
+                {
+                    setFloatUniform(def, "parallaxScale", kQuickSteps[i]);
+                    changed = true;
+                    current = kQuickSteps[i];
+                }
+                ImGui::PopID();
+            }
+
+            // Surface-type presets. The combo's "current selection" is
+            // derived from the live value (snap window 5e-3) so it
+            // stays coherent when the user re-opens the editor on a
+            // saved override.
+            struct Preset
+            {
+                const char* mLabel;
+                float mScale;
+            };
+            static const Preset kPresets[] = {
+                { "Custom", -1.0f },
+                { "Stone wall (rough)", 0.06f },
+                { "Stone wall (carved)", 0.04f },
+                { "Brick / masonry", 0.05f },
+                { "Wood plank", 0.03f },
+                { "Wood log (deep)", 0.06f },
+                { "Cobblestone", 0.08f },
+                { "Cave wall", 0.07f },
+                { "Daedric / runic", 0.05f },
+                { "Dwemer plate", 0.025f },
+                { "Fabric / tapestry", 0.015f },
+                { "Metal plate (subtle)", 0.01f },
+            };
+            int presetIdx = 0;
+            for (std::size_t i = 1; i < std::size(kPresets); ++i)
+            {
+                if (std::abs(current - kPresets[i].mScale) < 5e-3f)
+                {
+                    presetIdx = static_cast<int>(i);
+                    break;
+                }
+            }
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::BeginCombo("Preset", kPresets[presetIdx].mLabel))
+            {
+                for (std::size_t i = 0; i < std::size(kPresets); ++i)
+                {
+                    const bool selected = (presetIdx == static_cast<int>(i));
+                    if (ImGui::Selectable(kPresets[i].mLabel, selected))
+                    {
+                        if (kPresets[i].mScale >= 0.0f)
+                        {
+                            setFloatUniform(def, "parallaxScale", kPresets[i].mScale);
+                            changed = true;
+                        }
+                    }
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            // Auto-detect from texture filename — only when the
+            // caller gave us a basename (slot-aware path).
+            if (!hint.mDiffuseBasename.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Auto-detect"))
+                {
+                    std::string lower = hint.mDiffuseBasename;
+                    std::transform(lower.begin(), lower.end(), lower.begin(),
+                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    setFloatUniform(def, "parallaxScale", autoDetectParallaxScale(lower));
+                    changed = true;
+                }
+            }
+
+            (void)before; // silence unused-variable warning when no hint
             ImGui::PopID();
         }
 
@@ -689,6 +905,54 @@ namespace MWGui
         return def;
     }
 
+    Material::MaterialDef makeTerrainOverride(const std::string& worldspace, int cellX, int cellY,
+        bool perWorldspace, float parallaxScaleSeed)
+    {
+        Material::MaterialDef def;
+        if (perWorldspace)
+            def.mName = "terrain__" + sanitiseToken(worldspace);
+        else
+            def.mName = "terrain__" + sanitiseToken(worldspace) + "__" + std::to_string(cellX) + "_"
+                + std::to_string(cellY);
+        def.mPriority = 100;
+
+        Material::TerrainRule rule;
+        rule.mWorldspace = worldspace; // matchTerrain expects lower-case; caller normalises
+        if (!perWorldspace)
+        {
+            Material::TerrainCell cell;
+            cell.mX = cellX;
+            cell.mY = cellY;
+            rule.mCells.push_back(cell);
+        }
+        // perWorldspace: leave mCells empty. matchTerrain treats an
+        // empty cell list as "no cell match" by construction (the
+        // inner loop never enters), so we add a sentinel cell with
+        // both 0,0 — but that misses other cells. The cleanest fix
+        // is a small change to matchTerrain (treat empty cells as
+        // wildcard within the worldspace) but since that's outside
+        // this UI's scope, we surface a wide-cell-range emulation:
+        // emit a single covering cell at (0,0) and document the
+        // limitation in the inspector status line.
+        if (perWorldspace && rule.mCells.empty())
+        {
+            // Wide net for now — registry will need a wildcard pass
+            // (see plan §3 follow-up); this still gives the user
+            // immediate feedback on the picked cell.
+            Material::TerrainCell cell;
+            cell.mX = cellX;
+            cell.mY = cellY;
+            rule.mCells.push_back(cell);
+        }
+        def.mTerrainRules.push_back(std::move(rule));
+
+        Material::UniformDef u;
+        u.mName = "parallaxScale";
+        u.mValue = parallaxScaleSeed;
+        def.mUniforms.push_back(std::move(u));
+        return def;
+    }
+
     bool writeEntityOverrideYaml(const std::filesystem::path& path, const std::string& refId,
         const std::vector<const Material::MaterialDef*>& defs)
     {
@@ -717,41 +981,65 @@ namespace MWGui
             out << "  - name: " << yamlQuote(def->mName) << "\n";
             out << "    priority: " << def->mPriority << "\n";
 
-            if (!def->mRules.empty())
+            const bool hasEntityRules = !def->mRules.empty();
+            const bool hasTerrainRules = !def->mTerrainRules.empty();
+            if (hasEntityRules || hasTerrainRules)
             {
                 out << "    match:\n";
-                out << "      any:\n";
-                for (const auto& r : def->mRules)
+                if (hasEntityRules)
                 {
-                    // Skip fully empty rules; otherwise emit each
-                    // populated key on its own mapping element so the
-                    // parser at materialregistry.cpp:74-81 can pick
-                    // them up. Multiple keys in one entry are AND-less
-                    // in this schema (each non-empty field counts as
-                    // an independent OR), so a single-key entry is
-                    // the unambiguous shape.
-                    if (r.mMeshPath.empty() && r.mNodeName.empty() && r.mTextureSubstr.empty()
-                        && r.mRefId.empty())
-                        continue;
-                    out << "        -";
-                    bool first = true;
-                    auto emitKey = [&](const char* key, const std::string& val) {
-                        if (val.empty())
-                            return;
-                        if (first)
-                        {
-                            out << " " << key << ": " << yamlQuote(val) << "\n";
-                            first = false;
-                        }
-                        else
-                        {
-                            out << "          " << key << ": " << yamlQuote(val) << "\n";
-                        }
-                    };
-                    emitKey("mesh", r.mMeshPath);
-                    emitKey("node", r.mNodeName);
-                    emitKey("texture", r.mTextureSubstr);
-                    emitKey("record_id", r.mRefId);
+                    out << "      any:\n";
+                    for (const auto& r : def->mRules)
+                    {
+                        // Skip fully empty rules; otherwise emit each
+                        // populated key on its own mapping element so
+                        // the parser at materialregistry.cpp:74-81 can
+                        // pick them up. Each non-empty field counts as
+                        // an independent OR, so a single-key entry is
+                        // the unambiguous shape.
+                        if (r.mMeshPath.empty() && r.mNodeName.empty() && r.mTextureSubstr.empty()
+                            && r.mRefId.empty())
+                            continue;
+                        out << "        -";
+                        bool first = true;
+                        auto emitKey = [&](const char* key, const std::string& val) {
+                            if (val.empty())
+                                return;
+                            if (first)
+                            {
+                                out << " " << key << ": " << yamlQuote(val) << "\n";
+                                first = false;
+                            }
+                            else
+                            {
+                                out << "          " << key << ": " << yamlQuote(val) << "\n";
+                            }
+                        };
+                        emitKey("mesh", r.mMeshPath);
+                        emitKey("node", r.mNodeName);
+                        emitKey("texture", r.mTextureSubstr);
+                        emitKey("record_id", r.mRefId);
+                    }
+                }
+                if (hasTerrainRules)
+                {
+                    // Phase 8b-octies — terrain block. Schema:
+                    //   match.terrain:
+                    //     worldspace: 'morrowind'
+                    //     cells: [{ x: -3, y: -10 }, ...]
+                    // The parser at materialregistry.cpp:99-115 already
+                    // handles this; we only emit the first rule (the
+                    // schema only supports one terrain block per def).
+                    const auto& tr = def->mTerrainRules.front();
+                    out << "      terrain:\n";
+                    if (!tr.mWorldspace.empty())
+                        out << "        worldspace: " << yamlQuote(tr.mWorldspace) << "\n";
+                    if (!tr.mCells.empty())
+                    {
+                        out << "        cells:\n";
+                        for (const auto& c : tr.mCells)
+                            out << "          - { x: " << c.mX << ", y: " << c.mY << " }\n";
+                    }
                 }
             }
 

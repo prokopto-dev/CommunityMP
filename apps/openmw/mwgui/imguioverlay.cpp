@@ -287,12 +287,15 @@ namespace MWGui
 
         // Pick mode: a left-click outside ImGui widgets becomes a
         // camera-to-cursor raycast that updates the inspector
-        // selection, then exits pick mode. Esc cancels.
-        if (mEntityInspector && mEntityInspector->isPickMode())
+        // selection (entity or terrain), then exits pick mode. Esc
+        // cancels either mode.
+        if (mEntityInspector
+            && (mEntityInspector->isPickMode() || mEntityInspector->isPickTerrainMode()))
         {
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)
             {
                 mEntityInspector->cancelPickMode();
+                mEntityInspector->cancelPickTerrainMode();
                 return true;
             }
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT
@@ -304,7 +307,10 @@ namespace MWGui
                 {
                     const float nX = static_cast<float>(event.button.x) / winW;
                     const float nY = static_cast<float>(event.button.y) / winH;
-                    mEntityInspector->onWorldPick(nX, nY);
+                    if (mEntityInspector->isPickTerrainMode())
+                        mEntityInspector->onTerrainPick(nX, nY);
+                    else
+                        mEntityInspector->onWorldPick(nX, nY);
                 }
                 return true;
             }

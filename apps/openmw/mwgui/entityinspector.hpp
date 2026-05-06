@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "../mwworld/ptr.hpp"
 
@@ -29,9 +30,18 @@ namespace MWGui
         bool isPickMode() const { return mPickMode; }
         void cancelPickMode() { mPickMode = false; }
 
+        // Phase 8b-octies — same idea but the click resolves to a
+        // terrain chunk (worldspace + cellX + cellY + layer textures
+        // at hit). Mutually exclusive with regular pick mode for
+        // event handling; the overlay's processEvent treats either
+        // as pick state.
+        bool isPickTerrainMode() const { return mPickTerrainMode; }
+        void cancelPickTerrainMode() { mPickTerrainMode = false; }
+
         // Called by ImGuiOverlay when a click is captured in pick
         // mode. Coordinates are normalized (0..1, top-left origin).
         void onWorldPick(float normalizedX, float normalizedY);
+        void onTerrainPick(float normalizedX, float normalizedY);
 
     private:
         MWWorld::Ptr mSelected;
@@ -56,6 +66,21 @@ namespace MWGui
         // so the legacy single-click flow still produces an override
         // scoped exactly to the picked entity.
         std::uint32_t mPendingScopeFlags = 1u << 2; // Scope_PerRecord
+
+        // Phase 8b-octies — terrain picking state.
+        bool mPickTerrainMode = false;
+        struct TerrainPick
+        {
+            bool mValid = false;
+            std::string mWorldspace; // lower-case, ready for matchTerrain
+            int mCellX = 0;
+            int mCellY = 0;
+            std::vector<std::string> mLayerDiffuses;
+            std::vector<std::string> mLayerNormals;
+            bool mAnyParallax = false;
+        };
+        TerrainPick mTerrainPick;
+        bool mTerrainPerWorldspace = false; // scope picker for terrain overrides
 
         // Filters
         char mNameFilter[128] = {};
