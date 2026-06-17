@@ -53,7 +53,7 @@ namespace mwmp
                 object.mpNum = mwmp::ServerNetworking::getPtr()->incrementMpNum();
             }
 
-            Script::Call<Script::CallbackIdentity("OnObjectSpawn")>(player.getId(), objectList.cell.getDescription().c_str());
+            ServerEvents::objectEvent("OnObjectSpawn", player.getId(), objectList.cell.getDescription().c_str());
         }
     };
 }

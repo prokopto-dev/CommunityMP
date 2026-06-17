@@ -136,4 +136,44 @@ namespace mwmp::ServerEvents
                 "OnCellDeletion", { SimulationRuntimeEventArgument::string(safeString(cellDescription)) }))
             Script::Call<Script::CallbackIdentity("OnCellDeletion")>(cellDescription);
     }
+
+    void objectEvent(const char* eventName, unsigned short playerId, const char* cellDescription)
+    {
+        const std::string eventNameString = safeString(eventName);
+        if (dispatchRuntimeEvent(eventNameString,
+                { SimulationRuntimeEventArgument::integer(playerId),
+                    SimulationRuntimeEventArgument::string(safeString(cellDescription)) }))
+            return;
+
+#define FALLBACK_OBJECT_EVENT(callbackName) \
+    if (eventNameString == #callbackName) \
+    { \
+        Script::Call<Script::CallbackIdentity(#callbackName)>(playerId, cellDescription); \
+        return; \
+    }
+
+        FALLBACK_OBJECT_EVENT(OnConsoleCommand)
+        FALLBACK_OBJECT_EVENT(OnContainer)
+        FALLBACK_OBJECT_EVENT(OnDoorDestination)
+        FALLBACK_OBJECT_EVENT(OnDoorState)
+        FALLBACK_OBJECT_EVENT(OnObjectActivate)
+        FALLBACK_OBJECT_EVENT(OnObjectHit)
+        FALLBACK_OBJECT_EVENT(OnObjectPlace)
+        FALLBACK_OBJECT_EVENT(OnObjectState)
+        FALLBACK_OBJECT_EVENT(OnObjectSpawn)
+        FALLBACK_OBJECT_EVENT(OnObjectDelete)
+        FALLBACK_OBJECT_EVENT(OnObjectLock)
+        FALLBACK_OBJECT_EVENT(OnObjectMove)
+        FALLBACK_OBJECT_EVENT(OnObjectRotate)
+        FALLBACK_OBJECT_EVENT(OnObjectDialogueChoice)
+        FALLBACK_OBJECT_EVENT(OnObjectMiscellaneous)
+        FALLBACK_OBJECT_EVENT(OnObjectRestock)
+        FALLBACK_OBJECT_EVENT(OnObjectScale)
+        FALLBACK_OBJECT_EVENT(OnObjectSound)
+        FALLBACK_OBJECT_EVENT(OnObjectTrap)
+        FALLBACK_OBJECT_EVENT(OnVideoPlay)
+        FALLBACK_OBJECT_EVENT(OnClientScriptLocal)
+
+#undef FALLBACK_OBJECT_EVENT
+    }
 }

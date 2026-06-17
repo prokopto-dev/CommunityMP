@@ -17,7 +17,7 @@ namespace mwmp
         {
             sendToLoadedOrBroadcast(packet, objectList);
 
-            Script::Call<Script::CallbackIdentity("OnDoorState")>(player.getId(), objectList.cell.getDescription().c_str());
+            ServerEvents::objectEvent("OnDoorState", player.getId(), objectList.cell.getDescription().c_str());
         }
     };
 }

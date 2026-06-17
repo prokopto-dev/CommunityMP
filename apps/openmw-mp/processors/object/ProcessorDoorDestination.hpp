@@ -17,8 +17,7 @@ namespace mwmp
         {
             sendToLoadedOrBroadcast(packet, objectList);
 
-            Script::Call<Script::CallbackIdentity("OnDoorDestination")>(
-                player.getId(), objectList.cell.getDescription().c_str());
+            ServerEvents::objectEvent("OnDoorDestination", player.getId(), objectList.cell.getDescription().c_str());
         }
     };
 }

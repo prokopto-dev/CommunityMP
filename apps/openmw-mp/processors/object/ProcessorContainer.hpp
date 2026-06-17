@@ -31,7 +31,7 @@ namespace mwmp
             // container packets to ensure their integrity based on what exists in the
             // server data
 
-            Script::Call<Script::CallbackIdentity("OnContainer")>(player.getId(), objectList.cell.getDescription().c_str());
+            ServerEvents::objectEvent("OnContainer", player.getId(), objectList.cell.getDescription().c_str());
 
             LOG_APPEND(TimedLog::LOG_INFO, "- Finished processing ID_CONTAINER");
         }

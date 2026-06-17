@@ -22,6 +22,8 @@ namespace mwmp::ServerEvents
     void cellLoad(unsigned short playerId, const char* cellDescription);
     void cellUnload(unsigned short playerId, const char* cellDescription);
     void cellDeletion(const char* cellDescription);
+
+    void objectEvent(const char* eventName, unsigned short playerId, const char* cellDescription);
 }
 
 #endif // OPENMW_MP_SERVEREVENTDISPATCHER_HPP
