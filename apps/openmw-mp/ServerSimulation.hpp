@@ -2,10 +2,13 @@
 #define OPENMW_MP_SERVERSIMULATION_HPP
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include <components/esm3/loadcell.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
@@ -38,6 +41,10 @@ namespace mwmp
 
         void tick();
         void removePlayer(PacketGuid guid);
+        void noteCellLoadedByPlayer(unsigned short playerId, std::string cellDescription);
+        void noteCellUnloadedByPlayer(unsigned short playerId, std::string cellDescription);
+        std::optional<PacketGuid> getShadowCellAuthority(const std::string& cellDescription) const;
+        std::size_t getShadowCellVisitorCount(const std::string& cellDescription) const;
 
         bool acceptActorAttacks(BaseActorList& actorList, ::Cell& serverCell);
         bool acceptActorCasts(BaseActorList& actorList, ::Cell& serverCell);
@@ -87,16 +94,29 @@ namespace mwmp
             }
         };
 
+        struct ShadowCellAuthorityState
+        {
+            std::vector<PacketGuid> visitors;
+            PacketGuid authority = unassignedPacketGuid();
+        };
+
         std::map<PacketGuid, PlayerMovementState> mPlayerMovementStates;
         std::map<PacketGuid, ESM::Cell> mPlayerAcceptedCells;
         std::map<ActorMovementKey, PlayerMovementState> mActorMovementStates;
         std::map<ActorMovementKey, ActorWanderState> mActorWanderStates;
+        std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         std::unique_ptr<SimulationRuntime> mRuntime;
         Clock::time_point mLastTick;
         float mActorTickAccumulator = 0.f;
 
         static float clampDeltaSeconds(float seconds);
         bool canAuthoritativelySimulateActors() const;
+        bool isShadowCellAuthorityCandidate(const ShadowCellAuthorityState& state, PacketGuid guid) const;
+        PacketGuid getLowestPingShadowCellAuthority(
+            const ShadowCellAuthorityState& state, PacketGuid excludedGuid = unassignedPacketGuid()) const;
+        PacketGuid refreshShadowCellAuthority(const std::string& cellDescription, ShadowCellAuthorityState& state,
+            const char* reason, PacketGuid preferredGuid = unassignedPacketGuid(),
+            PacketGuid excludedGuid = unassignedPacketGuid());
         void tickActors(float deltaSeconds);
     };
 }

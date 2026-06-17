@@ -18,6 +18,20 @@ namespace
         return networking->getServerSimulation().runtime().dispatchServerEvent(eventName, arguments);
     }
 
+    void noteCellLoadedByPlayer(unsigned short playerId, const std::string& cellDescription)
+    {
+        mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
+        if (networking != nullptr)
+            networking->getServerSimulation().noteCellLoadedByPlayer(playerId, cellDescription);
+    }
+
+    void noteCellUnloadedByPlayer(unsigned short playerId, const std::string& cellDescription)
+    {
+        mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
+        if (networking != nullptr)
+            networking->getServerSimulation().noteCellUnloadedByPlayer(playerId, cellDescription);
+    }
+
     std::string safeString(const char* value)
     {
         return value != nullptr ? value : "";
@@ -162,17 +176,21 @@ namespace mwmp::ServerEvents
 
     void cellLoad(unsigned short playerId, const char* cellDescription)
     {
+        const std::string cellDescriptionString = safeString(cellDescription);
+        noteCellLoadedByPlayer(playerId, cellDescriptionString);
         if (!dispatchRuntimeEvent("OnCellLoad",
                 { SimulationRuntimeEventArgument::integer(static_cast<int>(playerId)),
-                    SimulationRuntimeEventArgument::string(safeString(cellDescription)) }))
+                    SimulationRuntimeEventArgument::string(cellDescriptionString) }))
             Script::Call<Script::CallbackIdentity("OnCellLoad")>(playerId, cellDescription);
     }
 
     void cellUnload(unsigned short playerId, const char* cellDescription)
     {
+        const std::string cellDescriptionString = safeString(cellDescription);
+        noteCellUnloadedByPlayer(playerId, cellDescriptionString);
         if (!dispatchRuntimeEvent("OnCellUnload",
                 { SimulationRuntimeEventArgument::integer(static_cast<int>(playerId)),
-                    SimulationRuntimeEventArgument::string(safeString(cellDescription)) }))
+                    SimulationRuntimeEventArgument::string(cellDescriptionString) }))
             Script::Call<Script::CallbackIdentity("OnCellUnload")>(playerId, cellDescription);
     }
 

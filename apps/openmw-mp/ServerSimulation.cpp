@@ -54,6 +54,29 @@ namespace
     constexpr float followerCellChangeRowSpacing = 48.f;
     constexpr float followerCellChangeColumnSpacing = 48.f;
 
+    bool containsGuid(const std::vector<mwmp::PacketGuid>& guids, mwmp::PacketGuid guid)
+    {
+        return std::find(guids.begin(), guids.end(), guid) != guids.end();
+    }
+
+    bool eraseGuid(std::vector<mwmp::PacketGuid>& guids, mwmp::PacketGuid guid)
+    {
+        const auto previousSize = guids.size();
+        guids.erase(std::remove(guids.begin(), guids.end(), guid), guids.end());
+        return guids.size() != previousSize;
+    }
+
+    std::string shadowAuthorityName(mwmp::PacketGuid guid)
+    {
+        if (Player* player = Players::getPlayer(guid))
+        {
+            if (!player->npc.mName.empty())
+                return player->npc.mName;
+        }
+
+        return mwmp::packetGuidToString(guid);
+    }
+
     float squaredHorizontalLength(float x, float y)
     {
         return x * x + y * y;
@@ -1167,6 +1190,111 @@ namespace mwmp
     {
         mPlayerMovementStates.erase(guid);
         mPlayerAcceptedCells.erase(guid);
+
+        for (auto it = mShadowCellAuthority.begin(); it != mShadowCellAuthority.end();)
+        {
+            ShadowCellAuthorityState& state = it->second;
+            const bool wasAuthority = state.authority == guid;
+            const bool wasVisitor = eraseGuid(state.visitors, guid);
+
+            if (!wasVisitor && !wasAuthority)
+            {
+                ++it;
+                continue;
+            }
+
+            if (state.visitors.empty())
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Cleared C++ shadow authority of cell %s because its final visitor disconnected",
+                    it->first.c_str());
+                it = mShadowCellAuthority.erase(it);
+                continue;
+            }
+
+            if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
+                refreshShadowCellAuthority(it->first, state, "current authority disconnected", unassignedPacketGuid(), guid);
+
+            ++it;
+        }
+    }
+
+    void ServerSimulation::noteCellLoadedByPlayer(unsigned short playerId, std::string cellDescription)
+    {
+        if (cellDescription.empty())
+            return;
+
+        Player* player = Players::getPlayer(playerId);
+        if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid))
+            return;
+
+        ShadowCellAuthorityState& state = mShadowCellAuthority[cellDescription];
+        const bool hadVisitors = !state.visitors.empty();
+        const bool wasVisitor = containsGuid(state.visitors, player->guid);
+        const bool previousAuthorityWasCandidate = isShadowCellAuthorityCandidate(state, state.authority);
+
+        if (!wasVisitor)
+            state.visitors.push_back(player->guid);
+
+        if (canAuthoritativelySimulateActors())
+        {
+            state.authority = mwmp::unassignedPacketGuid();
+            return;
+        }
+
+        if (!previousAuthorityWasCandidate)
+        {
+            const PacketGuid preferredGuid = hadVisitors ? mwmp::unassignedPacketGuid() : player->guid;
+            refreshShadowCellAuthority(cellDescription, state, "cell authority was missing or stale", preferredGuid);
+        }
+    }
+
+    void ServerSimulation::noteCellUnloadedByPlayer(unsigned short playerId, std::string cellDescription)
+    {
+        if (cellDescription.empty())
+            return;
+
+        Player* player = Players::getPlayer(playerId);
+        if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid))
+            return;
+
+        auto stateIt = mShadowCellAuthority.find(cellDescription);
+        if (stateIt == mShadowCellAuthority.end())
+            return;
+
+        ShadowCellAuthorityState& state = stateIt->second;
+        const bool wasAuthority = state.authority == player->guid;
+        eraseGuid(state.visitors, player->guid);
+
+        if (state.visitors.empty())
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "Cleared C++ shadow authority of cell %s because no valid visitors remain", cellDescription.c_str());
+            mShadowCellAuthority.erase(stateIt);
+            return;
+        }
+
+        if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
+            refreshShadowCellAuthority(cellDescription, state, "current authority left", unassignedPacketGuid(), player->guid);
+    }
+
+    std::optional<PacketGuid> ServerSimulation::getShadowCellAuthority(const std::string& cellDescription) const
+    {
+        const auto stateIt = mShadowCellAuthority.find(cellDescription);
+        if (stateIt == mShadowCellAuthority.end()
+            || !mwmp::isPacketGuidAssigned(stateIt->second.authority))
+            return std::nullopt;
+
+        return stateIt->second.authority;
+    }
+
+    std::size_t ServerSimulation::getShadowCellVisitorCount(const std::string& cellDescription) const
+    {
+        const auto stateIt = mShadowCellAuthority.find(cellDescription);
+        if (stateIt == mShadowCellAuthority.end())
+            return 0;
+
+        return stateIt->second.visitors.size();
     }
 
     SimulationRuntime& ServerSimulation::runtime()
@@ -1182,6 +1310,78 @@ namespace mwmp
     bool ServerSimulation::canAuthoritativelySimulateActors() const
     {
         return mRuntime != nullptr && mRuntime->canOwnActorAuthority();
+    }
+
+    bool ServerSimulation::isShadowCellAuthorityCandidate(
+        const ShadowCellAuthorityState& state, PacketGuid guid) const
+    {
+        if (!mwmp::isPacketGuidAssigned(guid) || !containsGuid(state.visitors, guid))
+            return false;
+
+        Player* player = Players::getPlayer(guid);
+        return player != nullptr && player->getLoadState() != Player::KICKED;
+    }
+
+    PacketGuid ServerSimulation::getLowestPingShadowCellAuthority(
+        const ShadowCellAuthorityState& state, PacketGuid excludedGuid) const
+    {
+        PacketGuid bestGuid = mwmp::unassignedPacketGuid();
+        std::optional<int> bestPing;
+        ServerNetworking* networking = ServerNetworking::getPtr();
+
+        for (PacketGuid visitorGuid : state.visitors)
+        {
+            if (visitorGuid == excludedGuid || !isShadowCellAuthorityCandidate(state, visitorGuid))
+                continue;
+
+            const int ping = networking != nullptr ? networking->getAvgPing(visitorGuid) : 0;
+            if (!bestPing || ping < *bestPing)
+            {
+                bestPing = ping;
+                bestGuid = visitorGuid;
+            }
+        }
+
+        return bestGuid;
+    }
+
+    PacketGuid ServerSimulation::refreshShadowCellAuthority(const std::string& cellDescription,
+        ShadowCellAuthorityState& state, const char* reason, PacketGuid preferredGuid, PacketGuid excludedGuid)
+    {
+        if (canAuthoritativelySimulateActors())
+        {
+            state.authority = mwmp::unassignedPacketGuid();
+            return state.authority;
+        }
+
+        PacketGuid newAuthority = mwmp::unassignedPacketGuid();
+        if (preferredGuid != excludedGuid && isShadowCellAuthorityCandidate(state, preferredGuid))
+            newAuthority = preferredGuid;
+        else
+            newAuthority = getLowestPingShadowCellAuthority(state, excludedGuid);
+
+        if (!mwmp::isPacketGuidAssigned(newAuthority))
+        {
+            if (mwmp::isPacketGuidAssigned(state.authority))
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Cleared C++ shadow authority of cell %s because no valid visitors remain",
+                    cellDescription.c_str());
+            }
+            state.authority = mwmp::unassignedPacketGuid();
+            return state.authority;
+        }
+
+        if (state.authority != newAuthority)
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "Assigning C++ shadow authority of cell %s to %s because %s",
+                cellDescription.c_str(), shadowAuthorityName(newAuthority).c_str(),
+                reason != nullptr ? reason : "authority was refreshed");
+        }
+
+        state.authority = newAuthority;
+        return state.authority;
     }
 
     bool ServerSimulation::acceptServerAuthoredPlayerState(Player& player, bool cellChangePacket)
