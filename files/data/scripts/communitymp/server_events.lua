@@ -11,6 +11,15 @@ local allServerEventHandlers = {}
 local serverEventHandlersByName = {}
 local cellAuthorityByDescription = {}
 local cellAuthorityByKey = {}
+local serverEventStats = {
+    received = 0,
+    dispatched = 0,
+    decodeErrors = 0,
+    sequenceGaps = 0,
+    droppedSequences = 0,
+    staleSequences = 0,
+    lastSequence = nil,
+}
 
 local function shallowCopy(value)
     if type(value) ~= 'table' then
@@ -22,6 +31,35 @@ local function shallowCopy(value)
         copy[key] = entry
     end
     return copy
+end
+
+local function statsSnapshot()
+    return shallowCopy(serverEventStats)
+end
+
+local function updateSequenceStats(event)
+    serverEventStats.received = serverEventStats.received + 1
+
+    local sequence = tonumber(event.sequence)
+    if sequence == nil then
+        return
+    end
+
+    if serverEventStats.lastSequence ~= nil then
+        if sequence > serverEventStats.lastSequence + 1 then
+            local dropped = sequence - serverEventStats.lastSequence - 1
+            serverEventStats.sequenceGaps = serverEventStats.sequenceGaps + 1
+            serverEventStats.droppedSequences = serverEventStats.droppedSequences + dropped
+            event.sequenceGap = dropped
+        elseif sequence <= serverEventStats.lastSequence then
+            serverEventStats.staleSequences = serverEventStats.staleSequences + 1
+            event.staleSequence = true
+        end
+    end
+
+    if serverEventStats.lastSequence == nil or sequence > serverEventStats.lastSequence then
+        serverEventStats.lastSequence = sequence
+    end
 end
 
 local function cellProperty(cell, property)
@@ -170,6 +208,7 @@ local function decodePayload(event)
         event.serverEventName = event.eventName
         event.arguments = {}
         event.payloadDecodeError = tostring(decoded)
+        serverEventStats.decodeErrors = serverEventStats.decodeErrors + 1
         return event
     end
 
@@ -180,6 +219,7 @@ local function decodePayload(event)
 end
 
 local function dispatchServerEvent(event)
+    updateSequenceStats(event)
     decodePayload(event)
 
     if event.serverEventName == 'cell_authority' and type(event.decodedPayload) == 'table' then
@@ -192,6 +232,7 @@ local function dispatchServerEvent(event)
     end
 
     core.sendGlobalEvent('CommunityMPServerEvent', event)
+    serverEventStats.dispatched = serverEventStats.dispatched + 1
 end
 
 local function dispatchServerEvents()
@@ -207,6 +248,7 @@ return {
         addServerEventHandler = addServerEventHandler,
         addServerEventHandlerForName = addServerEventHandlerForName,
         cellKey = cellKey,
+        getServerEventStats = statsSnapshot,
         getCellAuthority = getCellAuthority,
         getCellAuthorityForCell = getCellAuthority,
         isLocalCellAuthority = function(cellOrDescription)
