@@ -96,18 +96,30 @@ namespace MWRender
 
     class RaceSelectionPreview : public CharacterPreview
     {
+    public:
+        enum class PreviewMode
+        {
+            Head,
+            Body
+        };
+
+    private:
         ESM::NPC mBase;
         MWWorld::LiveCellRef<ESM::NPC> mRef;
+        PreviewMode mPreviewMode;
 
     protected:
-        bool renderHeadOnly() override { return true; }
+        bool renderHeadOnly() override { return mPreviewMode == PreviewMode::Head; }
         void onSetup() override;
 
     public:
-        RaceSelectionPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
+        RaceSelectionPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
+            PreviewMode previewMode = PreviewMode::Head);
         virtual ~RaceSelectionPreview();
 
         void setAngle(float angleRadians);
+        void setZoom(float zoom);
+        void setVerticalFocus(float focusOffset);
 
         const ESM::NPC& getPrototype() const { return mBase; }
 
@@ -117,6 +129,10 @@ namespace MWRender
         osg::ref_ptr<UpdateCameraCallback> mUpdateCameraCallback;
 
         float mPitchRadians;
+        float mInspectionZoom;
+        float mInspectionFocusOffset;
+
+        void applyBodyCamera(float scaleZ);
     };
 
 }

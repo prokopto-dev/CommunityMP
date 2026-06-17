@@ -2,6 +2,7 @@
 
 #include <QAbstractItemModel>
 #include <QCompleter>
+#include <QSortFilterProxyModel>
 
 #include <algorithm>
 #include <stdexcept>
@@ -15,17 +16,48 @@
 
 #include "data.hpp"
 #include "idtablebase.hpp"
+#include "idtree.hpp"
 
 class QAbstractItemView;
 
 namespace
 {
+    class InteriorCellCompletionModel : public QSortFilterProxyModel
+    {
+    public:
+        InteriorCellCompletionModel(int cellParentColumn, int interiorColumn, QObject* parent = nullptr)
+            : QSortFilterProxyModel(parent)
+            , mCellParentColumn(cellParentColumn)
+            , mInteriorColumn(interiorColumn)
+        {
+        }
+
+    private:
+        int mCellParentColumn;
+        int mInteriorColumn;
+
+        bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override
+        {
+            QAbstractItemModel* model = sourceModel();
+            if (model == nullptr)
+                return false;
+
+            const QModelIndex cellParent = model->index(sourceRow, mCellParentColumn, sourceParent);
+            if (!cellParent.isValid())
+                return false;
+
+            const QModelIndex interior = model->index(0, mInteriorColumn, cellParent);
+            return interior.isValid() && model->data(interior, Qt::EditRole).toBool();
+        }
+    };
+
     std::map<CSMWorld::ColumnBase::Display, CSMWorld::UniversalId::Type> generateModelTypes()
     {
         std::map<CSMWorld::ColumnBase::Display, CSMWorld::UniversalId::Type> types;
 
         types[CSMWorld::ColumnBase::Display_BodyPart] = CSMWorld::UniversalId::Type_BodyPart;
         types[CSMWorld::ColumnBase::Display_Cell] = CSMWorld::UniversalId::Type_Cell;
+        types[CSMWorld::ColumnBase::Display_InteriorCell] = CSMWorld::UniversalId::Type_Cell;
         types[CSMWorld::ColumnBase::Display_Class] = CSMWorld::UniversalId::Type_Class;
         types[CSMWorld::ColumnBase::Display_CreatureLevelledList] = CSMWorld::UniversalId::Type_Referenceable;
         types[CSMWorld::ColumnBase::Display_Creature] = CSMWorld::UniversalId::Type_Referenceable;
@@ -54,6 +86,23 @@ namespace
     }
 
     typedef std::map<CSMWorld::ColumnBase::Display, CSMWorld::UniversalId::Type>::const_iterator ModelTypeConstIterator;
+
+    QAbstractItemModel* getCompletionModel(CSMWorld::ColumnBase::Display display, CSMWorld::IdTableBase& table,
+        QCompleter& completer)
+    {
+        if (display != CSMWorld::ColumnBase::Display_InteriorCell)
+            return &table;
+
+        CSMWorld::IdTree* cellTable = dynamic_cast<CSMWorld::IdTree*>(&table);
+        if (cellTable == nullptr)
+            throw std::logic_error("Interior cell completion requires the cell table");
+
+        const int cellParentColumn = cellTable->findColumnIndex(CSMWorld::Columns::ColumnId_Cell);
+        const int interiorColumn = cellTable->findNestedColumnIndex(cellParentColumn, CSMWorld::Columns::ColumnId_Interior);
+        InteriorCellCompletionModel* model = new InteriorCellCompletionModel(cellParentColumn, interiorColumn, &completer);
+        model->setSourceModel(cellTable);
+        return model;
+    }
 }
 
 const std::map<CSMWorld::ColumnBase::Display, CSMWorld::UniversalId::Type>
@@ -107,7 +156,8 @@ void CSMWorld::IdCompletionManager::generateCompleters(CSMWorld::Data& data)
             int idColumn = table->searchColumnIndex(CSMWorld::Columns::ColumnId_Id);
             if (idColumn != -1)
             {
-                std::shared_ptr<QCompleter> completer = std::make_shared<QCompleter>(table);
+                std::shared_ptr<QCompleter> completer = std::make_shared<QCompleter>();
+                completer->setModel(getCompletionModel(current->first, *table, *completer));
                 completer->setCompletionColumn(idColumn);
                 // The completion role must be Qt::DisplayRole to get the ID values from the model
                 completer->setCompletionRole(Qt::DisplayRole);

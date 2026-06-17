@@ -281,6 +281,16 @@ namespace MWPhysics
         mForce = force;
     }
 
+    void Actor::forceFall()
+    {
+        mForceFalling = true;
+    }
+
+    void Actor::clearForceFall()
+    {
+        mForceFalling = false;
+    }
+
     void Actor::setOnGround(bool grounded)
     {
         mOnGround = grounded;

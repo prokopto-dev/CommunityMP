@@ -90,6 +90,7 @@ registerGlobalTest('findRandomPointAroundCircle')
 registerGlobalTest('castNavigationRay')
 registerGlobalTest('findNearestNavMeshPosition')
 registerGlobalTest('player memory limit')
+registerGlobalTest('ui drag and drop state is exposed')
 registerGlobalTest('player weapon attack', 'player with equipped weapon on attack should damage health of other actors')
 registerGlobalTest('mwscript magic interactions')
 

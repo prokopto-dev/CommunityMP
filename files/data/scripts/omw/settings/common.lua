@@ -90,6 +90,12 @@ local function registerGroup(options)
     }
     local valueSection = contextSection(options.key)
     local argumentSection = contextSection(options.key .. argumentSectionPostfix)
+    if not group.permanentStorage then
+        valueSection:setLifeTime(storage.LIFE_TIME.Temporary)
+        valueSection:reset()
+        argumentSection:setLifeTime(storage.LIFE_TIME.Temporary)
+        argumentSection:reset()
+    end
     for i, opt in ipairs(options.settings) do
         local setting = registerSetting(opt)
         setting.order = i

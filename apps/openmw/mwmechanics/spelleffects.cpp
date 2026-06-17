@@ -35,6 +35,11 @@
 #include "../mwworld/player.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace
 {
     enum Stats
@@ -51,6 +56,37 @@ namespace
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
         return effect.mMinMagnitude
             + Misc::Rng::rollDice(static_cast<int>(effect.mMaxMagnitude - effect.mMinMagnitude + 1), prng);
+    }
+
+#ifdef BUILD_TES3MP_CLIENT
+    void queueLocalPlayerCellChangeReason(const MWWorld::Ptr& target, unsigned int reason)
+    {
+        if (target != MWMechanics::getPlayer() || !mwmp::Main::isInitialized())
+            return;
+
+        if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+            localPlayer->queueCellChangeReason(reason);
+    }
+#endif
+
+    void ensureMagicSoundLoop(const MWWorld::Ptr& target)
+    {
+        if (target != MWMechanics::getPlayer())
+            return;
+
+        const ESM::RefId magicSound = ESM::RefId::stringRefId("magic sound");
+        MWBase::SoundManager* soundManager = MWBase::Environment::get().getSoundManager();
+        if (soundManager->getSoundPlaying(target, magicSound))
+            return;
+
+        const auto& magnitudes = target.getClass().getCreatureStats(target).getMagicEffects();
+        float volume
+            = std::clamp(magnitudes.getOrDefault(ESM::MagicEffect::Sound).getMagnitude() / 100.f, 0.f, 1.f);
+        if (volume <= 0.f)
+            return;
+
+        soundManager->playSound3D(
+            target, magicSound, volume, 1.f, MWSound::Type::Sfx, MWSound::PlayMode::LoopNoEnv);
     }
 
     ESM::ActiveEffect::Flags modifyAiSetting(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect,
@@ -476,6 +512,12 @@ namespace MWMechanics
                 {
                     std::string_view marker
                         = (effect.mEffectId == ESM::MagicEffect::DivineIntervention) ? "divinemarker" : "templemarker";
+#ifdef BUILD_TES3MP_CLIENT
+                    queueLocalPlayerCellChangeReason(target,
+                        effect.mEffectId == ESM::MagicEffect::DivineIntervention
+                            ? mwmp::CELL_CHANGE_REASON_MAGIC_DIVINE_INTERVENTION
+                            : mwmp::CELL_CHANGE_REASON_MAGIC_ALMSIVI_INTERVENTION);
+#endif
                     world->teleportToClosestMarker(target, ESM::RefId::stringRefId(marker));
                     if (!caster.isEmpty())
                     {
@@ -516,6 +558,9 @@ namespace MWMechanics
                     if (markedCell)
                     {
                         ESM::RefId dest = markedCell->getCell()->getId();
+#ifdef BUILD_TES3MP_CLIENT
+                        queueLocalPlayerCellChangeReason(target, mwmp::CELL_CHANGE_REASON_MAGIC_RECALL);
+#endif
                         MWWorld::ActionTeleport action(dest, markedPosition, false);
                         action.execute(target);
                         if (!caster.isEmpty())
@@ -1254,7 +1299,11 @@ namespace MWMechanics
                 return { MagicApplicationResult::Type::APPLIED, receivedMagicDamage, affectedHealth };
             }
             else if (!dt)
+            {
+                if (effect.mEffectId == ESM::MagicEffect::Sound)
+                    ensureMagicSoundLoop(target);
                 return { MagicApplicationResult::Type::APPLIED, receivedMagicDamage, affectedHealth };
+            }
         }
         if (effect.mEffectId == ESM::MagicEffect::Lock)
         {

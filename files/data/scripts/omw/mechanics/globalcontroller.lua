@@ -23,12 +23,24 @@ local function onPlaySound3d(data)
 end
 
 local function onModifyItemCondition(data)
-    local itemData = Item.itemData(data.item)
-    itemData.condition = math.min(data.item.type.record(data.item).health, math.max(0, itemData.condition + data.amount))
+    local item = data.item
+    local itemData = Item.itemData(item)
+    local record = item.type.record(item)
+    local maxCondition = record.health or record.maxCondition
+    if not maxCondition then
+        return
+    end
 
-    -- Force unequip broken items
+    itemData.condition = math.min(maxCondition, math.max(0, itemData.condition + data.amount))
+
+    if itemData.condition <= 0 and record.maxCondition then
+        item:remove(1)
+        return
+    end
+
+    -- Force unequip broken weapons/armor
     if data.actor and itemData.condition <= 0 then
-        data.actor:sendEvent('Unequip', {item = data.item})
+        data.actor:sendEvent('Unequip', {item = item})
     end
 end
 

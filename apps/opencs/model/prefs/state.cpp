@@ -44,7 +44,9 @@ void CSMPrefs::State::declare()
             " Note that this does not affect existing windows.");
     declareBool(mValues->mWindows.mReuse, "Reuse Subviews")
         .setTooltip(
-            "When a new subview is requested and a matching subview already exists, reuse the existing subview.");
+            "When a new subview is requested and a matching subview already exists, reuse the existing subview. "
+            "Script record requests can retarget an existing script editor. "
+            "Record edit requests can retarget an existing editor for the same record type.");
     declareInt(mValues->mWindows.mMaxSubviews, "Maximum Number of Subviews per Top-Level Window")
         .setTooltip(
             "If the maximum number is reached and a new subview is opened "

@@ -8,6 +8,13 @@ set(OPENMW_RESOURCES
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.exe.manifest
 )
 
+if(BUILD_TES3MP_CLIENT AND WIN32)
+    set(OPENMW_RESOURCES
+        ${CMAKE_SOURCE_DIR}/files/tes3mp/tes3mp.rc
+        ${CMAKE_SOURCE_DIR}/files/tes3mp/tes3mp.exe.manifest
+    )
+endif()
+
 set(OPENMW_HEADERS
     doc.hpp
     engine.hpp
@@ -62,6 +69,7 @@ add_openmw_dir (mwlua
     luamanagerimp object objectlists userdataserializer luaevents engineevents objectvariant loadscripts contentbindings
     context menuscripts globalscripts localscripts playerscripts luabindings objectbindings cellbindings coremwscriptbindings
     mwscriptbindings camerabindings vfsbindings uibindings soundbindings inputbindings nearbybindings dialoguebindings
+    dialogueinfo
     postprocessingbindings stats recordstore debugbindings corebindings worldbindings worker landbindings magicbindings factionbindings
     classbindings itemdata inputprocessor animationbindings birthsignbindings racebindings markupbindings weatherbindings regionbindings
     types/types types/door types/item types/actor types/container types/lockable types/weapon types/npc types/bodypart
@@ -86,10 +94,19 @@ add_openmw_dir (mwworld
     positioncellgrid
     )
 
+set(MWPHYSICS_JOLT_SOURCES)
+if(OPENMW_PHYSICS_BACKEND STREQUAL "jolt")
+    set(MWPHYSICS_JOLT_SOURCES
+        joltactor joltphysicssystem joltshapeconverter joltragdoll
+    )
+endif()
+
 add_openmw_dir (mwphysics
     physicssystem trace collisiontype actor convert object heightfield closestnotmerayresultcallback
     contacttestresultcallback stepper movementsolver projectile
     actorconvexcallback raycasting mtphysics contacttestwrapper projectileconvexcallback
+    iphysicsactor iphysicsbackend iphysicsobject physicsbackend
+    ${MWPHYSICS_JOLT_SOURCES}
     )
 
 add_openmw_dir (mwclass
@@ -104,7 +121,7 @@ add_openmw_dir (mwmechanics
     aicast aiescort aiface aiactivate aicombat recharge repair enchanting pathfinding pathgrid security spellcasting spellresistance
     disease pickpocket levelledlist combat steering obstacle autocalcspell difficultyscaling aicombataction summoning
     character actors objects aistate weaponpriority spellpriority weapontype spellutil
-    spelleffects
+    spelleffects resurrect
     )
 
 add_openmw_dir (mwstate
@@ -115,6 +132,54 @@ add_openmw_dir (mwbase
     environment world scriptmanager dialoguemanager journal soundmanager mechanicsmanager
     inputmanager windowmanager statemanager luamanager
     )
+
+if(BUILD_TES3MP_CLIENT)
+    add_openmw_dir (mwmp Main Networking LocalSystem LocalPlayer DedicatedPlayer PlayerList LocalActor DedicatedActor ActorList
+        ObjectList Worldstate Cell CellController CellIdentity GUIController MechanicsHelper RecordHelper ScriptController
+        )
+
+    add_openmw_dir (mwmp/GUI GUIChat GUICharacterSelect PlayerMarkerCollection GUIDialogList TextInputDialog
+        )
+
+    add_openmw_dir(mwmp/processors BaseClientPacketProcessor SystemProcessor PlayerProcessor ObjectProcessor ActorProcessor
+        WorldstateProcessor ProcessorInitializer
+        )
+
+    add_openmw_dir (mwmp/processors/system ProcessorSystemHandshake
+        )
+
+    add_openmw_dir (mwmp/processors/actor ProcessorActorAI ProcessorActorAnimFlags ProcessorActorAnimPlay ProcessorActorAttack
+        ProcessorActorAuthority ProcessorActorCast ProcessorActorCellChange ProcessorActorDeath ProcessorActorEquipment
+        ProcessorActorList ProcessorActorPosition ProcessorActorSpeech ProcessorActorSpellsActive ProcessorActorStatsDynamic
+        ProcessorActorTest
+        )
+
+    add_openmw_dir (mwmp/processors/player ProcessorChatMessage ProcessorGUIMessageBox ProcessorUserDisconnected
+        ProcessorGameSettings ProcessorPlayerAlly ProcessorPlayerAnimFlags ProcessorPlayerAnimPlay
+        ProcessorPlayerAttack ProcessorPlayerAttribute ProcessorPlayerBaseInfo ProcessorPlayerBehavior ProcessorPlayerBook
+        ProcessorPlayerBounty ProcessorPlayerCast ProcessorPlayerCellChange ProcessorPlayerCellState ProcessorPlayerCharClass
+        ProcessorPlayerCharGen ProcessorPlayerCooldowns ProcessorPlayerDeath ProcessorPlayerDisposition ProcessorPlayerEquipment
+        ProcessorPlayerFaction ProcessorPlayerInput ProcessorPlayerInventory ProcessorPlayerItemUse ProcessorPlayerJail
+        ProcessorPlayerJournal ProcessorPlayerLevel ProcessorPlayerMiscellaneous ProcessorPlayerMomentum ProcessorPlayerPosition
+        ProcessorPlayerQuickKeys ProcessorPlayerReputation ProcessorPlayerRest ProcessorPlayerResurrect ProcessorPlayerShapeshift
+        ProcessorPlayerSkill ProcessorPlayerSpeech ProcessorPlayerSpellbook ProcessorPlayerSpellsActive
+        ProcessorPlayerStatsDynamic ProcessorPlayerTopic
+        )
+
+    add_openmw_dir (mwmp/processors/object BaseObjectProcessor
+        ProcessorConsoleCommand ProcessorContainer ProcessorDoorDestination ProcessorDoorState ProcessorMusicPlay
+        ProcessorVideoPlay ProcessorObjectActivate ProcessorObjectAnimPlay ProcessorObjectAttach ProcessorObjectDelete
+        ProcessorObjectDialogueChoice ProcessorObjectHit ProcessorObjectLock ProcessorObjectMove ProcessorObjectPlace
+        ProcessorObjectRestock ProcessorObjectRotate ProcessorObjectScale ProcessorObjectSound ProcessorObjectSpawn
+        ProcessorObjectState ProcessorObjectTrap ProcessorClientScriptLocal ProcessorScriptMemberShort
+        ProcessorObjectMiscellaneous
+        )
+
+    add_openmw_dir (mwmp/processors/worldstate ProcessorCellReset ProcessorClientScriptGlobal ProcessorClientScriptSettings
+        ProcessorRecordDynamic ProcessorWorldCollisionOverride ProcessorWorldDestinationOverride ProcessorWorldKillCount
+        ProcessorWorldMap ProcessorWorldRegionAuthority ProcessorWorldTime ProcessorWorldWeather
+        )
+endif()
 
 # Main executable
 
@@ -155,6 +220,18 @@ if(BUILD_OPENMW)
 
     target_link_libraries(openmw openmw-lib)
 
+    if(BUILD_TES3MP_CLIENT)
+        set_target_properties(openmw PROPERTIES OUTPUT_NAME communitymp-client)
+        if(WIN32)
+            set(OPENMW_MP_LEGACY_CLIENT_EXECUTABLE "tes3mp.exe")
+        else()
+            set(OPENMW_MP_LEGACY_CLIENT_EXECUTABLE "tes3mp")
+        endif()
+        add_custom_command(TARGET openmw POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E rm -f
+                "$<TARGET_FILE_DIR:openmw>/${OPENMW_MP_LEGACY_CLIENT_EXECUTABLE}")
+    endif()
+
     # Workaround necessary to ensure osgAnimation::MatrixLinearSampler dynamic casts work under Clang
     # NOTE: it's unclear whether the broken behavior is spec-compliant
     if (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
@@ -190,6 +267,16 @@ target_link_libraries(openmw-lib
     oics
     components
 )
+
+if(OPENMW_PHYSICS_BACKEND STREQUAL "jolt")
+    target_include_directories(openmw-lib SYSTEM PRIVATE ${JOLT_INCLUDE_DIR})
+    target_link_libraries(openmw-lib Jolt)
+endif()
+
+if(BUILD_TES3MP_CLIENT)
+    target_link_libraries(openmw-lib Boost::filesystem GameNetworkingSockets::GameNetworkingSockets)
+    target_compile_definitions(openmw-lib PUBLIC BUILD_TES3MP_CLIENT)
+endif()
 
 if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
     target_precompile_headers(openmw-lib PRIVATE
@@ -272,5 +359,9 @@ if (BUILD_WITH_CODE_COVERAGE)
 endif()
 
 if (WIN32 AND BUILD_OPENMW)
+    if (BUILD_TES3MP_CLIENT)
+        tes3mp_copy_runtime_dlls(openmw)
+    endif()
+
     INSTALL(TARGETS openmw RUNTIME DESTINATION ".")
 endif()

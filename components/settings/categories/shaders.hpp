@@ -47,6 +47,20 @@ namespace Settings
         SettingValue<bool> mWeatherParticleOcclusion{ mIndex, "Shaders", "weather particle occlusion" };
         SettingValue<float> mWeatherParticleOcclusionSmallFeatureCullingPixelSize{ mIndex, "Shaders",
             "weather particle occlusion small feature culling pixel size" };
+        SettingValue<float> mParallaxScale{ mIndex, "Shaders", "parallax scale",
+            makeClampSanitizerFloat(0.0f, 0.5f) };
+        SettingValue<float> mParallaxBias{ mIndex, "Shaders", "parallax bias",
+            makeClampSanitizerFloat(-0.25f, 0.25f) };
+        SettingValue<std::string> mParallaxOverrides{ mIndex, "Shaders", "parallax overrides" };
+        SettingValue<bool> mGrassWind{ mIndex, "Shaders", "grass wind" };
+        SettingValue<float> mGrassWindAmplitude{ mIndex, "Shaders", "grass wind amplitude",
+            makeClampSanitizerFloat(0.0f, 64.0f) };
+        SettingValue<float> mGrassWindSpeed{ mIndex, "Shaders", "grass wind speed",
+            makeClampSanitizerFloat(0.0f, 8.0f) };
+        SettingValue<float> mGrassWindFrequency{ mIndex, "Shaders", "grass wind frequency",
+            makeClampSanitizerFloat(0.0f, 0.5f) };
+        SettingValue<osg::Vec2f> mGrassWindDir{ mIndex, "Shaders", "grass wind dir" };
+        SettingValue<bool> mPbrSpecular{ mIndex, "Shaders", "pbr specular" };
     };
 }
 

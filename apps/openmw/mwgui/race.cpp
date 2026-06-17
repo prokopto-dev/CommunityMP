@@ -50,8 +50,6 @@ namespace MWGui
             MWBase::Environment::get().getWindowManager()->getGameSettingString("sRaceMenu1", "Appearance"));
         getWidget(mPreviewImage, "PreviewImage");
 
-        mPreviewImage->eventMouseWheel += MyGUI::newDelegate(this, &RaceDialog::onPreviewScroll);
-
         getWidget(mHeadRotate, "HeadRotate");
 
         mHeadRotate->setScrollRange(1000);
@@ -156,7 +154,8 @@ namespace MWGui
         mPreview.reset(nullptr);
         mPreviewTexture.reset(nullptr);
 
-        mPreview = std::make_unique<MWRender::RaceSelectionPreview>(mParent, mResourceSystem);
+        mPreview = std::make_unique<MWRender::RaceSelectionPreview>(
+            mParent, mResourceSystem, MWRender::RaceSelectionPreview::PreviewMode::Body);
         mPreview->rebuild();
         mPreview->setAngle(mCurrentAngle);
 
@@ -165,6 +164,8 @@ namespace MWGui
         mPreviewImage->setRenderItemTexture(mPreviewTexture.get());
         // The widget is Y-down, the RTT image is Y-up, so this UV is inverted
         mPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+        mAvatarPreviewController.bind(mPreviewImage, mPreview.get());
+        mAvatarPreviewController.setAngle(mCurrentAngle);
 
         const ESM::NPC& proto = mPreview->getPrototype();
         setRaceId(proto.mRace);
@@ -218,6 +219,13 @@ namespace MWGui
 
         mPreviewTexture.reset(nullptr);
         mPreview.reset(nullptr);
+        mAvatarPreviewController.bind(mPreviewImage, nullptr);
+    }
+
+    void RaceDialog::onFrame(float duration)
+    {
+        mAvatarPreviewController.update(duration);
+        mCurrentAngle = mAvatarPreviewController.getAngle();
     }
 
     // widget controls
@@ -250,7 +258,7 @@ namespace MWGui
     void RaceDialog::onHeadRotate(MyGUI::ScrollBar* scroll, size_t position)
     {
         float angle = (float(position) / (scroll->getScrollRange() - 1) - 0.5f) * osg::PIf * 2;
-        mPreview->setAngle(angle);
+        mAvatarPreviewController.setAngle(angle);
 
         mCurrentAngle = angle;
     }
@@ -356,6 +364,7 @@ namespace MWGui
 
     void RaceDialog::updatePreview()
     {
+        const float previewAngle = mAvatarPreviewController.getAngle();
         ESM::NPC record = mPreview->getPrototype();
         record.mRace = mCurrentRaceId;
         record.setIsMale(mGenderIndex == 0);
@@ -369,6 +378,8 @@ namespace MWGui
         try
         {
             mPreview->setPrototype(record);
+            mAvatarPreviewController.setAngle(previewAngle);
+            mCurrentAngle = previewAngle;
         }
         catch (std::exception& e)
         {

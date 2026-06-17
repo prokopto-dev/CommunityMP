@@ -217,13 +217,18 @@ namespace ESM
 
     void ESMWriter::writeHNString(NAME name, std::string_view data, size_t size)
     {
-        assert(data.size() <= size);
+        const std::string_view string = mEncoder != nullptr ? mEncoder->getLegacyEnc(data) : data;
+        assert(string.size() <= size);
         startSubRecord(name);
-        writeHString(data);
+        if (data.empty())
+            write("\0", 1);
+        else
+            write(string.data(), string.size());
 
-        if (data.size() < size)
+        const size_t paddingOffset = data.empty() ? data.size() : string.size();
+        if (paddingOffset < size)
         {
-            for (size_t i = data.size(); i < size; ++i)
+            for (size_t i = paddingOffset; i < size; ++i)
                 write("\0", 1);
         }
 

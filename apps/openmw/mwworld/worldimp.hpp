@@ -70,7 +70,8 @@ namespace ToUTF8
 
 namespace MWPhysics
 {
-    class Object;
+    class IPhysicsBackend;
+    class IPhysicsObject;
 }
 
 namespace MWWorld
@@ -99,7 +100,7 @@ namespace MWWorld
         std::string mCurrentWorldSpace;
 
         std::unique_ptr<MWWorld::Player> mPlayer;
-        std::unique_ptr<MWPhysics::PhysicsSystem> mPhysics;
+        std::unique_ptr<MWPhysics::IPhysicsBackend> mPhysics;
         std::unique_ptr<DetourNavigator::Navigator> mNavigator;
         std::unique_ptr<MWRender::RenderingManager> mRendering;
         std::unique_ptr<MWWorld::Scene> mWorldScene;
@@ -167,7 +168,7 @@ namespace MWWorld
         void updateNavigator();
 
         void updateNavigatorObject(
-            const MWPhysics::Object& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard = nullptr);
+            const MWPhysics::IPhysicsObject& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard = nullptr);
 
         void ensureNeededRecords();
 
@@ -269,12 +270,20 @@ namespace MWWorld
         char getGlobalVariableType(GlobalVariableName name) const override;
         ///< Return ' ', if there is no global variable with this name.
 
+        void ensureGlobal(GlobalVariableName name, char type) override;
+        ///< Create a global variable if it does not exist.
+
         std::string_view getCellName(const MWWorld::CellStore* cell = nullptr) const override;
         ///< Return name of the cell.
         ///
         /// \note If cell==0, the cell the player is currently in will be used instead to
         /// generate a name.
         std::string_view getCellName(const MWWorld::Cell& cell) const override;
+
+        bool isCellActive(const MWWorld::CellStore& cell) override;
+        void unloadCell(MWWorld::CellStore& cell) override;
+        bool resetCellStore(MWWorld::CellStore& cell) override;
+        void refreshNavigator() override;
 
         void removeRefScript(const MWWorld::CellRef* ref) override;
         //< Remove the script attached to ref from mLocalScripts
@@ -315,6 +324,9 @@ namespace MWWorld
 
         void changeWeather(const ESM::RefId& region, const ESM::RefId& id) override;
 
+        void setWeatherState(const ESM::RefId& region, int currentWeather, int nextWeather, int queuedWeather,
+            float transitionFactor, bool force) override;
+
         const std::vector<MWWorld::Weather>& getAllWeather() const override;
 
         int getCurrentWeatherScriptId() const override;
@@ -323,6 +335,7 @@ namespace MWWorld
         const MWWorld::Weather* getWeather(const ESM::RefId& id) const override;
         int getNextWeatherScriptId() const override;
         const MWWorld::Weather* getNextWeather() const override;
+        int getQueuedWeatherScriptId() const override;
 
         float getWeatherTransition() const override;
 
@@ -582,6 +595,7 @@ namespace MWWorld
         float getSunPercentage() const override;
 
         float getPhysicsFrameRateDt() const override;
+        bool setPhysicsFrameRate(float framesPerSecond) override;
 
         bool findInteriorPositionInWorldSpace(const MWWorld::CellStore* cell, osg::Vec3f& result) override;
 
@@ -639,6 +653,12 @@ namespace MWWorld
 
         /// Return physical or rendering half extents of the given actor.
         osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor, bool rendering = false) const override;
+
+        osg::Vec3f getActorInertialForce(const MWWorld::ConstPtr& actor) const override;
+
+        void setActorInertialForce(const MWWorld::Ptr& actor, const osg::Vec3f& force) override;
+
+        void forceActorFall(const MWWorld::Ptr& actor) override;
 
         /// Export scene graph to a file and return the filename.
         /// \param ptr object to export scene graph for (if empty, export entire scene graph)

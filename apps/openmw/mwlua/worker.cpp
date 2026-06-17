@@ -34,7 +34,13 @@ namespace MWLua
             return;
         {
             std::lock_guard<std::mutex> lk(mMutex);
-            mUpdateRequest = UpdateRequest{ .mFrameStart = frameStart, .mFrameNumber = frameNumber, .mStats = &stats };
+            assert(!mRequest.has_value());
+            mRequest = Request{
+                .mOperation = Operation::Update,
+                .mFrameStart = frameStart,
+                .mFrameNumber = frameNumber,
+                .mStats = &stats,
+            };
         }
         mCV.notify_one();
     }
@@ -44,10 +50,49 @@ namespace MWLua
         if (mThread)
         {
             std::unique_lock<std::mutex> lk(mMutex);
-            mCV.wait(lk, [&] { return !mUpdateRequest.has_value(); });
+            assert(!mRequest.has_value() || mRequest->mOperation == Operation::Update);
+            mCV.wait(lk, [&] { return !mRequest.has_value(); });
         }
         else
             update(frameStart, frameNumber, stats);
+    }
+
+    void Worker::gc(osg::Timer_t frameStart, unsigned frameNumber, osg::Stats& stats)
+    {
+        if (!mThread)
+            return;
+        if (Settings::lua().mGcStepsPerFrame <= 0)
+            return;
+        {
+            std::lock_guard<std::mutex> lk(mMutex);
+            assert(!mRequest.has_value());
+            mGcStopRequest = false;
+            mRequest = Request{
+                .mOperation = Operation::Gc,
+                .mFrameStart = frameStart,
+                .mFrameNumber = frameNumber,
+                .mStats = &stats,
+            };
+        }
+        mCV.notify_one();
+    }
+
+    void Worker::finishGc(osg::Timer_t frameStart, unsigned frameNumber, osg::Stats& stats)
+    {
+        if (Settings::lua().mGcStepsPerFrame <= 0)
+            return;
+
+        if (mThread)
+        {
+            std::unique_lock<std::mutex> lk(mMutex);
+            if (!mRequest.has_value())
+                return;
+            assert(mRequest->mOperation == Operation::Gc);
+            mGcStopRequest = true;
+            mCV.wait(lk, [&] { return !mRequest.has_value(); });
+        }
+        else
+            collectGarbage(frameStart, frameNumber, stats, false);
     }
 
     void Worker::join()
@@ -71,27 +116,63 @@ namespace MWLua
         mManager.update();
     }
 
+    void Worker::collectGarbage(osg::Timer_t frameStart, unsigned frameNumber, osg::Stats& stats, bool untilStopped)
+    {
+        const osg::Timer* const timer = osg::Timer::instance();
+        OMW::ScopedProfile<OMW::UserStatsType::LuaGc> profile(frameStart, frameNumber, *timer, stats);
+
+        do
+        {
+            if (!mManager.gc())
+                break;
+
+            if (!untilStopped)
+                break;
+
+            std::lock_guard<std::mutex> lk(mMutex);
+            if (isGcStopRequested())
+                break;
+        } while (true);
+    }
+
+    bool Worker::isGcStopRequested() const
+    {
+        return mGcStopRequest || mJoinRequest;
+    }
+
     void Worker::run() noexcept
     {
         while (true)
         {
             std::unique_lock<std::mutex> lk(mMutex);
-            mCV.wait(lk, [&] { return mUpdateRequest.has_value() || mJoinRequest; });
+            mCV.wait(lk, [&] { return mRequest.has_value() || mJoinRequest; });
             if (mJoinRequest)
                 break;
 
-            assert(mUpdateRequest.has_value());
+            assert(mRequest.has_value());
+            const Request request = *mRequest;
+            lk.unlock();
 
             try
             {
-                update(mUpdateRequest->mFrameStart, mUpdateRequest->mFrameNumber, *mUpdateRequest->mStats);
+                switch (request.mOperation)
+                {
+                    case Operation::Gc:
+                        collectGarbage(request.mFrameStart, request.mFrameNumber, *request.mStats, true);
+                        break;
+                    case Operation::Update:
+                        update(request.mFrameStart, request.mFrameNumber, *request.mStats);
+                        break;
+                }
             }
             catch (const std::exception& e)
             {
-                Log(Debug::Error) << "Failed to update LuaManager: " << e.what();
+                Log(Debug::Error) << "Failed to process LuaWorker request: " << e.what();
             }
 
-            mUpdateRequest.reset();
+            lk.lock();
+            mRequest.reset();
+            mGcStopRequest = false;
             lk.unlock();
             mCV.notify_one();
         }

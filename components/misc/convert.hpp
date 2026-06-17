@@ -10,8 +10,15 @@
 #include <osg/Quat>
 #include <osg/Vec3f>
 
+#include <cmath>
+
 namespace Misc::Convert
 {
+    inline float makeFiniteRotationAngle(float value)
+    {
+        return std::isfinite(value) ? value : 0.f;
+    }
+
     inline osg::Vec3f makeOsgVec3f(const float* values)
     {
         return osg::Vec3f(values[0], values[1], values[2]);
@@ -49,8 +56,12 @@ namespace Misc::Convert
 
     inline osg::Quat makeOsgQuat(const float (&rotation)[3])
     {
-        return osg::Quat(rotation[2], osg::Vec3f(0, 0, -1)) * osg::Quat(rotation[1], osg::Vec3f(0, -1, 0))
-            * osg::Quat(rotation[0], osg::Vec3f(-1, 0, 0));
+        const float xr = makeFiniteRotationAngle(rotation[0]);
+        const float yr = makeFiniteRotationAngle(rotation[1]);
+        const float zr = makeFiniteRotationAngle(rotation[2]);
+
+        return osg::Quat(zr, osg::Vec3f(0, 0, -1)) * osg::Quat(yr, osg::Vec3f(0, -1, 0))
+            * osg::Quat(xr, osg::Vec3f(-1, 0, 0));
     }
 
     inline osg::Quat makeOsgQuat(const ESM::Position& position)
@@ -60,8 +71,12 @@ namespace Misc::Convert
 
     inline btQuaternion makeBulletQuaternion(const float (&rotation)[3])
     {
-        return btQuaternion(btVector3(0, 0, -1), rotation[2]) * btQuaternion(btVector3(0, -1, 0), rotation[1])
-            * btQuaternion(btVector3(-1, 0, 0), rotation[0]);
+        const float xr = makeFiniteRotationAngle(rotation[0]);
+        const float yr = makeFiniteRotationAngle(rotation[1]);
+        const float zr = makeFiniteRotationAngle(rotation[2]);
+
+        return btQuaternion(btVector3(0, 0, -1), zr) * btQuaternion(btVector3(0, -1, 0), yr)
+            * btQuaternion(btVector3(-1, 0, 0), xr);
     }
 
     inline btQuaternion makeBulletQuaternion(const ESM::Position& position)

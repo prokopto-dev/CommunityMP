@@ -8,6 +8,7 @@
 **/
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <osg/ref_ptr>
@@ -96,6 +97,7 @@ namespace MWGui
     class InventoryWindow;
     struct JournalWindow;
     class TextInputDialog;
+    class Tes3mpLoginDialog;
     class InfoBoxDialog;
     class SettingsWindow;
     class AlchemyWindow;
@@ -213,6 +215,9 @@ namespace MWGui
         void getMousePosition(int& x, int& y) override;
         void getMousePosition(float& x, float& y) override;
         void setDragDrop(bool dragDrop) override;
+        bool isDragDropActive() const override;
+        void setItemDragDropEnabled(bool enabled) override;
+        bool isItemDragDropEnabled() const override;
         bool getWorldMouseOver() override;
 
         float getScalingFactor() const override;
@@ -259,6 +264,7 @@ namespace MWGui
         void notifyInputActionBound() override;
 
         void addVisitedLocation(const std::string& name, int x, int y) override;
+        void setGlobalMapImage(int x, int y, const std::vector<char>& imageData) override;
 
         /// Hides dialog and schedules dialog to be deleted.
         void removeDialog(std::unique_ptr<Layout>&& dialog) override;
@@ -274,6 +280,11 @@ namespace MWGui
         void removeStaticMessageBox() override;
         void interactiveMessageBox(std::string_view message, const std::vector<std::string>& buttons = {},
             bool block = false, int defaultFocus = -1) override;
+        std::optional<std::string> promptTextInput(std::string_view label, std::string_view note,
+            const std::string& initialText = {}, bool password = false) override;
+        std::optional<MWBase::LoginCredentials> promptLoginCredentials(std::string_view serverEndpoint,
+            const std::string& initialAccountName = {}, const std::string& initialServerPassword = {},
+            bool rememberCredentials = false, bool hasRememberedAccountPasswordHash = false) override;
 
         int readPressedButton() override; ///< returns the index of the pressed button or -1 if no button was pressed
                                           ///< (->MessageBoxmanager->InteractiveMessageBox)
@@ -292,9 +303,11 @@ namespace MWGui
         void processChangedSettings(const Settings::CategorySettingVector& changed) override;
 
         void windowVisibilityChange(bool visible) override;
+        void windowFocusChange(bool focused) override;
         void windowResized(int x, int y) override;
         void windowClosed() override;
         bool isWindowVisible() const override;
+        bool isWindowFocused() const override;
 
         void watchActor(const MWWorld::Ptr& ptr) override;
         MWWorld::Ptr getWatchedActor() const override;
@@ -406,6 +419,7 @@ namespace MWGui
         const std::vector<GuiMode>& getGuiModeStack() const override { return mGuiModes; }
         void setDisabledByLua(std::string_view windowId, bool disabled) override;
         bool isWindowVisible(std::string_view windowId) const override;
+        std::optional<std::string> getWindowLayer(std::string_view windowId) const override;
         std::vector<std::string_view> getAllWindowIds() const override;
         std::vector<std::string_view> getAllowedWindowIds(GuiMode mode) const override;
 
@@ -445,6 +459,10 @@ namespace MWGui
         std::unique_ptr<ToolTips> mToolTips;
         StatsWindow* mStatsWindow;
         std::unique_ptr<MessageBoxManager> mMessageBoxManager;
+        std::optional<std::string> mPromptTextResult;
+        std::optional<MWBase::LoginCredentials> mPromptLoginResult;
+        bool mPromptTextDone = false;
+        bool mPromptLoginDone = false;
         Console* mConsole;
         DialogueWindow* mDialogueWindow;
         std::unique_ptr<DragAndDrop> mDragAndDrop;
@@ -452,6 +470,8 @@ namespace MWGui
         InventoryWindow* mInventoryWindow;
         ScrollWindow* mScrollWindow;
         BookWindow* mBookWindow;
+        std::unique_ptr<TextInputDialog> mPromptTextDialog;
+        std::unique_ptr<Tes3mpLoginDialog> mPromptLoginDialog;
         CountDialog* mCountDialog;
         TradeWindow* mTradeWindow;
         SettingsWindow* mSettingsWindow;
@@ -486,6 +506,7 @@ namespace MWGui
         MyGUI::Widget* mInputBlocker;
 
         bool mHudEnabled;
+        bool mItemDragDropEnabled;
         bool mCursorVisible;
         bool mCursorActive;
 
@@ -547,6 +568,7 @@ namespace MWGui
         std::string mVersionDescription;
 
         bool mWindowVisible;
+        bool mWindowFocused;
 
         MWGui::TextColours mTextColours;
 
@@ -597,6 +619,7 @@ namespace MWGui
 
         void onClipboardChanged(std::string_view type, std::string_view data);
         void onClipboardRequested(std::string_view type, std::string& data);
+        void onPromptTextDone(WindowBase* window);
 
         void createTextures();
         void createCursors();
@@ -607,6 +630,7 @@ namespace MWGui
         void enableScene(bool enable);
 
         void handleScheduledMessageBoxes();
+        void onPromptLoginDone(WindowBase* window);
 
         void pushGuiMode(GuiMode mode, const MWWorld::Ptr& arg, bool force);
 

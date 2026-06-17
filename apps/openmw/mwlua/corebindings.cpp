@@ -1,6 +1,7 @@
 #include "corebindings.hpp"
 
 #include <chrono>
+#include <string>
 #include <stdexcept>
 
 #include <components/debug/debuglog.hpp>
@@ -16,6 +17,11 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/world.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/esmstore.hpp"
 
@@ -33,6 +39,43 @@
 
 namespace MWLua
 {
+    namespace
+    {
+        bool isWorldEffectivelyPaused(MWWorld::DateTimeManager* timeManager)
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            if (mwmp::Main::shouldRunWorldWhilePaused())
+                return false;
+#endif
+            return timeManager->isPaused();
+        }
+
+        std::string formatLuaLogMessage(sol::this_state state, sol::variadic_args args)
+        {
+            sol::state_view lua(state);
+            sol::function tostring = lua["tostring"];
+            std::string message;
+
+            for (const sol::object& arg : args)
+            {
+                if (!message.empty())
+                    message += '\t';
+                sol::object text = tostring(arg);
+                message += text.as<std::string>();
+            }
+
+            return message;
+        }
+
+        void writeLuaLogMessage(sol::this_state state, int level, sol::variadic_args args)
+        {
+            if (level < Debug::Error || level > Debug::Debug)
+                throw std::runtime_error("Invalid log level");
+
+            Log(static_cast<Debug::Level>(level)) << formatLuaLogMessage(state, args);
+        }
+    }
+
     static sol::table initContentFilesBindings(sol::state_view& lua)
     {
         const std::vector<std::string>& contentList = MWBase::Environment::get().getWorld()->getContentFiles();
@@ -64,7 +107,7 @@ namespace MWLua
         api["getSimulationTimeScale"] = [timeManager]() { return timeManager->getSimulationTimeScale(); };
         api["getGameTime"] = [timeManager]() { return timeManager->getGameTime(); };
         api["getGameTimeScale"] = [timeManager]() { return timeManager->getGameTimeScale(); };
-        api["isWorldPaused"] = [timeManager]() { return timeManager->isPaused(); };
+        api["isWorldPaused"] = [timeManager]() { return isWorldEffectivelyPaused(timeManager); };
         api["getRealTime"] = []() {
             return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
         };
@@ -82,6 +125,13 @@ namespace MWLua
 
         sol::table api(lua, sol::create);
         api["API_REVISION"] = Version::getLuaApiRevision(); // specified in CMakeLists.txt
+        api["LOG_LEVEL"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, int>(lua,
+            { { "Error", Debug::Error },
+                { "Warning", Debug::Warning },
+                { "Info", Debug::Info },
+                { "Verbose", Debug::Verbose },
+                { "Debug", Debug::Debug } }));
+        api["log"] = writeLuaLogMessage;
         api["contentFiles"] = initContentFilesBindings(lua);
         api["getFormId"] = [](std::string_view contentFile, unsigned int index) -> std::string {
             const std::vector<std::string>& contentList = MWBase::Environment::get().getWorld()->getContentFiles();

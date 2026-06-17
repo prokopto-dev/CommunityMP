@@ -42,6 +42,7 @@ namespace LuaUi
         mEditBox->setCaption(propertyValue("text", std::string()));
 
         WidgetExtension::updateProperties();
+        mEditBox->setNeedMouseFocus(propertyValue("interactive", true));
     }
 
     void LuaTextEdit::textChange(MyGUI::EditBox*)

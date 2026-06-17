@@ -1,5 +1,7 @@
 #include "mousemanager.hpp"
 
+#include <cmath>
+
 #include <MyGUI_Button.h>
 #include <MyGUI_InputManager.h>
 #include <MyGUI_RenderManager.h>
@@ -79,8 +81,10 @@ namespace MWInput
             bool isFromWarp = (mLastWarpX >= 0 && mLastWarpY >= 0 && std::abs(mGuiCursorX - mLastWarpX) < 0.5f
                 && std::abs(mGuiCursorY - mLastWarpY) < 0.5f);
 
+            const float mouseRelX = arg.xrelPrecise;
+            const float mouseRelY = arg.yrelPrecise;
             if (Settings::gui().mControllerMenus && !winMgr->getCursorVisible()
-                && (std::abs(arg.xrel) > 1 || std::abs(arg.yrel) > 1) && !isFromWarp)
+                && (std::abs(mouseRelX) > 1.f || std::abs(mouseRelY) > 1.f) && !isFromWarp)
             {
                 // Unhide the cursor if it was hidden to show a controller tooltip.
                 winMgr->setControllerTooltipVisible(false);
@@ -97,8 +101,8 @@ namespace MWInput
             MWBase::World* world = MWBase::Environment::get().getWorld();
 
             const float cameraSensitivity = Settings::input().mCameraSensitivity;
-            float x = arg.xrel * cameraSensitivity * (Settings::input().mInvertXAxis ? -1 : 1) / 256.f;
-            float y = arg.yrel * cameraSensitivity * (Settings::input().mInvertYAxis ? -1 : 1)
+            float x = arg.xrelPrecise * cameraSensitivity * (Settings::input().mInvertXAxis ? -1 : 1) / 256.f;
+            float y = arg.yrelPrecise * cameraSensitivity * (Settings::input().mInvertYAxis ? -1 : 1)
                 * Settings::input().mCameraYMultiplier / 256.f;
 
             float rot[3];

@@ -478,8 +478,10 @@ namespace MWMechanics
         mSpells.emplace_back(params).setActiveSpellId(MWBase::Environment::get().getESMStore()->generateId());
         auto it = mSpells.end();
         --it;
-        // We instantly apply the effect with a duration of 0 so continuous effects can be purged before truly applying
-        if (context.mUpdate && updateActiveSpell(ptr, 0.f, it, context))
+        // We instantly apply the effect with a duration of 0 so continuous effects can be purged before truly applying.
+        // Lua active spells should also become observable while the game is paused, without advancing their timers.
+        const bool shouldApply = context.mUpdate || params.hasFlag(ESM::ActiveSpells::Flag_Lua);
+        if (shouldApply && updateActiveSpell(ptr, 0.f, it, context))
             return false;
         return true;
     }

@@ -48,7 +48,33 @@
 
 #include "../mwscript/globalscripts.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "quicksavemanager.hpp"
+
+namespace
+{
+    bool isMultiplayerSession()
+    {
+#ifdef BUILD_TES3MP_CLIENT
+        return mwmp::Main::isInitialized();
+#else
+        return false;
+#endif
+    }
+
+    bool denyLocalSaveLoadInMultiplayer(const char* operation)
+    {
+        if (!isMultiplayerSession())
+            return false;
+
+        Log(Debug::Warning) << "Denied local " << operation << " during TES3MP session";
+        MWBase::Environment::get().getWindowManager()->messageBox("Local game state actions are disabled in multiplayer.");
+        return true;
+    }
+}
 
 void MWState::StateManager::cleanup(bool force)
 {
@@ -119,6 +145,9 @@ bool MWState::StateManager::hasQuitRequest() const
 
 void MWState::StateManager::askLoadRecent()
 {
+    if (denyLocalSaveLoadInMultiplayer("recent save load prompt"))
+        return;
+
     if (MWBase::Environment::get().getWindowManager()->getMode() == MWGui::GM_MainMenu)
         return;
 
@@ -156,6 +185,22 @@ void MWState::StateManager::askLoadRecent()
     }
 }
 
+void MWState::StateManager::requestNewGame()
+{
+    if (denyLocalSaveLoadInMultiplayer("new game request"))
+        return;
+
+    mNewGameRequest = true;
+}
+
+void MWState::StateManager::requestLoad(const Character* character, const std::filesystem::path& filepath)
+{
+    if (denyLocalSaveLoadInMultiplayer("load request"))
+        return;
+
+    mLoadRequest.emplace(character, filepath);
+}
+
 MWState::StateManager::State MWState::StateManager::getState() const
 {
     return mState;
@@ -163,6 +208,9 @@ MWState::StateManager::State MWState::StateManager::getState() const
 
 void MWState::StateManager::newGame(bool bypass)
 {
+    if (!bypass && denyLocalSaveLoadInMultiplayer("new game"))
+        return;
+
     cleanup();
 
     if (!bypass)
@@ -171,7 +219,10 @@ void MWState::StateManager::newGame(bool bypass)
     try
     {
         Log(Debug::Info) << "Starting a new game";
-        MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
+
+        if (!bypass || !isMultiplayerSession())
+            MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
+
         MWBase::Environment::get().getWorld()->startNewGame(bypass);
 
         mState = State_Running;
@@ -210,6 +261,9 @@ void MWState::StateManager::resumeGame()
 
 void MWState::StateManager::saveGame(std::string_view description, const Slot* slot)
 {
+    if (denyLocalSaveLoadInMultiplayer("save"))
+        return;
+
     MWBase::Environment::get().getLuaManager()->applyDelayedActions();
 
     MWState::Character* character = getCurrentCharacter();
@@ -370,6 +424,9 @@ void MWState::StateManager::saveGame(std::string_view description, const Slot* s
 
 void MWState::StateManager::quickSave(std::string name)
 {
+    if (denyLocalSaveLoadInMultiplayer("quick save"))
+        return;
+
     if (!(mState == State_Running
             && MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sCharGenState) == -1 // char gen
             && MWBase::Environment::get().getWindowManager()->isSavingAllowed()))
@@ -398,6 +455,9 @@ void MWState::StateManager::quickSave(std::string name)
 
 void MWState::StateManager::loadGame(const std::filesystem::path& filepath)
 {
+    if (denyLocalSaveLoadInMultiplayer("load"))
+        return;
+
     for (const auto& character : mCharacterManager)
     {
         for (const auto& slot : character)
@@ -450,6 +510,9 @@ struct SaveVersionTooNewError : SaveFormatVersionError
 
 void MWState::StateManager::loadGame(const Character* character, const std::filesystem::path& filepath)
 {
+    if (denyLocalSaveLoadInMultiplayer("load"))
+        return;
+
     try
     {
         cleanup();
@@ -595,7 +658,20 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
                 listener.increaseProgress(progressPercent - currentPercent);
                 currentPercent = progressPercent;
             }
+
+            if (hasQuitRequest())
+            {
+                cleanup(true);
+                return;
+            }
         }
+
+        if (hasQuitRequest())
+        {
+            cleanup(true);
+            return;
+        }
+
         mCharacterManager.setCurrentCharacter(character);
 
         mState = State_Running;
@@ -705,6 +781,9 @@ void MWState::StateManager::printSavegameFormatError(
 
 void MWState::StateManager::quickLoad()
 {
+    if (denyLocalSaveLoadInMultiplayer("quick load"))
+        return;
+
     if (Character* currentCharacter = getCurrentCharacter())
     {
         if (currentCharacter->begin() == currentCharacter->end())
@@ -716,6 +795,9 @@ void MWState::StateManager::quickLoad()
 
 void MWState::StateManager::deleteGame(const MWState::Character* character, const MWState::Slot* slot)
 {
+    if (denyLocalSaveLoadInMultiplayer("save deletion"))
+        return;
+
     const std::filesystem::path savePath = slot->mPath;
     mCharacterManager.deleteSlot(slot, character);
     if (mLastSavegame == savePath)

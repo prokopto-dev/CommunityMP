@@ -61,6 +61,9 @@ namespace MWWorld
         char getType(GlobalVariableName name) const;
         ///< If there is no global variable with this name, ' ' is returned.
 
+        void ensure(GlobalVariableName name, char type);
+        ///< Create a global variable with the given type if it does not exist yet.
+
         void fill(const MWWorld::ESMStore& store);
         ///< Replace variables with variables from \a store with default values.
 

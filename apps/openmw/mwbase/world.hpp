@@ -178,12 +178,27 @@ namespace MWBase
         virtual char getGlobalVariableType(MWWorld::GlobalVariableName name) const = 0;
         ///< Return ' ', if there is no global variable with this name.
 
+        virtual void ensureGlobal(MWWorld::GlobalVariableName name, char type) = 0;
+        ///< Create a global variable if it does not exist.
+
         virtual std::string_view getCellName(const MWWorld::CellStore* cell = nullptr) const = 0;
         ///< Return name of the cell.
         ///
         /// \note If cell==0, the cell the player is currently in will be used instead to
         /// generate a name.
         virtual std::string_view getCellName(const MWWorld::Cell& cell) const = 0;
+
+        virtual bool isCellActive(const MWWorld::CellStore& cell) = 0;
+        ///< Is the cell currently loaded into the active scene.
+
+        virtual void unloadCell(MWWorld::CellStore& cell) = 0;
+        ///< Unload the cell from the active scene if it is active.
+
+        virtual bool resetCellStore(MWWorld::CellStore& cell) = 0;
+        ///< Drop runtime state for a cell store so it will be loaded from current records next time.
+
+        virtual void refreshNavigator() = 0;
+        ///< Refresh navigator objects after external scene authority changes.
 
         virtual void removeRefScript(const MWWorld::CellRef* ref) = 0;
         //< Remove the script attached to ref from mLocalScripts
@@ -217,6 +232,9 @@ namespace MWBase
 
         virtual void changeWeather(const ESM::RefId& region, const ESM::RefId& id) = 0;
 
+        virtual void setWeatherState(const ESM::RefId& region, int currentWeather, int nextWeather, int queuedWeather,
+            float transitionFactor, bool force) = 0;
+
         virtual const std::vector<MWWorld::Weather>& getAllWeather() const = 0;
 
         virtual int getCurrentWeatherScriptId() const = 0;
@@ -230,6 +248,8 @@ namespace MWBase
         virtual int getNextWeatherScriptId() const = 0;
 
         virtual const MWWorld::Weather* getNextWeather() const = 0;
+
+        virtual int getQueuedWeatherScriptId() const = 0;
 
         virtual float getWeatherTransition() const = 0;
 
@@ -495,6 +515,7 @@ namespace MWBase
         virtual float getSunPercentage() const = 0;
 
         virtual float getPhysicsFrameRateDt() const = 0;
+        virtual bool setPhysicsFrameRate(float framesPerSecond) = 0;
 
         virtual bool findInteriorPositionInWorldSpace(const MWWorld::CellStore* cell, osg::Vec3f& result) = 0;
 
@@ -567,6 +588,14 @@ namespace MWBase
 
         /// Return physical or rendering half extents of the given actor.
         virtual osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor, bool rendering = false) const = 0;
+
+        /// Return current inertial force of the given actor.
+        virtual osg::Vec3f getActorInertialForce(const MWWorld::ConstPtr& actor) const = 0;
+
+        /// Set current inertial force of the given actor.
+        virtual void setActorInertialForce(const MWWorld::Ptr& actor, const osg::Vec3f& force) = 0;
+
+        virtual void forceActorFall(const MWWorld::Ptr& actor) = 0;
 
         /// Export scene graph to a file and return the filename.
         /// \param ptr object to export scene graph for (if empty, export entire scene graph)

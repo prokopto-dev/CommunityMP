@@ -23,6 +23,32 @@
 
 #include "mask.hpp"
 
+namespace
+{
+    osg::Vec4f darken(const osg::Vec4f& colour)
+    {
+        constexpr float factor = 0.7f;
+        return osg::Vec4f(colour.r() * factor, colour.g() * factor, colour.b() * factor, colour.a());
+    }
+
+    osg::Vec4f getDirectionColour(CSVRender::CellArrow::Direction direction)
+    {
+        switch (direction)
+        {
+            case CSVRender::CellArrow::Direction_North:
+                return osg::Vec4f(0.12f, 0.72f, 0.28f, 1.f);
+            case CSVRender::CellArrow::Direction_West:
+                return osg::Vec4f(0.54f, 0.36f, 0.86f, 1.f);
+            case CSVRender::CellArrow::Direction_South:
+                return osg::Vec4f(0.86f, 0.25f, 0.20f, 1.f);
+            case CSVRender::CellArrow::Direction_East:
+                return osg::Vec4f(0.95f, 0.66f, 0.14f, 1.f);
+        }
+
+        return osg::Vec4f(0.11f, 0.6f, 0.95f, 1.f);
+    }
+}
+
 namespace CSVRender
 {
     struct WorldspaceHitResult;
@@ -187,10 +213,13 @@ void CSVRender::CellArrow::buildShape()
 
     osg::Vec4Array* colours = new osg::Vec4Array;
 
+    const osg::Vec4f colour = getDirectionColour(mDirection);
+    const osg::Vec4f shadedColour = darken(colour);
+
     for (int i = 0; i < 6; ++i)
-        colours->push_back(osg::Vec4f(0.11f, 0.6f, 0.95f, 1.0f));
+        colours->push_back(colour);
     for (int i = 0; i < 6; ++i)
-        colours->push_back(osg::Vec4f(0.08f, 0.44f, 0.7f, 1.0f));
+        colours->push_back(shadedColour);
 
     geometry->setColorArray(colours, osg::Array::BIND_PER_VERTEX);
 

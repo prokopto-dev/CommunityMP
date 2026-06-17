@@ -1,10 +1,14 @@
 #include "class.hpp"
 
+#include <algorithm>
+#include <MyGUI_Button.h>
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ListBox.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_UString.h>
+
+#include <osg/Texture2D>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -17,15 +21,17 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/myguiplatform/myguitexture.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
+
+#include "../mwrender/characterpreview.hpp"
 
 #include "tooltips.hpp"
 
 namespace
 {
-
     bool sortClasses(const std::pair<ESM::RefId, std::string>& left, const std::pair<ESM::RefId, std::string>& right)
     {
         return left.second.compare(right.second) < 0;
@@ -116,7 +122,7 @@ namespace MWGui
 
     /* PickClassDialog */
 
-    PickClassDialog::PickClassDialog()
+    PickClassDialog::PickClassDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : WindowModal("openmw_chargen_class.layout")
     {
         // Centre dialog
@@ -141,6 +147,18 @@ namespace MWGui
 
         getWidget(mClassImage, "ClassImage");
 
+        getWidget(mAvatarPreviewImage, "AvatarPreviewImage");
+        mAvatarPreview = std::make_unique<MWRender::RaceSelectionPreview>(
+            parent, resourceSystem, MWRender::RaceSelectionPreview::PreviewMode::Body);
+        mAvatarPreview->rebuild();
+        mAvatarPreviewController.bind(mAvatarPreviewImage, mAvatarPreview.get());
+        mAvatarPreviewController.setAngle(0.f);
+        mAvatarPreviewTexture = std::make_unique<MyGUIPlatform::OSGTexture>(
+            mAvatarPreview->getTexture(), mAvatarPreview->getTextureStateSet());
+        mAvatarPreviewImage->setRenderItemTexture(mAvatarPreviewTexture.get());
+        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted.
+        mAvatarPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+
         getWidget(mBackButton, "BackButton");
         mBackButton->eventMouseButtonClick += MyGUI::newDelegate(this, &PickClassDialog::onBackClicked);
 
@@ -156,6 +174,12 @@ namespace MWGui
 
         updateClasses();
         updateStats();
+    }
+
+    PickClassDialog::~PickClassDialog()
+    {
+        if (mAvatarPreviewImage != nullptr)
+            mAvatarPreviewImage->setRenderItemTexture(nullptr);
     }
 
     void PickClassDialog::setNextButtonShow(bool shown)
@@ -178,6 +202,11 @@ namespace MWGui
         else
             okButton->setCaption(
                 MyGUI::UString(MWBase::Environment::get().getWindowManager()->getGameSettingString("sOK", {})));
+    }
+
+    void PickClassDialog::onFrame(float duration)
+    {
+        mAvatarPreviewController.update(duration);
     }
 
     void PickClassDialog::onOpen()
@@ -351,38 +380,8 @@ namespace MWGui
 
     /* InfoBoxDialog */
 
-    void InfoBoxDialog::fitToText(MyGUI::TextBox* widget)
-    {
-        MyGUI::IntCoord inner = widget->getTextRegion();
-        MyGUI::IntCoord outer = widget->getCoord();
-        MyGUI::IntSize size = widget->getTextSize();
-        size.width += outer.width - inner.width;
-        size.height += outer.height - inner.height;
-        widget->setSize(size);
-    }
-
-    void InfoBoxDialog::layoutVertically(MyGUI::Widget* widget, int margin)
-    {
-        size_t count = widget->getChildCount();
-        int pos = 0;
-        pos += margin;
-        int width = 0;
-        for (unsigned i = 0; i < count; ++i)
-        {
-            MyGUI::Widget* child = widget->getChildAt(i);
-            if (!child->getVisible())
-                continue;
-
-            child->setPosition(child->getLeft(), pos);
-            width = std::max(width, child->getWidth());
-            pos += child->getHeight() + margin;
-        }
-        width += margin * 2;
-        widget->setSize(width, pos);
-    }
-
     InfoBoxDialog::InfoBoxDialog()
-        : WindowModal("openmw_infobox.layout")
+        : WindowModal("openmw_chargen_generate_class_question.layout")
     {
         getWidget(mTextBox, "TextBox");
         getWidget(mText, "Text");
@@ -399,7 +398,6 @@ namespace MWGui
     {
         mText->setCaption(str);
         mTextBox->setVisible(!str.empty());
-        fitToText(mText);
     }
 
     std::string InfoBoxDialog::getText() const
@@ -415,18 +413,17 @@ namespace MWGui
         }
         this->mButtons.clear();
 
-        // TODO: The buttons should be generated from a template in the layout file, ie. cloning an existing widget
         MyGUI::Button* button;
-        MyGUI::IntCoord coord = MyGUI::IntCoord(0, 0, mButtonBar->getWidth(), 10);
+        MyGUI::IntCoord coord = MyGUI::IntCoord(0, 0, mButtonBar->getWidth(), 58);
         for (const std::string& text : buttons)
         {
             button = mButtonBar->createWidget<MyGUI::Button>(
-                "MW_Button", coord, MyGUI::Align::Top | MyGUI::Align::HCenter, {});
+                "SandTextButton", coord, MyGUI::Align::Top | MyGUI::Align::HStretch, {});
             button->getSubWidgetText()->setWordWrap(true);
             button->setCaption(text);
-            fitToText(button);
+            button->setSize(mButtonBar->getWidth(), 58);
             button->eventMouseButtonClick += MyGUI::newDelegate(this, &InfoBoxDialog::onButtonClicked);
-            coord.top += button->getHeight();
+            coord.top += button->getHeight() + 10;
 
             if (Settings::gui().mControllerMenus && buttons.size() > 1 && this->mButtons.empty())
             {
@@ -441,11 +438,6 @@ namespace MWGui
     void InfoBoxDialog::onOpen()
     {
         WindowModal::onOpen();
-        // Fix layout
-        layoutVertically(mTextBox, 4);
-        layoutVertically(mButtonBar, 6);
-        layoutVertically(mMainWidget, 4 + 6);
-
         center();
     }
 
@@ -503,30 +495,118 @@ namespace MWGui
 
     /* ClassChoiceDialog */
 
-    ClassChoiceDialog::ClassChoiceDialog()
-        : InfoBoxDialog()
+    ClassChoiceDialog::ClassChoiceDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
+        : WindowModal("openmw_chargen_class_choice.layout")
     {
-        setText({});
-        ButtonList buttons;
-        buttons.emplace_back(
-            MWBase::Environment::get().getWindowManager()->getGameSettingString("sClassChoiceMenu1", {}));
-        buttons.emplace_back(
-            MWBase::Environment::get().getWindowManager()->getGameSettingString("sClassChoiceMenu2", {}));
-        buttons.emplace_back(
-            MWBase::Environment::get().getWindowManager()->getGameSettingString("sClassChoiceMenu3", {}));
-        buttons.emplace_back(MWBase::Environment::get().getWindowManager()->getGameSettingString("sBack", {}));
-        setButtons(buttons);
+        MWBase::WindowManager* windowManager = MWBase::Environment::get().getWindowManager();
+
+        auto bindButton = [this](const char* name, std::string_view caption) {
+            MyGUI::Button* button = nullptr;
+            getWidget(button, name);
+            button->setCaption(std::string(caption));
+            button->eventMouseButtonClick += MyGUI::newDelegate(this, &ClassChoiceDialog::onButtonClicked);
+            mButtons.push_back(button);
+        };
+
+        bindButton("GenerateButton", "Answer Questions");
+        bindButton("PickButton", "Pick Preset Class");
+        bindButton("CreateButton", "Create Custom Class");
+        bindButton("BackButton", windowManager->getGameSettingString("sBack", {}));
+
+        getWidget(mAvatarPreviewImage, "AvatarPreviewImage");
+        mAvatarPreview = std::make_unique<MWRender::RaceSelectionPreview>(
+            parent, resourceSystem, MWRender::RaceSelectionPreview::PreviewMode::Body);
+        mAvatarPreview->rebuild();
+        mAvatarPreviewController.bind(mAvatarPreviewImage, mAvatarPreview.get());
+        mAvatarPreviewController.setAngle(0.f);
+        mAvatarPreviewTexture = std::make_unique<MyGUIPlatform::OSGTexture>(
+            mAvatarPreview->getTexture(), mAvatarPreview->getTextureStateSet());
+        mAvatarPreviewImage->setRenderItemTexture(mAvatarPreviewTexture.get());
+        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted.
+        mAvatarPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+
+        if (Settings::gui().mControllerMenus)
+        {
+            mButtons.front()->setStateSelected(true);
+            mDisableGamepadCursor = true;
+            mControllerButtons.mA = "#{Interface:Select}";
+            mControllerButtons.mB = "#{Interface:Back}";
+            mControllerButtons.mDpad = "#{Interface:Navigate}";
+        }
+
+        center();
+    }
+
+    ClassChoiceDialog::~ClassChoiceDialog()
+    {
+        if (mAvatarPreviewImage != nullptr)
+            mAvatarPreviewImage->setRenderItemTexture(nullptr);
+    }
+
+    void ClassChoiceDialog::onFrame(float duration)
+    {
+        mAvatarPreviewController.update(duration);
+    }
+
+    void ClassChoiceDialog::onButtonClicked(MyGUI::Widget* sender)
+    {
+        for (size_t i = 0; i < mButtons.size(); ++i)
+        {
+            if (mButtons[i] == sender)
+            {
+                eventButtonSelected(static_cast<int>(i));
+                return;
+            }
+        }
+    }
+
+    bool ClassChoiceDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
+    {
+        if (arg.button == SDL_CONTROLLER_BUTTON_A)
+        {
+            if (mControllerFocus < mButtons.size())
+                onButtonClicked(mButtons[mControllerFocus]);
+        }
+        else if (arg.button == SDL_CONTROLLER_BUTTON_B)
+            onButtonClicked(mButtons[Class_Back]);
+        else if (arg.button == SDL_CONTROLLER_BUTTON_DPAD_UP)
+        {
+            setControllerFocus(mButtons, mControllerFocus, false);
+            mControllerFocus = wrap(mControllerFocus, mButtons.size(), -1);
+            setControllerFocus(mButtons, mControllerFocus, true);
+        }
+        else if (arg.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN)
+        {
+            setControllerFocus(mButtons, mControllerFocus, false);
+            mControllerFocus = wrap(mControllerFocus, mButtons.size(), 1);
+            setControllerFocus(mButtons, mControllerFocus, true);
+        }
+
+        return true;
     }
 
     /* CreateClassDialog */
 
-    CreateClassDialog::CreateClassDialog()
+    CreateClassDialog::CreateClassDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : WindowModal("openmw_chargen_create_class.layout")
+        , mAvatarPreviewImage(nullptr)
         , mAffectedAttribute(nullptr)
         , mAffectedSkill(nullptr)
     {
         // Centre dialog
         center();
+
+        getWidget(mAvatarPreviewImage, "AvatarPreviewImage");
+        mAvatarPreview = std::make_unique<MWRender::RaceSelectionPreview>(
+            parent, resourceSystem, MWRender::RaceSelectionPreview::PreviewMode::Body);
+        mAvatarPreview->rebuild();
+        mAvatarPreviewController.bind(mAvatarPreviewImage, mAvatarPreview.get());
+        mAvatarPreviewController.setAngle(0.f);
+        mAvatarPreviewTexture = std::make_unique<MyGUIPlatform::OSGTexture>(
+            mAvatarPreview->getTexture(), mAvatarPreview->getTextureStateSet());
+        mAvatarPreviewImage->setRenderItemTexture(mAvatarPreviewTexture.get());
+        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted.
+        mAvatarPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
 
         setText("SpecializationT",
             MWBase::Environment::get().getWindowManager()->getGameSettingString("sChooseClassMenu1", "Specialization"));
@@ -610,7 +690,16 @@ namespace MWGui
         update();
     }
 
-    CreateClassDialog::~CreateClassDialog() = default;
+    CreateClassDialog::~CreateClassDialog()
+    {
+        if (mAvatarPreviewImage != nullptr)
+            mAvatarPreviewImage->setRenderItemTexture(nullptr);
+    }
+
+    void CreateClassDialog::onFrame(float duration)
+    {
+        mAvatarPreviewController.update(duration);
+    }
 
     void CreateClassDialog::update()
     {

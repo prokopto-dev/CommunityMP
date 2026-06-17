@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "actor.hpp"
@@ -106,11 +107,16 @@ namespace MWMechanics
         int countDeaths(const ESM::RefId& id) const;
         ///< Return the number of deaths for actors with the given ID.
 
+        void setDeaths(const ESM::RefId& id, int count);
+        ///< Set the number of deaths for actors with the given ID.
+
         bool isAttackPreparing(const MWWorld::Ptr& ptr) const;
         bool isRunning(const MWWorld::Ptr& ptr) const;
         bool isSneaking(const MWWorld::Ptr& ptr) const;
 
         void forceStateUpdate(const MWWorld::Ptr& ptr) const;
+        void replayAttackStart(const MWWorld::Ptr& ptr, std::string_view attackType) const;
+        void replayAttackRelease(const MWWorld::Ptr& ptr, std::string_view attackType, float attackStrength) const;
 
         bool playAnimationGroup(const MWWorld::Ptr& ptr, std::string_view groupName, int mode, uint32_t number,
             bool scripted = false) const;

@@ -1080,9 +1080,10 @@ namespace MWRender
         const AnimState& active)
     {
         osg::ref_ptr<ControllerType> animController;
-        if (blendControllers.contains(node))
+        auto controller = blendControllers.find(node);
+        if (controller != blendControllers.end())
         {
-            animController = blendControllers.at(node);
+            animController = controller->second;
             animController->setKeyframeTrack(keyframeController, stateData, blendRules);
         }
         else
@@ -1158,8 +1159,15 @@ namespace MWRender
                 for (AnimSource::ControllerMap::iterator it = animsrc->mControllerMap[blendMask].begin();
                      it != animsrc->mControllerMap[blendMask].end(); ++it)
                 {
-                    osg::ref_ptr<osg::Node> node = getNodeMap().at(
-                        it->first); // this should not throw, we already checked for the node existing in addAnimSource
+                    const NodeMap& nodeMap = getNodeMap();
+                    const NodeMap::const_iterator found = nodeMap.find(it->first);
+                    if (found == nodeMap.end())
+                    {
+                        Log(Debug::Warning) << "Skipping animation controller for missing node '" << it->first << "'";
+                        continue;
+                    }
+
+                    osg::ref_ptr<osg::Node> node = found->second;
 
                     const bool useSmoothAnims = Settings::game().mSmoothAnimTransitions;
 
@@ -1799,6 +1807,7 @@ namespace MWRender
         mHasMagicEffects = true;
 
         overrideFirstRootTexture(VFS::Path::toNormalized(texture), mResourceSystem, *node);
+        useWorldspaceParticleSize(*node);
     }
 
     void Animation::removeEffect(std::string_view effectId)

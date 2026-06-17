@@ -1,6 +1,10 @@
 #ifndef GAME_MWMECHANICS_DRAWSTATE_H
 #define GAME_MWMECHANICS_DRAWSTATE_H
 
+#ifdef DrawState
+#undef DrawState
+#endif
+
 namespace MWMechanics
 {
 

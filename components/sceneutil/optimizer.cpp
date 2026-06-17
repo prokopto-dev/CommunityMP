@@ -581,6 +581,7 @@ bool CollectLowestTransformsVisitor::removeTransforms(osg::Node* nodeWeCannotRem
                 group->setUpdateCallback(transform->getUpdateCallback());
                 group->setEventCallback(transform->getEventCallback());
                 group->setCullCallback(transform->getCullCallback());
+                group->setComputeBoundingSphereCallback(transform->getComputeBoundingSphereCallback());
                 group->setUserDataContainer(transform->getUserDataContainer());
                 group->setDescriptions(transform->getDescriptions());
                 for(unsigned int i=0;i<transform->getNumChildren();++i)
@@ -734,6 +735,8 @@ void Optimizer::CombineStaticTransformsVisitor::apply(osg::MatrixTransform& tran
         transform.getChild(0)->asTransform()!=0 &&
         transform.getChild(0)->asTransform()->asMatrixTransform()!=0 &&
         transform.getChild(0)->asTransform()->getDataVariance()==osg::Object::STATIC &&
+        !transform.getComputeBoundingSphereCallback() &&
+        !transform.getChild(0)->getComputeBoundingSphereCallback() &&
         isOperationPermissibleForObject(&transform) && isOperationPermissibleForObject(transform.getChild(0)))
     {
         _transformSet.insert(&transform);
@@ -802,6 +805,7 @@ void Optimizer::RemoveEmptyNodesVisitor::apply(osg::Group& group)
     {
         // only remove empty groups, but not empty occluders.
         if (group.getNumChildren()==0 && isOperationPermissibleForObject(&group) &&
+            !group.getComputeBoundingSphereCallback() &&
             (typeid(group)==typeid(osg::Group) || (group.asTransform())) &&
             (group.getNumChildrenRequiringUpdateTraversal()==0 && group.getNumChildrenRequiringEventTraversal()==0) )
         {
@@ -859,6 +863,7 @@ bool Optimizer::RemoveRedundantNodesVisitor::isOperationPermissible(osg::Node& n
            !node.getCullCallback() &&
            !node.getEventCallback() &&
            !node.getUpdateCallback() &&
+           !node.getComputeBoundingSphereCallback() &&
            isOperationPermissibleForObject(&node);
 }
 
@@ -1996,6 +2001,7 @@ bool Optimizer::MergeGroupsVisitor::isOperationPermissible(osg::Group& node)
     return !node.getCullCallback() &&
            !node.getEventCallback() &&
            !node.getUpdateCallback() &&
+           !node.getComputeBoundingSphereCallback() &&
            typeid(node)==typeid(osg::Group) &&
             isOperationPermissibleForObject(&node);
 }

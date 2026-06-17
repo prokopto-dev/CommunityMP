@@ -1,6 +1,7 @@
 #include "cellref.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include <components/debug/debuglog.hpp>
@@ -10,7 +11,17 @@
 
 namespace
 {
+    constexpr float DefaultScale = 1.f;
+    constexpr float MinScale = 0.5f;
+    constexpr float MaxScale = 2.f;
     constexpr int ZeroLock = std::numeric_limits<int>::max();
+
+    float sanitizeScale(float scale)
+    {
+        if (!std::isfinite(scale))
+            return DefaultScale;
+        return std::clamp(scale, MinScale, MaxScale);
+    }
 }
 
 namespace ESM
@@ -83,7 +94,7 @@ namespace ESM
                     case fourCC("XSCL"):
                         getHTOrSkip(cellRef.mScale);
                         if constexpr (load)
-                            cellRef.mScale = std::clamp(cellRef.mScale, 0.5f, 2.0f);
+                            cellRef.mScale = sanitizeScale(cellRef.mScale);
                         break;
                     case fourCC("ANAM"):
                         getRefIdOrSkip(cellRef.mOwner);
@@ -193,9 +204,10 @@ namespace ESM
             return;
         }
 
-        if (mScale != 1.0)
+        const float scale = sanitizeScale(mScale);
+        if (scale != DefaultScale)
         {
-            esm.writeHNT("XSCL", std::clamp(mScale, 0.5f, 2.0f));
+            esm.writeHNT("XSCL", scale);
         }
 
         if (!inInventory)

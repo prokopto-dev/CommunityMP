@@ -32,6 +32,13 @@
 #include "../mwworld/inventorystore.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/LocalActor.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "localscripts.hpp"
 #include "luamanagerimp.hpp"
 #include "magictypebindings.hpp"
@@ -194,6 +201,84 @@ namespace MWLua
             return store.get<ESM::Spell>().find(refId);
         }
     }
+
+#ifdef BUILD_TES3MP_CLIENT
+    static mwmp::LocalPlayer* getLoggedInTes3mpLocalPlayerForPtr(const MWWorld::Ptr& ptr)
+    {
+        if (!mwmp::Main::isInitialized())
+            return nullptr;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->isLoggedIn()
+            || ptr != MWBase::Environment::get().getWorld()->getPlayerPtr())
+            return nullptr;
+
+        return localPlayer;
+    }
+
+    static mwmp::LocalActor* getLoggedInTes3mpLocalActorForPtr(const MWWorld::Ptr& ptr)
+    {
+        if (!mwmp::Main::isInitialized() || ptr.isEmpty())
+            return nullptr;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->isLoggedIn()
+            || ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
+            return nullptr;
+
+        mwmp::CellController* cellController = mwmp::Main::get().getCellController();
+        if (cellController == nullptr || !cellController->isLocalActor(ptr))
+            return nullptr;
+
+        return cellController->getLocalActor(ptr);
+    }
+
+    static void sendTes3mpLuaSpellbookPacket(const MWWorld::Ptr& ptr, const ESM::Spell* spell, unsigned int action)
+    {
+        if (spell == nullptr || spell->mData.mType != ESM::Spell::ST_Spell)
+            return;
+
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendSpellChange(spell->mId.serializeText(), action);
+    }
+
+    static void sendTes3mpLuaSpellbookSetPacket(const MWWorld::Ptr& ptr)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendSpellbook();
+    }
+
+    static void sendTes3mpLuaSelectedSpellPacket(const MWWorld::Ptr& ptr, const ESM::RefId& spellId)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendSelectedSpell(spellId.serializeText());
+    }
+
+    static void sendTes3mpLuaSelectedEnchantedItemClearPacket(const MWWorld::Ptr& ptr)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendSelectedEnchantedItem(mwmp::Item());
+    }
+
+    static void sendTes3mpLuaActiveSpellAddPacket(
+        const MWWorld::Ptr& ptr, const MWMechanics::ActiveSpells::ActiveSpellParams& params)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendSpellsActiveAddition(params.getSourceSpellId().serializeText(),
+                params.hasFlag(ESM::ActiveSpells::Flag_Stackable), params);
+        else if (mwmp::LocalActor* localActor = getLoggedInTes3mpLocalActorForPtr(ptr))
+            localActor->sendSpellsActiveAddition(params.getSourceSpellId().serializeText(),
+                params.hasFlag(ESM::ActiveSpells::Flag_Stackable), params);
+    }
+
+    static void sendTes3mpLuaActiveSpellsSetPacket(const MWWorld::Ptr& ptr)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendSpellsActive();
+        else if (mwmp::LocalActor* localActor = getLoggedInTes3mpLocalActorForPtr(ptr))
+            localActor->sendSpellsActive();
+    }
+#endif
 
     sol::table initCoreMagicBindings(const Context& context)
     {
@@ -569,7 +654,13 @@ namespace MWLua
                 {
                     resetEnchantItem();
                     if (objPtr == MWBase::Environment::get().getWorld()->getPlayerPtr())
+                    {
                         MWBase::Environment::get().getWindowManager()->unsetSelectedSpell();
+#ifdef BUILD_TES3MP_CLIENT
+                        sendTes3mpLuaSelectedEnchantedItemClearPacket(objPtr);
+                        sendTes3mpLuaSelectedSpellPacket(objPtr, ESM::RefId());
+#endif
+                    }
                     else
                         stats.getSpells().setSelectedSpell(ESM::RefId());
                     return;
@@ -582,6 +673,10 @@ namespace MWLua
                 {
                     int chance = static_cast<int>(MWMechanics::getSpellSuccessChance(spellId, objPtr));
                     MWBase::Environment::get().getWindowManager()->setSelectedSpell(spellId, chance);
+#ifdef BUILD_TES3MP_CLIENT
+                    sendTes3mpLuaSelectedEnchantedItemClearPacket(objPtr);
+                    sendTes3mpLuaSelectedSpellPacket(objPtr, spellId);
+#endif
                 }
                 else
                     stats.getSpells().setSelectedSpell(spellId);
@@ -597,7 +692,13 @@ namespace MWLua
                 MWWorld::ContainerStore& inventory = ptr.getClass().getContainerStore(ptr);
                 inventory.setSelectedEnchantItem(inventory.end());
                 if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
+                {
                     MWBase::Environment::get().getWindowManager()->unsetSelectedSpell();
+#ifdef BUILD_TES3MP_CLIENT
+                    sendTes3mpLuaSelectedEnchantedItemClearPacket(ptr);
+                    sendTes3mpLuaSelectedSpellPacket(ptr, ESM::RefId());
+#endif
+                }
                 else
                     stats.getSpells().setSelectedSpell(ESM::RefId());
             });
@@ -641,7 +742,15 @@ namespace MWLua
             context.mLuaManager->addAction([obj = spells.mActor.object(), spell = toSpell(spellOrId)]() {
                 const MWWorld::Ptr& ptr = obj.ptr();
                 if (ptr.getClass().isActor())
-                    ptr.getClass().getCreatureStats(ptr).getSpells().add(spell, false);
+                {
+                    MWMechanics::Spells& spellbook = ptr.getClass().getCreatureStats(ptr).getSpells();
+                    bool hadSpell = spellbook.hasSpell(spell);
+                    spellbook.add(spell, false);
+#ifdef BUILD_TES3MP_CLIENT
+                    if (!hadSpell)
+                        sendTes3mpLuaSpellbookPacket(ptr, spell, mwmp::SpellbookChanges::ADD);
+#endif
+                }
             });
         };
 
@@ -652,7 +761,15 @@ namespace MWLua
             context.mLuaManager->addAction([obj = spells.mActor.object(), spell = toSpell(spellOrId)]() {
                 const MWWorld::Ptr& ptr = obj.ptr();
                 if (ptr.getClass().isActor())
-                    ptr.getClass().getCreatureStats(ptr).getSpells().remove(spell, false);
+                {
+                    MWMechanics::Spells& spellbook = ptr.getClass().getCreatureStats(ptr).getSpells();
+                    bool hadSpell = spellbook.hasSpell(spell);
+                    spellbook.remove(spell, false);
+#ifdef BUILD_TES3MP_CLIENT
+                    if (hadSpell)
+                        sendTes3mpLuaSpellbookPacket(ptr, spell, mwmp::SpellbookChanges::REMOVE);
+#endif
+                }
             });
         };
 
@@ -663,7 +780,12 @@ namespace MWLua
             context.mLuaManager->addAction([obj = spells.mActor.object()]() {
                 const MWWorld::Ptr& ptr = obj.ptr();
                 if (ptr.getClass().isActor())
+                {
                     ptr.getClass().getCreatureStats(ptr).getSpells().clear();
+#ifdef BUILD_TES3MP_CLIENT
+                    sendTes3mpLuaSpellbookSetPacket(ptr);
+#endif
+                }
             });
         };
 
@@ -719,7 +841,12 @@ namespace MWLua
                     if (it != store->end())
                     {
                         if (it->hasFlag(ESM::ActiveSpells::Flag_Temporary))
+                        {
                             store->removeEffectsByActiveSpellId(spells.mActor.ptr(), id);
+#ifdef BUILD_TES3MP_CLIENT
+                            sendTes3mpLuaActiveSpellsSetPacket(spells.mActor.ptr());
+#endif
+                        }
                         else
                             throw std::runtime_error("Can only remove temporary effects.");
                     }
@@ -749,12 +876,22 @@ namespace MWLua
                 if (effects.empty())
                     throw std::runtime_error("Error:  Parameter 'effects': cannot be an empty list/table");
                 const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
-                auto [name, enams] = getNameAndMagicEffects(spells.mActor.ptr(), id, effects, quiet);
+                const MWWorld::Ptr target = spells.mActor.ptr();
+                auto [name, enams] = getNameAndMagicEffects(target, id, effects, quiet);
                 name = options.get_or<std::string_view>("name", name);
 
                 MWWorld::Ptr casterPtr;
                 if (caster)
                     casterPtr = caster->ptrOrEmpty();
+                const bool castByPlayer = !casterPtr.isEmpty() && casterPtr == MWMechanics::getPlayer();
+
+                bool targetIsDeadActor = false;
+                const bool targetIsActor = !target.isEmpty() && target.getClass().isActor();
+                if (targetIsActor)
+                {
+                    const auto& targetStats = target.getClass().getCreatureStats(target);
+                    targetIsDeadActor = targetStats.isDead() && targetStats.isDeathAnimationFinished();
+                }
 
                 bool affectsHealth = false;
                 MWMechanics::ActiveSpells::ActiveSpellParams params(casterPtr, id, name, itemId);
@@ -791,11 +928,14 @@ namespace MWLua
                         || effect.mEffectId == ESM::MagicEffect::RestoreHealth;
                 }
                 store->addSpell(params);
-                if (affectsHealth && casterPtr == MWMechanics::getPlayer())
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpLuaActiveSpellAddPacket(target, params);
+#endif
+                if (affectsHealth && castByPlayer && target != casterPtr && targetIsActor && !targetIsDeadActor)
                     // If player is attempting to cast a harmful spell on or is healing a living target, show the
                     // target's HP bar.
                     // TODO: This should be moved to Lua once the HUD has been dehardcoded
-                    MWBase::Environment::get().getWindowManager()->setEnemy(spells.mActor.ptr());
+                    MWBase::Environment::get().getWindowManager()->setEnemy(target);
             }
         };
 

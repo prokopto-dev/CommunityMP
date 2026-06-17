@@ -73,6 +73,13 @@ namespace MWLua
             int useType;
             float scale;
         };
+        struct OnSkillUseFailed
+        {
+            ESM::RefNum mActor;
+            std::string mSkill;
+            int useType;
+            float scale;
+        };
         struct OnSkillLevelUp
         {
             ESM::RefNum mActor;
@@ -83,9 +90,11 @@ namespace MWLua
         {
             ESM::RefNum mActor;
             int mDays;
+            bool mPreventSkillIncreases;
+            std::string mMessageOverride;
         };
         using Event = std::variant<OnActive, OnInactive, OnConsume, OnActivate, OnUseItem, OnNewExterior, OnTeleported,
-            OnAnimationTextKey, OnAnimationEnded, OnSkillUse, OnSkillLevelUp, OnJailTimeServed>;
+            OnAnimationTextKey, OnAnimationEnded, OnSkillUse, OnSkillUseFailed, OnSkillLevelUp, OnJailTimeServed>;
 
         void clear() { mQueue.clear(); }
         void addToQueue(Event e) { mQueue.push_back(std::move(e)); }

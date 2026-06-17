@@ -68,9 +68,13 @@ namespace MWWorld
 
         // Teleport location for the door, if this is a teleporting door.
         ESM::Position getDoorDest() const;
+        void setDoorDest(const ESM::Position& position);
 
         // Destination cell for doors (optional)
         ESM::RefId getDestCell() const;
+        void setDestCell(const ESM::RefId& cell);
+
+        void setTeleport(bool teleport);
 
         // Scale applied to mesh
         float getScale() const

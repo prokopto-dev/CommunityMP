@@ -5,6 +5,7 @@
 #include <array>
 #include <cstring>
 #include <pwd.h>
+#include <system_error>
 #include <unistd.h>
 
 #include <components/misc/strings/lower.hpp>
@@ -119,7 +120,8 @@ namespace Files
         };
         for (const std::filesystem::path& steam : steamPaths)
         {
-            if (std::filesystem::is_directory(steam))
+            std::error_code ec;
+            if (std::filesystem::is_directory(steam, ec))
                 paths.emplace_back(steam);
         }
         std::ranges::sort(paths);

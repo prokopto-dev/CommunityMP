@@ -1,20 +1,26 @@
 #include "birth.hpp"
 
+#include <algorithm>
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ListBox.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_UString.h>
 
+#include <osg/Texture2D>
+
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/myguiplatform/myguitexture.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+
+#include "../mwrender/characterpreview.hpp"
 
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/player.hpp"
@@ -23,7 +29,6 @@
 
 namespace
 {
-
     bool sortBirthSigns(const std::pair<ESM::RefId, const ESM::BirthSign*>& left,
         const std::pair<ESM::RefId, const ESM::BirthSign*>& right)
     {
@@ -35,7 +40,7 @@ namespace
 namespace MWGui
 {
 
-    BirthDialog::BirthDialog()
+    BirthDialog::BirthDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : WindowModal("openmw_chargen_birth.layout")
     {
         // Centre dialog
@@ -44,6 +49,18 @@ namespace MWGui
         getWidget(mSpellArea, "SpellArea");
 
         getWidget(mBirthImage, "BirthsignImage");
+
+        getWidget(mAvatarPreviewImage, "AvatarPreviewImage");
+        mAvatarPreview = std::make_unique<MWRender::RaceSelectionPreview>(
+            parent, resourceSystem, MWRender::RaceSelectionPreview::PreviewMode::Body);
+        mAvatarPreview->rebuild();
+        mAvatarPreviewController.bind(mAvatarPreviewImage, mAvatarPreview.get());
+        mAvatarPreviewController.setAngle(0.f);
+        mAvatarPreviewTexture = std::make_unique<MyGUIPlatform::OSGTexture>(
+            mAvatarPreview->getTexture(), mAvatarPreview->getTextureStateSet());
+        mAvatarPreviewImage->setRenderItemTexture(mAvatarPreviewTexture.get());
+        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted.
+        mAvatarPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
 
         getWidget(mBirthList, "BirthsignList");
         mBirthList->setScrollVisible(true);
@@ -69,6 +86,12 @@ namespace MWGui
         updateSpells();
     }
 
+    BirthDialog::~BirthDialog()
+    {
+        if (mAvatarPreviewImage != nullptr)
+            mAvatarPreviewImage->setRenderItemTexture(nullptr);
+    }
+
     void BirthDialog::setNextButtonShow(bool shown)
     {
         MyGUI::Button* okButton;
@@ -89,6 +112,11 @@ namespace MWGui
         else
             okButton->setCaption(
                 MyGUI::UString(MWBase::Environment::get().getWindowManager()->getGameSettingString("sOK", {})));
+    }
+
+    void BirthDialog::onFrame(float duration)
+    {
+        mAvatarPreviewController.update(duration);
     }
 
     void BirthDialog::onOpen()

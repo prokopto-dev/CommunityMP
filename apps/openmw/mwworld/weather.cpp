@@ -742,6 +742,52 @@ namespace MWWorld
         }
     }
 
+    void WeatherManager::setWeatherState(const ESM::RefId& regionID, int currentWeather, int nextWeather,
+        int queuedWeather, float transitionFactor, bool force)
+    {
+        auto normalizeWeather = [&](int weatherID) {
+            if (weatherID >= 0 && static_cast<std::size_t>(weatherID) < mWeatherSettings.size())
+                return weatherID;
+            return invalidWeatherID;
+        };
+
+        currentWeather = normalizeWeather(currentWeather);
+        nextWeather = normalizeWeather(nextWeather);
+        queuedWeather = normalizeWeather(queuedWeather);
+        transitionFactor = std::clamp(transitionFactor, 0.f, 1.f);
+
+        if (regionID.empty() || currentWeather == invalidWeatherID)
+            return;
+
+        auto region = mRegions.find(regionID);
+        if (region != mRegions.end())
+            region->second.setWeather(currentWeather);
+
+        if (mCurrentRegion.empty())
+        {
+            MWWorld::ConstPtr player = MWMechanics::getPlayer();
+            if (player.isInCell())
+                mCurrentRegion = player.getCell()->getCell()->getRegion();
+        }
+
+        if (regionID != mCurrentRegion)
+            return;
+
+        if (force || nextWeather == invalidWeatherID)
+        {
+            mCurrentWeather = currentWeather;
+            mNextWeather = nextWeather;
+            mQueuedWeather = nextWeather == invalidWeatherID ? invalidWeatherID : queuedWeather;
+            mTransitionFactor = nextWeather == invalidWeatherID ? 0.f : transitionFactor;
+            return;
+        }
+
+        mCurrentWeather = currentWeather;
+        mNextWeather = nextWeather;
+        mQueuedWeather = queuedWeather;
+        mTransitionFactor = transitionFactor;
+    }
+
     void WeatherManager::modRegion(const ESM::RefId& regionID, std::span<const uint8_t> chances)
     {
         // Sets the region's probability for various weather patterns. Note that this appears to be saved permanently.

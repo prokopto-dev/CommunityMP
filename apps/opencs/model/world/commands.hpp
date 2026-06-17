@@ -11,6 +11,7 @@
 
 #include <QAbstractItemModel>
 #include <QModelIndex>
+#include <QPersistentModelIndex>
 #include <QUndoCommand>
 #include <QVariant>
 
@@ -116,12 +117,12 @@ namespace CSMWorld
     class ModifyCommand : public QUndoCommand
     {
         QAbstractItemModel* mModel;
-        QModelIndex mIndex;
+        QPersistentModelIndex mIndex;
         QVariant mNew;
         QVariant mOld;
 
         bool mHasRecordState;
-        QModelIndex mRecordStateIndex;
+        QPersistentModelIndex mRecordStateIndex;
         CSMWorld::RecordBase::State mOldRecordState;
 
     public:

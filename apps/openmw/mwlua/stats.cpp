@@ -18,10 +18,16 @@
 #include "luamanagerimp.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
 
 #include "objectvariant.hpp"
 #include "recordstore.hpp"
@@ -63,6 +69,27 @@ namespace MWLua
 {
     namespace
     {
+#ifdef BUILD_TES3MP_CLIENT
+        mwmp::LocalPlayer* getLoggedInTes3mpLocalPlayerForPtr(const MWWorld::Ptr& ptr)
+        {
+            if (!mwmp::Main::isInitialized())
+                return nullptr;
+
+            mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer == nullptr || !localPlayer->isLoggedIn()
+                || ptr != MWBase::Environment::get().getWorld()->getPlayerPtr())
+                return nullptr;
+
+            return localPlayer;
+        }
+
+        void sendTes3mpLuaReputationPacket(const MWWorld::Ptr& ptr)
+        {
+            if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+                localPlayer->updateReputation(true);
+        }
+#endif
+
         static void setCreatureValue(Index, std::string_view prop, const MWWorld::Ptr& ptr, const sol::object& value)
         {
             auto& stats = ptr.getClass().getCreatureStats(ptr);
@@ -506,6 +533,9 @@ namespace MWLua
                 MWMechanics::NpcStats& stats = ptr.getClass().getNpcStats(ptr);
                 int intValue = LuaUtil::cast<int>(value);
                 stats.setReputation(intValue);
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpLuaReputationPacket(ptr);
+#endif
             }
         };
     }

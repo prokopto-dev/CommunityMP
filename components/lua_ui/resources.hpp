@@ -40,7 +40,7 @@ namespace LuaUi
 
     private:
         using TextureResources = std::vector<std::shared_ptr<TextureResource>>;
-        std::unordered_map<VFS::Path::Normalized, TextureResources, VFS::Path::Hash> mTextures;
+        std::unordered_map<VFS::Path::Normalized, TextureResources> mTextures;
     };
 }
 

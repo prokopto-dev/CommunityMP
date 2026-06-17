@@ -148,7 +148,9 @@ namespace CSVRender
         virtual DropRequirements getDropRequirements(DropType type) const;
 
         virtual void useViewHint(const std::string& hint);
-        ///< Default-implementation: ignored.
+        ///< Default-implementation: select referenced object for r:<reference id> hints.
+
+        bool selectReferenceById(const std::string& referenceId);
 
         /// \return Drop handled?
         virtual bool handleDrop(const std::vector<CSMWorld::UniversalId>& data, DropType type);
@@ -190,6 +192,12 @@ namespace CSVRender
         template <typename Tag>
         std::optional<WorldspaceHitResult> checkTag(
             const osgUtil::LineSegmentIntersector::Intersection& intersection) const;
+
+        template <typename Tag>
+        std::optional<WorldspaceHitResult> checkTagAtWorldPos(
+            const osg::NodePath& nodePath, const osg::Vec3d& worldPos) const;
+
+        std::optional<WorldspaceHitResult> mousePickMarker(const QPoint& localPos, unsigned int interactionMask) const;
 
         std::tuple<osg::Vec3d, osg::Vec3d, osg::Vec3d> getStartEndDirection(int pointX, int pointY) const;
 

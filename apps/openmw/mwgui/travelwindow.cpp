@@ -26,6 +26,11 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace MWGui
 {
     TravelWindow::TravelWindow()
@@ -220,6 +225,14 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(1);
         const ESM::ExteriorCellLocation posCell = ESM::positionToExteriorCellLocation(pos.pos[0], pos.pos[1]);
         ESM::RefId cellId = ESM::Cell::generateIdForCell(!interior, cellname, posCell.mX, posCell.mY);
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::isInitialized())
+        {
+            if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+                localPlayer->queueCellChangeReason(mwmp::CELL_CHANGE_REASON_GUIDED_TRAVEL);
+        }
+#endif
 
         // Teleports any followers, too.
         MWWorld::ActionTeleport action(cellId, pos, true);

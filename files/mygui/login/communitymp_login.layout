@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout">
+    <Widget type="Widget" skin="" layer="Windows" position="0 0 820 470" name="_Main">
+        <Property key="Visible" value="false"/>
+
+        <Widget type="ImageBox" skin="ImageBox" position="0 0 820 470" align="Stretch" name="Background">
+            <Property key="ImageTexture" value="mygui\login\textures\communitymp_login_panel.png"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="58 48 360 34" align="Left Top" name="TitleText">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="CommunityMP"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="EditBox" skin="MW_TextBoxEdit" position="58 96 354 76" align="Left Top" name="IntroText">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.88 0.82 0.68"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Static" value="true"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="MultiLine" value="true"/>
+            <Property key="NeedKey" value="false"/>
+            <Property key="Caption" value="Sign in to your server account before the world session starts."/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="58 214 150 22" align="Left Top" name="ServerLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.68 0.75 0.75"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Server"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+        <Widget type="TextBox" skin="SandText" position="58 242 354 30" align="Left Top" name="ServerText">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.94 0.90 0.78"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="58 322 360 46" align="Left Top" name="SessionNote">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.64 0.68 0.66"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value="Account identity is separate from character identity and server join passwords."/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="462 48 292 24" align="Left Top" name="AccountSectionText">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Server account"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="462 90 292 20" align="Left Top" name="LoginLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.68 0.75 0.75"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Account username"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+        <Widget type="EditBox" skin="MW_TextEdit" position="462 116 292 34" align="Left Top" name="EditLogin"/>
+
+        <Widget type="TextBox" skin="SandText" position="462 166 292 20" align="Left Top" name="PasswordLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.68 0.75 0.75"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Account password"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+        <Widget type="EditBox" skin="MW_TextEdit" position="462 192 292 34" align="Left Top" name="EditPassword"/>
+
+        <Widget type="Button" skin="CommunityMP_LoginToggle" position="462 244 292 32" align="Left Top" name="ButtonRemember">
+            <Property key="Caption" value="[ ] Remember me"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="462 298 292 20" align="Left Top" name="ServerPasswordLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.68 0.75 0.75"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Server join password"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+        <Widget type="EditBox" skin="MW_TextEdit" position="462 324 292 34" align="Left Top" name="EditServerPassword"/>
+
+        <Widget type="TextBox" skin="SandText" position="462 368 292 46" align="Left Top" name="ServerPasswordNote">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.88 0.82 0.68"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value="Leave blank unless this server requires a join password."/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="58 410 410 30" align="Left Top" name="ErrorText">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="1 0.30 0.24"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_LoginButton" position="558 410 88 32" align="Right Bottom" name="ButtonCancel">
+            <Property key="Caption" value="Cancel"/>
+        </Widget>
+        <Widget type="Button" skin="CommunityMP_LoginButton" position="660 410 94 32" align="Right Bottom" name="ButtonConnect">
+            <Property key="Caption" value="Sign In"/>
+        </Widget>
+    </Widget>
+</MyGUI>

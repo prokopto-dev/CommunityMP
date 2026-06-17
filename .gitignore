@@ -85,7 +85,11 @@ moc_*.cxx
 *.[ao]
 *.so
 venv/
+.tools/
 
 ## operating system files
 .DS_Store
 Thumbs.db
+
+## local server/runtime state
+/saves/

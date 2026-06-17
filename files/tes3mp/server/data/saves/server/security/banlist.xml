@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<save domain="server-security" format="CommunityMP XML Save" kind="server-banlist" saveSchemaVersion="1" savedAt="0" schemaVersion="1">
+    <node key="data" keyType="string" type="table">
+        <node key="ipAddresses" keyType="string" type="table">
+        </node>
+        <node key="playerNames" keyType="string" type="table">
+        </node>
+    </node>
+</save>

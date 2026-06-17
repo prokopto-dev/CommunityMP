@@ -146,6 +146,50 @@
         </BasisSkin>
     </Resource>
 
+    <Resource type="ResourceSkin" name="MW_DialogueTopicLine" size="5 5">
+        <Property key="FontName" value="Default"/>
+        <Property key="TextAlign" value="Left VCenter"/>
+
+        <BasisSkin type="SimpleText" offset="2 0 1 5" align="Stretch">
+            <State name="disabled" colour="#{fontcolour=disabled}" shift="0"/>
+            <State name="normal" colour="#{fontcolour=normal}" shift="0"/>
+            <State name="highlighted" colour="#{fontcolour=normal_over}" shift="0"/>
+            <State name="pushed" colour="#{fontcolour=normal_pressed}" shift="0"/>
+            <State name="disabled_checked" colour="#{fontcolour=disabled}" shift="0"/>
+            <State name="normal_checked" colour="#{fontcolour=header}" shift="0"/>
+            <State name="highlighted_checked" colour="#{fontcolour=header}" shift="0"/>
+            <State name="pushed_checked" colour="#{fontcolour=header}" shift="0"/>
+        </BasisSkin>
+    </Resource>
+
+    <Resource type="ResourceSkin" name="MW_DialogueTopicLine_Specific" size="5 5">
+        <Property key="FontName" value="Default"/>
+        <Property key="TextAlign" value="Left VCenter"/>
+
+        <BasisSkin type="SimpleText" offset="2 0 1 5" align="Stretch">
+            <State name="normal" colour="#{setting=GUI,color topic specific}"/>
+            <State name="highlighted" colour="#{setting=GUI,color topic specific over}"/>
+            <State name="pushed" colour="#{setting=GUI,color topic specific pressed}"/>
+            <State name="normal_checked" colour="#{fontcolour=header}" shift="0"/>
+            <State name="highlighted_checked" colour="#{fontcolour=header}" shift="0"/>
+            <State name="pushed_checked" colour="#{fontcolour=header}" shift="0"/>
+        </BasisSkin>
+    </Resource>
+
+    <Resource type="ResourceSkin" name="MW_DialogueTopicLine_Exhausted" size="5 5">
+        <Property key="FontName" value="Default"/>
+        <Property key="TextAlign" value="Left VCenter"/>
+
+        <BasisSkin type="SimpleText" offset="2 0 1 5" align="Stretch">
+            <State name="normal" colour="#{setting=GUI,color topic exhausted}"/>
+            <State name="highlighted" colour="#{setting=GUI,color topic exhausted over}"/>
+            <State name="pushed" colour="#{setting=GUI,color topic exhausted pressed}"/>
+            <State name="normal_checked" colour="#{fontcolour=header}" shift="0"/>
+            <State name="highlighted_checked" colour="#{fontcolour=header}" shift="0"/>
+            <State name="pushed_checked" colour="#{fontcolour=header}" shift="0"/>
+        </BasisSkin>
+    </Resource>
+
     <Resource type="ResourceLayout" name="MW_List" size="516 516" align="Left Top">
         <Widget type="Widget" position="0 0 516 516" name="Root">
             <Property key="NeedKey" value="true"/>
@@ -207,6 +251,15 @@
 
     <Resource type="ResourceSkin" name="MW_SimpleList" size="516 516" align="Left Top">
         <Property key="ListItemSkin" value="MW_ListLine"/>
+
+        <Child type="Widget" skin="MW_Box" offset="0 0 516 516" align="Stretch"/>
+
+        <Child type="Widget" skin="" offset="3 3 510 510" align="Top Left Stretch" name="Client"/>
+
+    </Resource>
+
+    <Resource type="ResourceSkin" name="MW_DialogueTopicsList" size="516 516" align="Left Top">
+        <Property key="ListItemSkin" value="MW_DialogueTopicLine"/>
 
         <Child type="Widget" skin="MW_Box" offset="0 0 516 516" align="Stretch"/>
 

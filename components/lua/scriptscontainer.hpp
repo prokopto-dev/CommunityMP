@@ -319,6 +319,7 @@ namespace LuaUtil
         void callTimer(const Timer& t);
         void updateTimerQueue(std::vector<Timer>& timerQueue, double time);
         static void insertTimer(std::vector<Timer>& timerQueue, Timer&& t);
+        static void removeTimers(std::vector<Timer>& timerQueue, int scriptId);
         static void insertHandler(std::vector<Handler>& list, int scriptId, sol::function fn);
         static void removeHandler(std::vector<Handler>& list, int scriptId);
         void insertInterface(int scriptId, const Script& script);

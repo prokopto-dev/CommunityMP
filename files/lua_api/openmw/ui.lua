@@ -85,6 +85,22 @@
 -- @return openmw.util#Vector2
 
 ---
+-- Returns whether the player is dragging an item with the native inventory drag-and-drop system.
+-- @function [parent=#ui] isDragDropActive
+-- @return #boolean
+
+---
+-- Enable or disable OpenMW's native inventory/container item drag-and-drop handling.
+-- Mods can disable native handling while they provide a custom drag-and-drop UI.
+-- @function [parent=#ui] setNativeItemDragDropEnabled
+-- @param #boolean enabled
+
+---
+-- Returns whether OpenMW's native inventory/container item drag-and-drop handling is enabled.
+-- @function [parent=#ui] isNativeItemDragDropEnabled
+-- @return #boolean
+
+---
 -- Converts a given table of tables into an @{openmw.ui#Content}
 -- @function [parent=#ui] content
 -- @param #table table
@@ -129,6 +145,9 @@
 --   Note: if the #Element isn't attached to anything, it won't be visible!
 -- @field #string name Optional name of the layout. Allows access by name from Content
 -- @field #table props Optional table of widget properties
+--   Can contain:
+--
+--   * `interactive` - If false, the widget ignores mouse interactions.
 -- @field #table events Optional table of event callbacks
 -- @field #Content content Optional @{openmw.ui#Content} of children layouts
 -- @field #Template template Optional #Template

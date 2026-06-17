@@ -94,6 +94,7 @@ namespace MWGui
         MWMechanics::Pickpocket pickpocket(player, mActor);
         if (pickpocket.finish())
         {
+            player.getClass().skillUsageFailed(player, ESM::Skill::Sneak, ESM::Skill::Sneak_PickPocket);
             MWBase::Environment::get().getMechanicsManager()->commitCrime(
                 player, mActor, MWBase::MechanicsManager::OT_Pickpocket, ESM::RefId(), 0, true);
             mPickpocketDetected = true;
@@ -122,6 +123,7 @@ namespace MWGui
         MWMechanics::Pickpocket pickpocket(player, mActor);
         if (pickpocket.pick(item, count))
         {
+            player.getClass().skillUsageFailed(player, ESM::Skill::Sneak, ESM::Skill::Sneak_PickPocket);
             MWBase::Environment::get().getMechanicsManager()->commitCrime(
                 player, mActor, MWBase::MechanicsManager::OT_Pickpocket, ESM::RefId(), 0, true);
             mPickpocketDetected = true;

@@ -204,7 +204,7 @@
 --   * `particleTextureOverride` - Name of a particle texture that should override this effect's default texture. (default: "")
 --   * `scale` - A number that scales the size of the vfx (Default: 1)
 --   * `useAmbientLight` - boolean, vfx get a white ambient light attached in Morrowind. If false don't attach this. (default: true)
---   * `loop` - boolean, if true the effect will loop until removed (default: false).
+--   * `loop` - boolean, if true the effect will loop until removed (default: true when `vfxId` is provided, otherwise false).
 --   * `vfxId` - a string ID that can be used to remove the effect later, using @{#VFX.remove}. (Default: "").
 --
 -- @usage -- Spawn a sanctuary effect near the player

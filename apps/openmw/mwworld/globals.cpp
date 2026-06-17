@@ -72,6 +72,35 @@ namespace MWWorld
         }
     }
 
+    void Globals::ensure(GlobalVariableName name, char type)
+    {
+        if (mVariables.find(name.getValue()) != mVariables.end())
+            return;
+
+        ESM::VarType variantType = ESM::VT_Unknown;
+        switch (type)
+        {
+            case 's':
+                variantType = ESM::VT_Short;
+                break;
+            case 'l':
+                variantType = ESM::VT_Long;
+                break;
+            case 'f':
+                variantType = ESM::VT_Float;
+                break;
+            default:
+                throw std::runtime_error("unsupported global variable type");
+        }
+
+        ESM::Global global;
+        global.blank();
+        global.mId = ESM::RefId::stringRefId(name.getValue());
+        global.mValue.setType(variantType);
+
+        mVariables.emplace(global.mId, std::move(global));
+    }
+
     size_t Globals::countSavedGameRecords() const
     {
         return mVariables.size();

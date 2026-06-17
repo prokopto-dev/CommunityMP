@@ -3,6 +3,8 @@
 #include <cmath>
 #include <sstream>
 
+#include <components/openmw-mp/Base/BaseStructs.hpp>
+
 #include <components/compiler/locals.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/esm/records.hpp>
@@ -21,11 +23,37 @@
 
 #include "../mwmechanics/npcstats.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/ScriptController.hpp"
+#include "../mwmp/Worldstate.hpp"
+
 #include "globalscripts.hpp"
 #include "locals.hpp"
 
 namespace MWScript
 {
+    unsigned short InterpreterContext::getContextType() const
+    {
+        return mContextType;
+    }
+
+    const std::string& InterpreterContext::getCurrentScriptName() const
+    {
+        return mCurrentScriptName;
+    }
+
+    void InterpreterContext::trackContextType(unsigned short contextType)
+    {
+        mContextType = contextType;
+    }
+
+    void InterpreterContext::trackCurrentScriptName(std::string name)
+    {
+        mCurrentScriptName = std::move(name);
+    }
+
     const MWWorld::Ptr InterpreterContext::getReferenceImp(const ESM::RefId& id, bool activeOnly, bool doThrow) const
     {
         if (!id.empty())
@@ -171,7 +199,20 @@ namespace MWScript
         if (!mLocals)
             throw std::runtime_error("local variables not available in this context");
 
+        if (mLocals->mShorts.at(index) == value)
+            return;
+
         mLocals->mShorts.at(index) = static_cast<Interpreter::Type_Short>(value);
+
+        if (sendPackets && mwmp::Main::isInitialized())
+        {
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = ScriptController::getPacketOriginFromContextType(getContextType());
+            objectList->originClientScript = getCurrentScriptName();
+            objectList->addClientScriptLocal(mReference, index, value, mwmp::VARIABLE_TYPE::SHORT);
+            objectList->sendClientScriptLocal();
+        }
     }
 
     void InterpreterContext::setLocalLong(int index, int value)
@@ -179,7 +220,20 @@ namespace MWScript
         if (!mLocals)
             throw std::runtime_error("local variables not available in this context");
 
+        if (mLocals->mLongs.at(index) == value)
+            return;
+
         mLocals->mLongs.at(index) = value;
+
+        if (sendPackets && mwmp::Main::isInitialized())
+        {
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = ScriptController::getPacketOriginFromContextType(getContextType());
+            objectList->originClientScript = getCurrentScriptName();
+            objectList->addClientScriptLocal(mReference, index, value, mwmp::VARIABLE_TYPE::LONG);
+            objectList->sendClientScriptLocal();
+        }
     }
 
     void InterpreterContext::setLocalFloat(int index, float value)
@@ -187,7 +241,21 @@ namespace MWScript
         if (!mLocals)
             throw std::runtime_error("local variables not available in this context");
 
+        const float oldValue = mLocals->mFloats.at(index);
+        if (oldValue == value)
+            return;
+
         mLocals->mFloats.at(index) = value;
+
+        if (std::floor(oldValue) != std::floor(value) && sendPackets && mwmp::Main::isInitialized())
+        {
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = ScriptController::getPacketOriginFromContextType(getContextType());
+            objectList->originClientScript = getCurrentScriptName();
+            objectList->addClientScriptLocal(mReference, index, value);
+            objectList->sendClientScriptLocal();
+        }
     }
 
     void InterpreterContext::messageBox(std::string_view message, const std::vector<std::string>& buttons)
@@ -218,16 +286,44 @@ namespace MWScript
 
     void InterpreterContext::setGlobalShort(std::string_view name, int value)
     {
+        if (getGlobalShort(name) == value)
+            return;
+
+        if (mwmp::Main::isInitialized() && (sendPackets || mwmp::Main::isValidPacketGlobal(std::string(name))))
+        {
+            mwmp::Main::get().getNetworking()->getWorldstate()->sendClientGlobal(
+                std::string(name), value, mwmp::VARIABLE_TYPE::SHORT);
+        }
+
         MWBase::Environment::get().getWorld()->setGlobalInt(name, value);
     }
 
     void InterpreterContext::setGlobalLong(std::string_view name, int value)
     {
+        if (getGlobalLong(name) == value)
+            return;
+
+        if (mwmp::Main::isInitialized() && (sendPackets || mwmp::Main::isValidPacketGlobal(std::string(name))))
+        {
+            mwmp::Main::get().getNetworking()->getWorldstate()->sendClientGlobal(
+                std::string(name), value, mwmp::VARIABLE_TYPE::LONG);
+        }
+
         MWBase::Environment::get().getWorld()->setGlobalInt(name, value);
     }
 
     void InterpreterContext::setGlobalFloat(std::string_view name, float value)
     {
+        const float oldValue = getGlobalFloat(name);
+        if (oldValue == value)
+            return;
+
+        if (std::floor(oldValue) != std::floor(value) && mwmp::Main::isInitialized()
+            && (sendPackets || mwmp::Main::isValidPacketGlobal(std::string(name))))
+        {
+            mwmp::Main::get().getNetworking()->getWorldstate()->sendClientGlobal(std::string(name), value);
+        }
+
         MWBase::Environment::get().getWorld()->setGlobalFloat(name, value);
     }
 

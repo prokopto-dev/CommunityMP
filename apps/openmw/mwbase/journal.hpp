@@ -51,7 +51,7 @@ namespace MWBase
         virtual MWDialogue::Quest* getQuestOrNull(const ESM::RefId& id) = 0;
         ///< Gets a pointer to the requested quest. Will return nullptr if the quest has not been started.
 
-        virtual void addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor) = 0;
+        virtual void addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor, bool showMessage = true) = 0;
         ///< Add a journal entry.
         /// @param actor Used as context for replacing of escape sequences (%name, etc).
 

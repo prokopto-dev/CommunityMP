@@ -31,7 +31,9 @@
 #include <apps/opencs/model/prefs/category.hpp>
 #include <apps/opencs/model/prefs/setting.hpp>
 #include <apps/opencs/model/prefs/shortcutmanager.hpp>
+#include <apps/opencs/model/world/columns.hpp>
 #include <apps/opencs/model/world/data.hpp>
+#include <apps/opencs/model/world/record.hpp>
 #include <apps/opencs/view/doc/subviewfactory.hpp>
 
 #include <components/files/conversion.hpp>
@@ -47,6 +49,34 @@
 #include "subview.hpp"
 #include "subviewfactoryimp.hpp"
 #include "viewmanager.hpp"
+
+namespace
+{
+    CSMWorld::UniversalId::Type getDialogueReuseType(const CSMWorld::UniversalId& id)
+    {
+        if (id.getClass() == CSMWorld::UniversalId::Class_RefRecord
+            || id.getType() == CSMWorld::UniversalId::Type_Referenceable)
+            return CSMWorld::UniversalId::Type_Referenceable;
+
+        return id.getType();
+    }
+
+    bool isUnavailableReferenceSubview(CSMDoc::Document& document, const CSMWorld::UniversalId& id)
+    {
+        if (id.getType() != CSMWorld::UniversalId::Type_Reference)
+            return false;
+
+        auto& references = dynamic_cast<CSMWorld::IdTable&>(
+            *document.getData().getTableModel(CSMWorld::UniversalId::Type_References));
+        const int stateColumn = references.findColumnIndex(CSMWorld::Columns::ColumnId_Modification);
+        const QModelIndex index = references.getModelIndex(id.getId(), stateColumn);
+
+        if (!index.isValid())
+            return true;
+
+        return references.data(index).toInt() == CSMWorld::RecordBase::State_Deleted;
+    }
+}
 
 QRect desktopRect()
 {
@@ -589,6 +619,9 @@ void CSVDoc::View::updateProgress(int current, int max, int type, int threads)
 
 void CSVDoc::View::addSubView(const CSMWorld::UniversalId& id, const std::string& hint)
 {
+    if (isUnavailableReferenceSubview(*mDocument, id))
+        return;
+
     CSMPrefs::Category& windows = CSMPrefs::State::get()["Windows"];
 
     bool isReferenceable = id.getClass() == CSMWorld::UniversalId::Class_RefRecord;
@@ -606,6 +639,32 @@ void CSVDoc::View::addSubView(const CSMWorld::UniversalId& id, const std::string
                 sb->setFocus();
                 if (!hint.empty())
                     sb->useHint(hint);
+                return;
+            }
+        }
+
+        if (id.getType() == CSMWorld::UniversalId::Type_Script)
+        {
+            for (SubView* sb : mSubViews)
+            {
+                CSVWorld::ScriptSubView* scriptView = dynamic_cast<CSVWorld::ScriptSubView*>(sb);
+                if (scriptView)
+                {
+                    scriptView->switchToIdAndUseHint(id.getId(), hint);
+                    scriptView->setFocus();
+                    return;
+                }
+            }
+        }
+
+        const CSMWorld::UniversalId::Type dialogueReuseType = getDialogueReuseType(id);
+        for (SubView* sb : mSubViews)
+        {
+            CSVWorld::DialogueSubView* dialogueView = dynamic_cast<CSVWorld::DialogueSubView*>(sb);
+            if (dialogueView != nullptr && getDialogueReuseType(dialogueView->getUniversalId()) == dialogueReuseType)
+            {
+                dialogueView->switchToIdAndUseHint(id, hint);
+                dialogueView->setFocus();
                 return;
             }
         }

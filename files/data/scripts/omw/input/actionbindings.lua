@@ -107,7 +107,11 @@ do
         if togglePOV then
             local triggerLeft = input.getAxisValue(input.CONTROLLER_AXIS.TriggerLeft)
             local triggerRight = input.getAxisValue(input.CONTROLLER_AXIS.TriggerRight)
-            local controllerZoom = (triggerRight - triggerLeft) * 100 * dt
+            local leftStickY = input.getAxisValue(input.CONTROLLER_AXIS.LeftY)
+            if math.abs(leftStickY) < 0.2 then
+                leftStickY = 0
+            end
+            local controllerZoom = (triggerRight - triggerLeft - leftStickY) * 100 * dt
             Zoom3rdPerson = Zoom3rdPerson + controllerZoom
         end
         zoomInOut = 0

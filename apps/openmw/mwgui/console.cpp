@@ -32,6 +32,12 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/ScriptController.hpp"
+
 namespace
 {
     bool isWhitespace(MyGUI::UString::code_point c)
@@ -250,6 +256,23 @@ namespace MWGui
             try
             {
                 ConsoleInterpreterContext interpreterContext(*this, mPtr);
+                interpreterContext.trackContextType(ScriptController::Console);
+
+                if (mwmp::Main::isInitialized())
+                {
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = mwmp::CLIENT_CONSOLE;
+                    objectList->consoleCommand = command;
+
+                    if (mPtr.isEmpty())
+                        objectList->cell = mwmp::Main::get().getLocalPlayer()->cell;
+                    else
+                        objectList->addObjectGeneric(mPtr);
+
+                    objectList->sendConsoleCommand();
+                }
+
                 Interpreter::Interpreter interpreter;
                 MWScript::installOpcodes(interpreter, mConsoleOnlyScripts);
                 const Interpreter::Program program = output.getProgram();

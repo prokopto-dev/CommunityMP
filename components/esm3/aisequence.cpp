@@ -174,11 +174,16 @@ namespace ESM
         void AiCombat::load(ESMReader& esm)
         {
             loadActorId(esm, "TARG", mTargetActor);
+            mHasStartTime = esm.isNextSub("STAR");
+            if (mHasStartTime)
+                mStartTime.load(esm, "STAR");
         }
 
         void AiCombat::save(ESMWriter& esm) const
         {
             esm.writeFormId(mTargetActor, true, "TARG");
+            if (mHasStartTime)
+                esm.writeHNT("STAR", mStartTime);
         }
 
         void AiPursue::load(ESMReader& esm)

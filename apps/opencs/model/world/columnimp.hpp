@@ -1162,7 +1162,7 @@ namespace CSMWorld
     struct TeleportCellColumn : public Column<ESXRecordT>
     {
         TeleportCellColumn()
-            : Column<ESXRecordT>(Columns::ColumnId_TeleportCell, ColumnBase::Display_Cell)
+            : Column<ESXRecordT>(Columns::ColumnId_TeleportCell, ColumnBase::Display_InteriorCell)
         {
         }
 

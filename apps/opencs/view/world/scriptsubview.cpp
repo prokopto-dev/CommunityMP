@@ -260,6 +260,20 @@ void CSVWorld::ScriptSubView::useHint(const std::string& hint)
     mEditor->setTextCursor(cursor);
 }
 
+void CSVWorld::ScriptSubView::switchToIdAndUseHint(const std::string& id, const std::string& hint)
+{
+    QModelIndex index = mModel->getModelIndex(id, 0);
+    if (!index.isValid())
+        return;
+
+    switchToRow(index.row());
+
+    if (!hint.empty())
+        useHint(hint);
+    else
+        mEditor->setFocus();
+}
+
 void CSVWorld::ScriptSubView::textChanged()
 {
     if (mEditor->isChangeLocked())

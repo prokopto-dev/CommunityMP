@@ -42,6 +42,12 @@
 
 #include "../mwsound/constants.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/PlayerList.hpp"
+#endif
+
 #include "actor.hpp"
 #include "actorutil.hpp"
 #include "aicombataction.hpp"
@@ -59,6 +65,20 @@
 
 namespace
 {
+
+#ifdef BUILD_TES3MP_CLIENT
+    bool isNetworkDrivenMultiplayerActor(const MWWorld::Ptr& ptr)
+    {
+        return mwmp::Main::isInitialized()
+            && (mwmp::PlayerList::isDedicatedPlayer(ptr)
+                || mwmp::Main::get().getCellController()->isDedicatedActor(ptr));
+    }
+#else
+    bool isNetworkDrivenMultiplayerActor(const MWWorld::Ptr&)
+    {
+        return false;
+    }
+#endif
 
     bool isConscious(const MWWorld::Ptr& ptr)
     {
@@ -1349,6 +1369,8 @@ namespace MWMechanics
             if (actor.isInvalid())
                 continue;
             const MWWorld::Ptr& ptr = actor.getPtr();
+            if (isNetworkDrivenMultiplayerActor(ptr))
+                continue;
             const MWWorld::Class& cls = ptr.getClass();
             cache.push_back({ ptr, cls.getMaxSpeed(ptr), world->getHalfExtents(ptr), cls.getMovementSettings(ptr) });
         }
@@ -1540,6 +1562,7 @@ namespace MWMechanics
                 if (actor.isInvalid())
                     continue;
                 const bool isPlayer = actor.getPtr() == player;
+                const bool networkDrivenActor = isNetworkDrivenMultiplayerActor(actor.getPtr());
                 CharacterController& ctrl = actor.getCharacterController();
                 MWBase::LuaManager::ActorControls* luaControls
                     = MWBase::Environment::get().getLuaManager()->getActorControls(actor.getPtr());
@@ -1591,7 +1614,7 @@ namespace MWMechanics
                         return; // for now abort update of the old cell when cell changes by teleportation magic effect
                                 // a better solution might be to apply cell changes at the end of the frame
                     }
-                    if (aiActive && inProcessingRange)
+                    if (!networkDrivenActor && aiActive && inProcessingRange)
                     {
                         if (engageCombatTimerStatus == Misc::TimerStatus::Elapsed)
                         {
@@ -1626,14 +1649,14 @@ namespace MWMechanics
                             }
                         }
                     }
-                    else if (aiActive && !isPlayer && isConscious(actor.getPtr())
+                    else if (!networkDrivenActor && aiActive && !isPlayer && isConscious(actor.getPtr())
                         && !(luaControls && luaControls->mDisableAI))
                     {
                         CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
                         stats.getAiSequence().execute(actor.getPtr(), ctrl, duration, /*outOfRange*/ true);
                     }
 
-                    if (inProcessingRange && actor.getPtr().getClass().isNpc())
+                    if (!networkDrivenActor && inProcessingRange && actor.getPtr().getClass().isNpc())
                     {
                         // We can not update drowning state for actors outside of AI distance - they can not resurface
                         // to breathe
@@ -1642,7 +1665,7 @@ namespace MWMechanics
                     if (mTimerUpdateEquippedLight == 0 && actor.getPtr().getClass().hasInventoryStore(actor.getPtr()))
                         updateEquippedLight(actor.getPtr(), updateEquippedLightInterval, showTorches);
 
-                    if (luaControls != nullptr && isConscious(actor.getPtr()))
+                    if (!networkDrivenActor && luaControls != nullptr && isConscious(actor.getPtr()))
                         updateLuaControls(actor.getPtr(), isPlayer, *luaControls);
                 }
             }
@@ -1825,6 +1848,15 @@ namespace MWMechanics
 
                 if (isPlayer)
                 {
+#ifdef BUILD_TES3MP_CLIENT
+                    if (mwmp::Main::isInitialized())
+                    {
+                        // Multiplayer death is server-authored; do not enter OpenMW's
+                        // single-player recent-save load flow after the death animation.
+                        continue;
+                    }
+#endif
+
                     // player's death animation is over
                     MWBase::Environment::get().getStateManager()->askLoadRecent();
                 }
@@ -2019,11 +2051,34 @@ namespace MWMechanics
         return 0;
     }
 
+    void Actors::setDeaths(const ESM::RefId& id, int count)
+    {
+        if (count > 0)
+            mDeathCount[id] = count;
+        else
+            mDeathCount.erase(id);
+    }
+
     void Actors::forceStateUpdate(const MWWorld::Ptr& ptr) const
     {
         const auto iter = mIndex.find(ptr.mRef);
         if (iter != mIndex.end())
             iter->second->getCharacterController().forceStateUpdate();
+    }
+
+    void Actors::replayAttackStart(const MWWorld::Ptr& ptr, std::string_view attackType) const
+    {
+        const auto iter = mIndex.find(ptr.mRef);
+        if (iter != mIndex.end())
+            iter->second->getCharacterController().replayAttackStart(attackType);
+    }
+
+    void Actors::replayAttackRelease(
+        const MWWorld::Ptr& ptr, std::string_view attackType, float attackStrength) const
+    {
+        const auto iter = mIndex.find(ptr.mRef);
+        if (iter != mIndex.end())
+            iter->second->getCharacterController().replayAttackRelease(attackType, attackStrength);
     }
 
     bool Actors::playAnimationGroup(

@@ -21,7 +21,7 @@
 #include "../mwworld/nullaction.hpp"
 #include "../mwworld/ptr.hpp"
 
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 
 #include "../mwrender/objects.hpp"
 #include "../mwrender/renderinginterface.hpp"
@@ -51,13 +51,13 @@ namespace MWClass
     }
 
     void Activator::insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         insertObjectPhysics(ptr, model, rotation, physics);
     }
 
     void Activator::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::CollisionType_World);
     }

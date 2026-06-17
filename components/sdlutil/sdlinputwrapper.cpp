@@ -5,8 +5,26 @@
 
 #include <osgViewer/Viewer>
 
+#include <cmath>
+
 namespace SDLUtil
 {
+    namespace
+    {
+        float getDrawableScale(int drawableSize, int windowSize)
+        {
+            if (drawableSize <= 0 || windowSize <= 0)
+                return 1.f;
+
+            const float scale = static_cast<float>(drawableSize) / static_cast<float>(windowSize);
+            return std::isfinite(scale) && scale > 0.f ? scale : 1.f;
+        }
+
+        Sint32 roundMouseValue(float value)
+        {
+            return static_cast<Sint32>(std::lround(value));
+        }
+    }
 
     InputWrapper::InputWrapper(SDL_Window* window, osg::ref_ptr<osgViewer::Viewer> viewer, bool grab)
         : mSDLWindow(window)
@@ -30,6 +48,7 @@ namespace SDLUtil
         , mMouseZ(0)
         , mMouseX(0)
         , mMouseY(0)
+        , mPreciseMouseWheelRemainder(0.f)
         , mWindowHasFocus(true)
         , mMouseInWindow(true)
     {
@@ -47,8 +66,8 @@ namespace SDLUtil
         SDL_GetWindowSize(mSDLWindow, &w, &h);
         int dw, dh;
         SDL_GL_GetDrawableSize(mSDLWindow, &dw, &dh);
-        mScaleX = static_cast<Uint16>(dw / w);
-        mScaleY = static_cast<Uint16>(dh / h);
+        mScaleX = getDrawableScale(dw, w);
+        mScaleY = getDrawableScale(dh, h);
     }
 
     void InputWrapper::capture(bool windowEventsOnly)
@@ -285,10 +304,14 @@ namespace SDLUtil
             case SDL_WINDOWEVENT_FOCUS_GAINED:
                 mWindowHasFocus = true;
                 updateMouseSettings();
+                if (mWindowListener)
+                    mWindowListener->windowFocusChange(true);
                 break;
             case SDL_WINDOWEVENT_FOCUS_LOST:
                 mWindowHasFocus = false;
                 updateMouseSettings();
+                if (mWindowListener)
+                    mWindowListener->windowFocusChange(false);
                 break;
             case SDL_WINDOWEVENT_CLOSE:
                 break;
@@ -418,28 +441,41 @@ namespace SDLUtil
     MouseMotionEvent InputWrapper::_packageMouseMotion(const SDL_Event& evt)
     {
         MouseMotionEvent packEvt = {};
-        packEvt.x = mMouseX * mScaleX;
-        packEvt.y = mMouseY * mScaleY;
+        packEvt.x = mMouseX;
+        packEvt.y = mMouseY;
         packEvt.z = mMouseZ;
 
         if (evt.type == SDL_MOUSEMOTION)
         {
-            packEvt.x = mMouseX = evt.motion.x * mScaleX;
-            packEvt.y = mMouseY = evt.motion.y * mScaleY;
-            packEvt.xrel = evt.motion.xrel * mScaleX;
-            packEvt.yrel = evt.motion.yrel * mScaleY;
+            packEvt.x = mMouseX = roundMouseValue(static_cast<float>(evt.motion.x) * mScaleX);
+            packEvt.y = mMouseY = roundMouseValue(static_cast<float>(evt.motion.y) * mScaleY);
+            packEvt.xrelPrecise = static_cast<float>(evt.motion.xrel) * mScaleX;
+            packEvt.yrelPrecise = static_cast<float>(evt.motion.yrel) * mScaleY;
+            packEvt.xrel = roundMouseValue(packEvt.xrelPrecise);
+            packEvt.yrel = roundMouseValue(packEvt.yrelPrecise);
             packEvt.type = SDL_MOUSEMOTION;
             if (mFirstMouseMove)
             {
                 // first event should be treated as non-relative, since there's no point of reference
                 // SDL then (incorrectly) uses (0,0) as point of reference, on Linux at least...
                 packEvt.xrel = packEvt.yrel = 0;
+                packEvt.xrelPrecise = packEvt.yrelPrecise = 0.f;
                 mFirstMouseMove = false;
             }
         }
         else if (evt.type == SDL_MOUSEWHEEL)
         {
-            mMouseZ += packEvt.zrel = (evt.wheel.y * 120);
+            float wheelY = static_cast<float>(evt.wheel.y);
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+            if (evt.wheel.preciseY != 0.f)
+                wheelY = evt.wheel.preciseY;
+#endif
+            mPreciseMouseWheelRemainder += wheelY * 120.f;
+            const Sint32 wheelDelta = static_cast<Sint32>(mPreciseMouseWheelRemainder);
+            if (wheelDelta != 0)
+                mPreciseMouseWheelRemainder -= static_cast<float>(wheelDelta);
+
+            mMouseZ += packEvt.zrel = wheelDelta;
             packEvt.z = mMouseZ;
             packEvt.type = SDL_MOUSEWHEEL;
         }

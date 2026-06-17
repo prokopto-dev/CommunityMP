@@ -1,6 +1,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
 #include <components/files/configurationmanager.hpp>
 #include <components/fx/technique.hpp>
 #include <components/resource/imagemanager.hpp>
@@ -53,6 +57,13 @@ namespace
     }
     fragment main { }
     technique { passes = downsample2x, main; }
+)" };
+
+    constexpr VFS::Path::NormalizedView missingRenderTargetInputPath("shaders/missing_render_target_input.omwfx");
+
+    TestingOpenMW::VFSTestFile missingRenderTargetInput{ R"(
+    fragment main(rt1=missingtarget) { }
+    technique { passes = main; }
 )" };
 
     constexpr VFS::Path::NormalizedView uniformPropertiesPath("shaders/uniform_properties.omwfx");
@@ -153,6 +164,7 @@ namespace
             : mVFS(TestingOpenMW::createTestVFS({
                 { techniquePropertiesPath, &techniqueProperties },
                 { rendertargetPropertiesPath, &rendertargetProperties },
+                { missingRenderTargetInputPath, &missingRenderTargetInput },
                 { uniformPropertiesPath, &uniformProperties },
                 { missingSamplerSourcePath, &missingSamplerSource },
                 { repeatedSharedBlockPath, &repeatedSharedBlock },
@@ -205,6 +217,8 @@ namespace
 
     TEST_F(TechniqueTest, rendertarget_properties)
     {
+        static_assert(std::is_same_v<decltype(std::declval<const Pass&>().getTarget()), std::string_view>);
+
         compile("rendertarget_properties");
 
         EXPECT_EQ(mTechnique->getRenderTargetsMap().size(), 1);
@@ -227,6 +241,11 @@ namespace
 
         EXPECT_EQ(mTechnique->getPasses().size(), 2);
         EXPECT_EQ(mTechnique->getPasses()[0]->getTarget(), "rendertarget");
+    }
+
+    TEST_F(TechniqueTest, fail_with_missing_render_target_input)
+    {
+        expectFailure("missing_render_target_input", "render target 'missingtarget' not defined");
     }
 
     TEST_F(TechniqueTest, uniform_properties)

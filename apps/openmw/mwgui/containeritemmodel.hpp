@@ -32,6 +32,8 @@ namespace MWGui
         ModelIndex getIndex(const ItemStack& item) override;
         size_t getItemCount() override;
 
+        MWWorld::Ptr getItemSource(const MWWorld::Ptr& item) const;
+
         void update() override;
 
         bool usesContainer(const MWWorld::Ptr& container) override;

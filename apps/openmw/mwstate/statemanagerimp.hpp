@@ -42,11 +42,8 @@ namespace MWState
 
         void askLoadRecent() override;
 
-        void requestNewGame() override { mNewGameRequest = true; }
-        void requestLoad(const Character* character, const std::filesystem::path& filepath) override
-        {
-            mLoadRequest.emplace(character, filepath);
-        }
+        void requestNewGame() override;
+        void requestLoad(const Character* character, const std::filesystem::path& filepath) override;
 
         State getState() const override;
 

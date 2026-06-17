@@ -19,6 +19,30 @@
 -- @usage
 -- content.activators.records.MyActivator = { mwscript = 'float', model = 'meshes/w/w_chitin_arrow.nif', name = 'Quest marker' }
 
+--- @{#ApparatusContent}: Apparatus manipulation.
+-- @field [parent=#content] #ApparatusContent apparatuses
+
+--- @{openmw.types#ApparatusTYPE}: Apparatus types
+-- @field [parent=#ApparatusContent] openmw.types#ApparatusTYPE TYPE
+
+---
+-- A mutable list of all @{openmw.types#ApparatusRecord}s.
+-- @field [parent=#ApparatusContent] #list<openmw.types#ApparatusRecord> records
+-- @usage
+-- content.apparatuses.records.MyApparatus = { template = content.apparatuses.records['apparatus_m_alembic_01'], type = content.apparatuses.TYPE.Alembic, quality = 5 }
+
+--- @{#ArmorContent}: Armor manipulation.
+-- @field [parent=#content] #ArmorContent armors
+
+--- @{openmw.types#ArmorTYPE}: Armor types
+-- @field [parent=#ArmorContent] openmw.types#ArmorTYPE TYPE
+
+---
+-- A mutable list of all @{openmw.types#ArmorRecord}s.
+-- @field [parent=#ArmorContent] #list<openmw.types#ArmorRecord> records
+-- @usage
+-- content.armors.records.MyArmor = { template = content.armors.records['iron cuirass'], type = content.armors.TYPE.Cuirass, baseArmor = 80 }
+
 --- @{#BookContent}: Book manipulation.
 -- @field [parent=#content] #BookContent books
 
@@ -27,6 +51,39 @@
 -- @field [parent=#BookContent] #list<openmw.types#BookRecord> records
 -- @usage
 -- content.books.records.MyBook = { template = content.books.records['bk_lustyargonianmaid'], text = content.books.records['bk_BoethiahPillowBook'].text }
+
+--- @{#ClothingContent}: Clothing manipulation.
+-- @field [parent=#content] #ClothingContent clothing
+
+--- @{openmw.types#ClothingTYPE}: Clothing types
+-- @field [parent=#ClothingContent] openmw.types#ClothingTYPE TYPE
+
+---
+-- A mutable list of all @{openmw.types#ClothingRecord}s.
+-- @field [parent=#ClothingContent] #list<openmw.types#ClothingRecord> records
+-- @usage
+-- content.clothing.records.MyRobe = { template = content.clothing.records['common_robe_01'], type = content.clothing.TYPE.Robe, enchantCapacity = 12 }
+
+--- @{#ContainerContent}: Container manipulation.
+-- @field [parent=#content] #ContainerContent containers
+
+---
+-- A mutable list of all @{openmw.types#ContainerRecord}s.
+-- @field [parent=#ContainerContent] #list<openmw.types#ContainerRecord> records
+-- @usage
+-- content.containers.records.MyContainer = { template = content.containers.records['com_chest_01'], name = 'Shared Supply Chest', isRespawning = true }
+
+--- @{#CreatureContent}: Creature manipulation.
+-- @field [parent=#content] #CreatureContent creatures
+
+--- @{openmw.types#CreatureTYPE}: Creature types
+-- @field [parent=#CreatureContent] openmw.types#CreatureTYPE TYPE
+
+---
+-- A mutable list of all @{openmw.types#CreatureRecord}s.
+-- @field [parent=#CreatureContent] #list<openmw.types#CreatureRecord> records
+-- @usage
+-- content.creatures.records.MyCreature = { template = content.creatures.records['scrib'], name = 'Training Scrib', type = content.creatures.TYPE.Creatures, isRespawning = true }
 
 --- @{#DoorContent}: Door manipulation.
 -- @field [parent=#content] #DoorContent doors
@@ -118,6 +175,15 @@
 -- @usage
 -- content.miscs.records.MyMisc = { template = content.miscs.records['gold_001'], mwscript = 'BILL_MarksSpiritSummon', weight = 5 }
 
+--- @{#NpcContent}: NPC manipulation.
+-- @field [parent=#content] #NpcContent npcs
+
+---
+-- A mutable list of all @{openmw.types#NPCRecord}s.
+-- @field [parent=#NpcContent] #list<openmw.types#NPCRecord> records
+-- @usage
+-- content.npcs.records.MyNpc = { template = content.npcs.records['chargen boat guard 1'], name = 'Community Guard', isRespawning = true }
+
 --- @{#PotionContent}: Potion manipulation.
 -- @field [parent=#content] #PotionContent potions
 
@@ -144,6 +210,18 @@
 -- @field [parent=#RepairContent] #list<openmw.types#RepairRecord> records
 -- @usage
 -- content.repairs.records.MyRepair = { template = content.repairs.records['hammer_repair'], name = 'Hammer Time' }
+
+--- @{#WeaponContent}: Weapon manipulation.
+-- @field [parent=#content] #WeaponContent weapons
+
+--- @{openmw.types#WeaponTYPE}: Weapon types
+-- @field [parent=#WeaponContent] openmw.types#WeaponTYPE TYPE
+
+---
+-- A mutable list of all @{openmw.types#WeaponRecord}s.
+-- @field [parent=#WeaponContent] #list<openmw.types#WeaponRecord> records
+-- @usage
+-- content.weapons.records.MyWeapon = { template = content.weapons.records['iron dagger'], type = content.weapons.TYPE.ShortBladeOneHand, chopMaxDamage = 16 }
 
 --- @{#SpellContent}: Spell manipulation.
 -- @field [parent=#content] #SpellContent spells

@@ -44,7 +44,7 @@ namespace Fx
 
         void compile(Technique& technique, std::string_view preamble);
 
-        std::string getTarget() const { return mTarget; }
+        std::string_view getTarget() const { return mTarget; }
 
         const std::array<std::string, 3>& getRenderTargets() const { return mRenderTargets; }
 

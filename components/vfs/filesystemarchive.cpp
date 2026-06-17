@@ -10,6 +10,14 @@
 
 namespace VFS
 {
+    namespace
+    {
+        bool isUnixHidden(const std::filesystem::path& path)
+        {
+            const auto filename = path.filename().u8string();
+            return !filename.empty() && filename.front() == '.';
+        }
+    }
 
     FileSystemArchive::FileSystemArchive(const std::filesystem::path& path)
         : mPath(path)
@@ -27,7 +35,12 @@ namespace VFS
         {
             const std::filesystem::directory_entry& entry = *it;
 
-            if (!entry.is_directory())
+            if (isUnixHidden(entry.path()))
+            {
+                if (entry.is_directory())
+                    it.disable_recursion_pending();
+            }
+            else if (!entry.is_directory())
             {
                 const std::filesystem::path& filePath = entry.path();
                 const std::string proper = Files::pathToUnicodeString(filePath);

@@ -1,6 +1,8 @@
 #include "types.hpp"
 
+#include "../contentbindings.hpp"
 #include "modelproperty.hpp"
+#include "usertypeutil.hpp"
 
 #include <components/esm3/loadweap.hpp>
 #include <components/lua/luastate.hpp>
@@ -19,16 +21,80 @@ namespace sol
     };
 }
 
-namespace
+namespace MWLua
 {
-    // Populates a weapon struct from a Lua table.
+    namespace
+    {
+        template <class T>
+        void addDamageProperty(sol::usertype<T>& record, std::string_view key,
+            std::array<unsigned char, 2> ESM::Weapon::WPDTstruct::*damage, std::size_t index)
+        {
+            const auto getter = [=](const T& rec) -> int {
+                return (Types::RecordType<T>::asRecord(rec).mData.*damage)[index];
+            };
+            if constexpr (Types::RecordType<T>::isMutable)
+            {
+                record[key] = sol::property(std::move(getter), [=](T& rec, int value) {
+                    (rec.find().mData.*damage)[index] = static_cast<unsigned char>(value);
+                });
+            }
+            else
+            {
+                record[key] = sol::readonly_property(std::move(getter));
+            }
+        }
+
+        template <class T>
+        void addUserType(sol::state_view& lua, std::string_view name)
+        {
+            sol::usertype<T> record = lua.new_usertype<T>(name);
+
+            record[sol::meta_function::to_string]
+                = [](const T& rec) -> std::string { return "ESM3_Weapon[" + rec.mId.toDebugString() + "]"; };
+            record["id"] = sol::readonly_property([](const T& rec) -> ESM::RefId { return rec.mId; });
+
+            Types::addProperty(record, "name", &ESM::Weapon::mName);
+            Types::addModelProperty(record);
+            Types::addIconProperty(record);
+            Types::addProperty(record, "enchant", &ESM::Weapon::mEnchant);
+            Types::addProperty(record, "mwscript", &ESM::Weapon::mScript);
+            Types::addFlagProperty(record, "isMagical", ESM::Weapon::Magical, &ESM::Weapon::mData,
+                &ESM::Weapon::WPDTstruct::mFlags);
+            Types::addFlagProperty(record, "isSilver", ESM::Weapon::Silver, &ESM::Weapon::mData,
+                &ESM::Weapon::WPDTstruct::mFlags);
+            Types::addProperty(record, "weight", &ESM::Weapon::mData, &ESM::Weapon::WPDTstruct::mWeight);
+            Types::addProperty(record, "value", &ESM::Weapon::mData, &ESM::Weapon::WPDTstruct::mValue);
+            Types::addProperty(record, "type", &ESM::Weapon::mData, &ESM::Weapon::WPDTstruct::mType);
+            Types::addProperty(record, "health", &ESM::Weapon::mData, &ESM::Weapon::WPDTstruct::mHealth);
+            Types::addProperty(record, "speed", &ESM::Weapon::mData, &ESM::Weapon::WPDTstruct::mSpeed);
+            Types::addProperty(record, "reach", &ESM::Weapon::mData, &ESM::Weapon::WPDTstruct::mReach);
+
+            const auto getEnchant = [](const T& rec) -> float {
+                return Types::RecordType<T>::asRecord(rec).mData.mEnchant * 0.1f;
+            };
+            if constexpr (Types::RecordType<T>::isMutable)
+            {
+                record["enchantCapacity"] = sol::property(std::move(getEnchant), [](T& rec, Misc::FiniteFloat value) {
+                    rec.find().mData.mEnchant = static_cast<uint16_t>(std::round(value.mValue * 10));
+                });
+            }
+            else
+            {
+                record["enchantCapacity"] = sol::readonly_property(std::move(getEnchant));
+            }
+
+            addDamageProperty(record, "chopMinDamage", &ESM::Weapon::WPDTstruct::mChop, 0);
+            addDamageProperty(record, "chopMaxDamage", &ESM::Weapon::WPDTstruct::mChop, 1);
+            addDamageProperty(record, "slashMinDamage", &ESM::Weapon::WPDTstruct::mSlash, 0);
+            addDamageProperty(record, "slashMaxDamage", &ESM::Weapon::WPDTstruct::mSlash, 1);
+            addDamageProperty(record, "thrustMinDamage", &ESM::Weapon::WPDTstruct::mThrust, 0);
+            addDamageProperty(record, "thrustMaxDamage", &ESM::Weapon::WPDTstruct::mThrust, 1);
+        }
+    }
+
     ESM::Weapon tableToWeapon(const sol::table& rec)
     {
-        ESM::Weapon weapon;
-        if (rec["template"] != sol::nil)
-            weapon = LuaUtil::cast<ESM::Weapon>(rec["template"]);
-        else
-            weapon.blank();
+        auto weapon = Types::initFromTemplate<ESM::Weapon>(rec);
 
         if (rec["name"] != sol::nil)
             weapon.mName = rec["name"];
@@ -96,10 +162,12 @@ namespace
 
         return weapon;
     }
-}
 
-namespace MWLua
-{
+    void addMutableWeaponType(sol::state_view& lua)
+    {
+        addUserType<MutableRecord<ESM::Weapon>>(lua, "ESM3_MutableWeapon");
+    }
+
     void addWeaponBindings(sol::table weapon, const Context& context)
     {
         sol::state_view lua = context.sol();

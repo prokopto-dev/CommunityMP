@@ -3,6 +3,7 @@
 #include "contacttestwrapper.h"
 
 #include <BulletCollision/CollisionDispatch/btCollisionObject.h>
+#include <BulletCollision/NarrowPhaseCollision/btRaycastCallback.h>
 #include <components/misc/convert.hpp>
 
 #include "projectile.hpp"
@@ -24,6 +25,61 @@ namespace MWPhysics
                 return 1;
             }
         };
+
+        class FrontFaceRayCallback : public btCollisionWorld::ClosestRayResultCallback
+        {
+        public:
+            FrontFaceRayCallback(const btCollisionObject& me, const btCollisionObject& target, const btVector3& from,
+                const btVector3& to)
+                : btCollisionWorld::ClosestRayResultCallback(from, to)
+                , mTarget(&target)
+            {
+                m_collisionFilterGroup = me.getBroadphaseHandle()->m_collisionFilterGroup;
+                m_collisionFilterMask = me.getBroadphaseHandle()->m_collisionFilterMask;
+                m_flags = btTriangleRaycastCallback::kF_FilterBackfaces;
+            }
+
+            bool needsCollision(btBroadphaseProxy* proxy) const override
+            {
+                return proxy->m_clientObject == mTarget
+                    && btCollisionWorld::ClosestRayResultCallback::needsCollision(proxy);
+            }
+
+            btScalar addSingleResult(btCollisionWorld::LocalRayResult& rayResult, bool normalInWorldSpace) override
+            {
+                if (rayResult.m_collisionObject != mTarget)
+                    return 1;
+                return btCollisionWorld::ClosestRayResultCallback::addSingleResult(rayResult, normalInWorldSpace);
+            }
+
+        private:
+            const btCollisionObject* mTarget;
+        };
+
+        bool isWorldTriangleHit(const btCollisionWorld::LocalConvexResult& convexResult)
+        {
+            const btBroadphaseProxy* handle = convexResult.m_hitCollisionObject->getBroadphaseHandle();
+            return handle != nullptr && handle->m_collisionFilterGroup == CollisionType_World
+                && convexResult.m_localShapeInfo != nullptr && convexResult.m_localShapeInfo->m_shapePart >= 0
+                && convexResult.m_localShapeInfo->m_triangleIndex >= 0;
+        }
+
+        bool hitsAuthoredFrontFace(const btCollisionWorld& world, const btCollisionObject& me,
+            const btCollisionObject& target, const btVector3& hitPointWorld, const btVector3& movement)
+        {
+            const btScalar length = movement.length();
+            if (length <= SIMD_EPSILON)
+                return true;
+
+            const btVector3 direction = movement / length;
+            const btScalar probeDistance = btMax(btScalar(2.0), btMin(length, btScalar(8.0)));
+            const btVector3 from = hitPointWorld - direction * probeDistance;
+            const btVector3 to = hitPointWorld + direction * probeDistance;
+
+            FrontFaceRayCallback callback(me, target, from, to);
+            world.rayTest(from, to, callback);
+            return callback.hasHit();
+        }
     }
 
     btScalar ActorConvexCallback::addSingleResult(
@@ -90,6 +146,11 @@ namespace MWPhysics
             hitNormalWorld
                 = convexResult.m_hitCollisionObject->getWorldTransform().getBasis() * convexResult.m_hitNormalLocal;
         }
+
+        if (isWorldTriangleHit(convexResult)
+            && !hitsAuthoredFrontFace(
+                *mWorld, *mMe, *convexResult.m_hitCollisionObject, convexResult.m_hitPointLocal, -mMotion))
+            return 1;
 
         // dot product of the motion vector against the collision contact normal
         btScalar dotCollision = mMotion.dot(hitNormalWorld);

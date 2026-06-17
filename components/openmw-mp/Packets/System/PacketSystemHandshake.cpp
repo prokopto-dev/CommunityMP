@@ -1,0 +1,23 @@
+#include <components/openmw-mp/NetworkMessages.hpp>
+#include "PacketSystemHandshake.hpp"
+
+using namespace mwmp;
+
+PacketSystemHandshake::PacketSystemHandshake() : SystemPacket()
+{
+    packetID = ID_SYSTEM_HANDSHAKE;
+    orderChannel = CHANNEL_SYSTEM;
+}
+
+void PacketSystemHandshake::Packet(PacketStream *newBitstream, bool send)
+{
+    SystemPacket::Packet(newBitstream, send);
+
+    if (!RW(system->playerName, send, true, maxNameLength) ||
+        !RW(system->serverPassword, send, true, maxPasswordLength) ||
+        !RW(system->accountPasswordHash, send, true, maxAccountPasswordHashLength))
+    {
+        packetValid = false;
+        return;
+    }
+}

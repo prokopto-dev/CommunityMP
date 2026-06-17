@@ -14,6 +14,8 @@
 #include "../mwbase/world.hpp"
 #include "../mwworld/worldmodel.hpp"
 
+#include "../mwmp/ScriptController.hpp"
+
 #include "interpretercontext.hpp"
 
 namespace
@@ -178,6 +180,8 @@ namespace MWScript
             if (script.second->mRunning)
             {
                 MWScript::InterpreterContext context(script.second);
+                context.trackContextType(ScriptController::ScriptGlobal);
+                context.trackCurrentScriptName(script.first.serializeText());
                 if (!MWBase::Environment::get().getScriptManager()->run(script.first, context))
                     script.second->mRunning = false;
             }

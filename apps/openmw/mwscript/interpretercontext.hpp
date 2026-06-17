@@ -47,6 +47,16 @@ namespace MWScript
         InterpreterContext(MWScript::Locals* locals, const MWWorld::Ptr& reference);
         ///< The ownership of \a locals is not transferred. 0-pointer allowed.
 
+        bool sendPackets = false;
+
+        unsigned short getContextType() const;
+
+        const std::string& getCurrentScriptName() const;
+
+        void trackContextType(unsigned short contextType);
+
+        void trackCurrentScriptName(std::string name);
+
         ESM::RefId getTarget() const override;
 
         int getLocalShort(int index) const override;
@@ -131,6 +141,10 @@ namespace MWScript
         void updatePtr(const MWWorld::Ptr& base, const MWWorld::Ptr& updated);
         ///< Update the Ptr stored in mReference, if there is one stored there. Should be called after the reference has
         ///< been moved to a new cell.
+
+    private:
+        unsigned short mContextType = 65535;
+        std::string mCurrentScriptName;
     };
 }
 

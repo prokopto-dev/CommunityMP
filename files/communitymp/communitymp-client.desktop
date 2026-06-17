@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=CommunityMP Client
+Comment=Launch the CommunityMP multiplayer client
+Exec=communitymp --client
+Terminal=false
+Categories=Game;RolePlaying;

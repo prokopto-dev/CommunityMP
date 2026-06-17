@@ -51,7 +51,7 @@ namespace MWRender
 
 namespace MWPhysics
 {
-    class PhysicsSystem;
+    class IPhysicsBackend;
 }
 
 namespace SceneUtil
@@ -90,7 +90,7 @@ namespace MWWorld
         bool mCellChanged;
         bool mCellLoaded = false;
         MWWorld::World& mWorld;
-        MWPhysics::PhysicsSystem* mPhysics;
+        MWPhysics::IPhysicsBackend* mPhysics;
         MWRender::RenderingManager& mRendering;
         DetourNavigator::Navigator& mNavigator;
         std::unique_ptr<CellPreloader> mPreloader;
@@ -141,7 +141,7 @@ namespace MWWorld
             const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
 
     public:
-        Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::PhysicsSystem* physics,
+        Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::IPhysicsBackend* physics,
             DetourNavigator::Navigator& navigator);
 
         ~Scene();
@@ -175,6 +175,9 @@ namespace MWWorld
 
         void clear();
         ///< Change into a void
+
+        void unloadCell(CellStore* cell);
+        ///< Unload a single active cell.
 
         void markCellAsUnchanged();
 

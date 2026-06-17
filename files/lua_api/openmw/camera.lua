@@ -102,6 +102,13 @@
 -- @param #number value
 
 ---
+-- Set an identifier-scoped additional summand for the pitch angle. Values from different identifiers are added together.
+-- Call with the same identifier and value 0 to clear that identifier's contribution.
+-- @function [parent=#camera] setAdditiveExtraPitch
+-- @param #number value
+-- @param #string identifier
+
+---
 -- Additional summand for the yaw angle that is not affected by player input.
 -- Full yaw is `getYaw()+getExtraYaw()`.
 -- @function [parent=#camera] getExtraYaw
@@ -114,6 +121,13 @@
 -- @param #number value
 
 ---
+-- Set an identifier-scoped additional summand for the yaw angle. Values from different identifiers are added together.
+-- Call with the same identifier and value 0 to clear that identifier's contribution.
+-- @function [parent=#camera] setAdditiveExtraYaw
+-- @param #number value
+-- @param #string identifier
+
+---
 -- Additional summand for the roll angle that is not affected by player input.
 -- Full yaw is `getRoll()+getExtraRoll()`.
 -- @function [parent=#camera] getExtraRoll
@@ -124,6 +138,13 @@
 -- Full roll is `getRoll()+getExtraRoll()`.
 -- @function [parent=#camera] setExtraRoll
 -- @param #number value
+
+---
+-- Set an identifier-scoped additional summand for the roll angle. Values from different identifiers are added together.
+-- Call with the same identifier and value 0 to clear that identifier's contribution.
+-- @function [parent=#camera] setAdditiveExtraRoll
+-- @param #number value
+-- @param #string identifier
 
 ---
 -- Applies an offset to the cameras projection matrix, measured in pixels.
@@ -150,6 +171,13 @@
 -- Set the offset between the characters head and the camera in first person mode (3d vector).
 -- @function [parent=#camera] setFirstPersonOffset
 -- @param openmw.util#Vector3 offset
+
+---
+-- Set an identifier-scoped additional offset between the character's head and the camera in first person mode.
+-- Values from different identifiers are added together. Call with the same identifier and a zero vector to clear that identifier's contribution.
+-- @function [parent=#camera] setAdditiveFirstPersonOffset
+-- @param openmw.util#Vector3 offset
+-- @param #string identifier
 
 ---
 -- Preferred offset between the tracked position (see `getTrackedPosition`) and the camera focal point (the center of the screen) in third person mode.

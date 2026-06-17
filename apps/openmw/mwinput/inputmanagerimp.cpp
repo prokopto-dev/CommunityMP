@@ -104,6 +104,11 @@ namespace MWInput
         return mControllerManager->gamepadGuiCursorEnabled();
     }
 
+    void InputManager::setCapturingControllerButtons(bool enabled)
+    {
+        mControllerManager->setCapturingGuiControllerButtons(enabled);
+    }
+
     void InputManager::changeInputMode(bool guiMode)
     {
         mControllerManager->setGuiCursorEnabled(guiMode);

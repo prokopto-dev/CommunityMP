@@ -108,6 +108,11 @@ namespace
                 content:add({ name = 'c' })
                 content['c'] = nil
                 assert(content:indexOf('c') == nil, 'Failed to remove value inserted twice'..#content)
+
+                local element = { layout = { name = 'elementName' } }
+                content:add(element)
+                assert(content:indexOf('elementName') ~= nil, 'Could not find element by layout name')
+                assert(content['elementName'] == element, 'Could not access element by layout name')
                 )"));
         });
     }

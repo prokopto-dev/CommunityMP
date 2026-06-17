@@ -297,6 +297,11 @@ void MWMechanics::NpcStats::flagAsUsed(const ESM::RefId& id)
     mUsedIds.insert(id);
 }
 
+void MWMechanics::NpcStats::clearUsedIds()
+{
+    mUsedIds.clear();
+}
+
 bool MWMechanics::NpcStats::hasBeenUsed(const ESM::RefId& id) const
 {
     return mUsedIds.find(id) != mUsedIds.end();

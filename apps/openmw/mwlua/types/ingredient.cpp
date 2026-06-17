@@ -61,6 +61,7 @@ namespace MWLua
 
         void setFromTable(ESM::Ingredient::IRDTstruct& data, uint32_t i, const sol::lua_table& table)
         {
+            blankIndex(data, i);
             addPropertyFromTable(table, "id", data.mEffectID[i]);
             addPropertyFromTable(table, "affectedAttribute", data.mAttributes[i]);
             addPropertyFromTable(table, "affectedSkill", data.mSkills[i]);
@@ -231,6 +232,7 @@ namespace MWLua
     void addIngredientBindings(sol::table ingredient, const Context& context)
     {
         addRecordFunctionBinding<ESM::Ingredient>(ingredient, context);
+        ingredient["createRecordDraft"] = tableToIngredient;
         sol::state_view lua = context.sol();
         addUserType<ESM::Ingredient>(lua, "ESM3_Ingredient");
     }

@@ -1,5 +1,7 @@
 #include "renderingmanager.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 #include <osg/ClipControl>
@@ -170,6 +172,17 @@ namespace MWRender
 
         sceneRoot->setLightingMask(Mask_Lighting);
         mSceneRoot = sceneRoot;
+        osg::StateSet* sceneRootStateSet = sceneRoot->getOrCreateStateSet();
+        sceneRootStateSet->addUniform(new osg::Uniform("parallaxScale", Settings::shaders().mParallaxScale.get()));
+        sceneRootStateSet->addUniform(new osg::Uniform("parallaxBias", Settings::shaders().mParallaxBias.get()));
+        sceneRootStateSet->addUniform(
+            new osg::Uniform("grassWindAmplitude", Settings::shaders().mGrassWindAmplitude.get()));
+        sceneRootStateSet->addUniform(new osg::Uniform("grassWindSpeed", Settings::shaders().mGrassWindSpeed.get()));
+        sceneRootStateSet->addUniform(
+            new osg::Uniform("grassWindFrequency", Settings::shaders().mGrassWindFrequency.get()));
+        osg::Vec2f grassWindDir = Settings::shaders().mGrassWindDir.get();
+        grassWindDir /= std::max(0.001f, grassWindDir.length());
+        sceneRootStateSet->addUniform(new osg::Uniform("grassWindDir", grassWindDir));
         sceneRoot->setNodeMask(Mask_Scene);
         sceneRoot->setName("Scene Root");
 
@@ -197,6 +210,8 @@ namespace MWRender
             globalDefines[itr->first] = itr->second;
 
         globalDefines["forcePPL"] = Settings::shaders().mForcePerPixelLighting ? "1" : "0";
+        globalDefines["grassWind"] = Settings::shaders().mGrassWind ? "1" : "0";
+        globalDefines["pbrSpecular"] = Settings::shaders().mPbrSpecular ? "1" : "0";
         globalDefines["clamp"] = Settings::shaders().mClampLighting ? "1" : "0";
         globalDefines["preLightEnv"] = Settings::shaders().mApplyLightingToEnvironmentMaps ? "1" : "0";
         globalDefines["classicFalloff"] = Settings::shaders().mClassicFalloff ? "1" : "0";
@@ -670,6 +685,10 @@ namespace MWRender
             float windSpeed = mSky->getBaseWindSpeed();
             mSharedUniformStateUpdater->setWindSpeed(windSpeed);
             mSharedUniformStateUpdater->setPlayerPos(playerPos);
+
+            const float hour = MWBase::Environment::get().getWorld()->getTimeStamp().getHour();
+            const float angle = hour * (2.0f * 3.14159265f / 24.0f);
+            mSharedUniformStateUpdater->setWindDirection(osg::Vec2f(std::cos(angle), std::sin(angle)));
         }
 
         updateNavMesh();
@@ -934,7 +953,7 @@ namespace MWRender
     };
 
     osg::ref_ptr<osgUtil::IntersectionVisitor> RenderingManager::getIntersectionVisitor(
-        osgUtil::Intersector* intersector, bool ignorePlayer, bool ignoreActors,
+        osgUtil::Intersector* intersector, bool ignorePlayer, bool ignoreActors, bool ignoreTerrain,
         std::span<const MWWorld::Ptr> ignoreList)
     {
         if (!mIntersectionVisitor)
@@ -965,6 +984,8 @@ namespace MWRender
             mask &= ~(Mask_Player);
         if (ignoreActors)
             mask &= ~(Mask_Actor | Mask_Player);
+        if (ignoreTerrain)
+            mask &= ~Mask_Terrain;
 
         mIntersectionVisitor->setTraversalMask(mask);
         return mIntersectionVisitor;
@@ -977,13 +998,13 @@ namespace MWRender
             new osgUtil::LineSegmentIntersector(osgUtil::LineSegmentIntersector::MODEL, origin, dest));
         intersector->setIntersectionLimit(osgUtil::LineSegmentIntersector::LIMIT_NEAREST);
 
-        mRootNode->accept(*getIntersectionVisitor(intersector, ignorePlayer, ignoreActors, ignoreList));
+        mRootNode->accept(*getIntersectionVisitor(intersector, ignorePlayer, ignoreActors, false, ignoreList));
 
         return getIntersectionResult(intersector, mIntersectionVisitor, ignoreList);
     }
 
     RenderingManager::RayResult RenderingManager::castCameraToViewportRay(
-        const float nX, const float nY, float maxDistance, bool ignorePlayer, bool ignoreActors)
+        const float nX, const float nY, float maxDistance, bool ignorePlayer, bool ignoreActors, bool ignoreTerrain)
     {
         osg::ref_ptr<osgUtil::LineSegmentIntersector> intersector(new osgUtil::LineSegmentIntersector(
             osgUtil::LineSegmentIntersector::PROJECTION, nX * 2.f - 1.f, nY * (-2.f) + 1.f));
@@ -997,7 +1018,7 @@ namespace MWRender
         intersector->setEnd(end);
         intersector->setIntersectionLimit(osgUtil::LineSegmentIntersector::LIMIT_NEAREST);
 
-        mViewer->getCamera()->accept(*getIntersectionVisitor(intersector, ignorePlayer, ignoreActors));
+        mViewer->getCamera()->accept(*getIntersectionVisitor(intersector, ignorePlayer, ignoreActors, ignoreTerrain));
 
         return getIntersectionResult(intersector, mIntersectionVisitor);
     }

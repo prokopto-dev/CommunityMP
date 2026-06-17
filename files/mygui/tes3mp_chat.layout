@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout">
+  <Widget type="Window" skin="MW_Window" position="0 0 400 400" layer="Windows" name="_Main">
+    <Property key="Caption" value="#{sConsoleTitle}"/>
+    <Property key="MinSize" value="40 40"/>
+    <Property key="Visible" value="false"/>
+
+    <!-- Chat tabs -->
+    <Widget type="Button" skin="MW_Button" position="5 5 54 24" align="Left Top" name="tab_All">
+        <Property key="Caption" value="[All]"/>
+    </Widget>
+    <Widget type="Button" skin="MW_Button" position="61 5 68 24" align="Left Top" name="tab_Server">
+        <Property key="Caption" value="Server"/>
+    </Widget>
+    <Widget type="Button" skin="MW_Button" position="131 5 68 24" align="Left Top" name="tab_Global">
+        <Property key="Caption" value="Global"/>
+    </Widget>
+    <Widget type="Button" skin="MW_Button" position="201 5 62 24" align="Left Top" name="tab_Local">
+        <Property key="Caption" value="Local"/>
+    </Widget>
+    <Widget type="Button" skin="MW_Button" position="265 5 68 24" align="Left Top" name="tab_Private">
+        <Property key="Caption" value="Private"/>
+    </Widget>
+
+    <!-- Log window -->
+    <Widget type="EditBox" skin="MW_TextBoxEdit" position="5 34 380 299" align="Stretch" name="list_History">
+        <Property key="MultiLine" value="1"/>
+        <Property key="ReadOnly" value="true"/>
+        <Property key="FontName" value="Russo"/>
+        <Property key="TextAlign" value="Left Top"/>
+        <Property key="TextColour" value="1 1 1"/>
+        <Property key="InvertSelected" value="false"/>
+        <Property key="WordWrap" value="true"/>
+    </Widget>
+
+    <!-- Command line -->
+    <Widget type="EditBox" skin="TES3MP_ChatMsg" position="0 338 384 28" align="HStretch Bottom" name="edit_Command">
+        <Property key="InvertSelected" value="false"/>
+        <UserString key="AcceptTab" value="true"/>
+    </Widget>
+
+  </Widget>
+</MyGUI>

@@ -97,6 +97,9 @@ namespace MWMechanics
         int countDeaths(const ESM::RefId& id) const override;
         ///< Return the number of deaths for actors with the given ID.
 
+        void setDeaths(const ESM::RefId& id, int count) override;
+        ///< Set the number of deaths for actors with the given ID.
+
         void getPersuasionDispositionChange(
             const MWWorld::Ptr& npc, PersuasionType type, bool& success, int& tempChange, int& permChange) override;
         ///< Perform a persuasion action on NPC
@@ -137,6 +140,8 @@ namespace MWMechanics
         bool sleepInBed(const MWWorld::Ptr& ptr, const MWWorld::Ptr& bed) override;
 
         void forceStateUpdate(const MWWorld::Ptr& ptr) override;
+        void replayAttackStart(const MWWorld::Ptr& ptr, std::string_view attackType) override;
+        void replayAttackRelease(const MWWorld::Ptr& ptr, std::string_view attackType, float attackStrength) override;
 
         /// Attempt to play an animation group
         /// @return Success or error

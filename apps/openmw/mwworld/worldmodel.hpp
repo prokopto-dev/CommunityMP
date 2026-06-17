@@ -47,6 +47,8 @@ namespace MWWorld
 
         void clear();
 
+        bool resetCellStore(CellStore& cellStore);
+
         CellStore& getExterior(ESM::ExteriorCellLocation location, bool forceLoad = true) const;
 
         CellStore* findCell(ESM::RefId id, bool forceLoad = true) const;

@@ -32,6 +32,7 @@ namespace MWGui
         void clear() override { resetReference(); }
 
         std::string_view getWindowIdForLua() const override { return "Training"; }
+        void setDisabledByLua(bool disabled) override;
 
     protected:
         void onReferenceUnavailable() override;

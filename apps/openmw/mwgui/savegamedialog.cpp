@@ -1,5 +1,6 @@
 #include "savegamedialog.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -17,8 +18,8 @@
 #include <components/files/conversion.hpp>
 #include <components/files/memorystream.hpp>
 #include <components/l10n/manager.hpp>
+#include <components/misc/strings/algorithm.hpp>
 #include <components/misc/strings/format.hpp>
-#include <components/misc/strings/lower.hpp>
 #include <components/misc/timeconvert.hpp>
 #include <components/myguiplatform/myguitexture.hpp>
 #include <components/settings/values.hpp>
@@ -51,6 +52,7 @@ namespace MWGui
         getWidget(mCancelButton, "CancelButton");
         getWidget(mDeleteButton, "DeleteButton");
         getWidget(mSaveList, "SaveList");
+        getWidget(mFilterEdit, "FilterEdit");
         getWidget(mSaveNameEdit, "SaveNameEdit");
         mOkButton->eventMouseButtonClick += MyGUI::newDelegate(this, &SaveGameDialog::onOkButtonClicked);
         mCancelButton->eventMouseButtonClick += MyGUI::newDelegate(this, &SaveGameDialog::onCancelButtonClicked);
@@ -61,6 +63,8 @@ namespace MWGui
         mSaveList->eventListMouseItemActivate += MyGUI::newDelegate(this, &SaveGameDialog::onSlotMouseClick);
         mSaveList->eventListSelectAccept += MyGUI::newDelegate(this, &SaveGameDialog::onSlotActivated);
         mSaveList->eventKeyButtonPressed += MyGUI::newDelegate(this, &SaveGameDialog::onKeyButtonPressed);
+        mFilterEdit->eventEditSelectAccept += MyGUI::newDelegate(this, &SaveGameDialog::onFilterSelectAccept);
+        mFilterEdit->eventEditTextChange += MyGUI::newDelegate(this, &SaveGameDialog::onFilterChanged);
         mSaveNameEdit->eventEditSelectAccept += MyGUI::newDelegate(this, &SaveGameDialog::onEditSelectAccept);
         mSaveNameEdit->eventEditTextChange += MyGUI::newDelegate(this, &SaveGameDialog::onSaveNameChanged);
 
@@ -97,25 +101,34 @@ namespace MWGui
 
     void SaveGameDialog::onDeleteSlotConfirmed()
     {
+        const size_t previousIndex = mSaveList->getIndexSelected();
+        auto slot = mCurrentCharacter->begin();
+        bool deletingLastSlot = true;
+        if (slot != mCurrentCharacter->end())
+            deletingLastSlot = ++slot == mCurrentCharacter->end();
+
         MWBase::Environment::get().getStateManager()->deleteGame(mCurrentCharacter, mCurrentSlot);
-        mSaveList->removeItemAt(mSaveList->getIndexSelected());
-        onSlotSelected(mSaveList, mSaveList->getIndexSelected());
+        mCurrentSlot = nullptr;
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mSaveList);
 
-        if (mSaveList->getItemCount() == 0)
+        if (deletingLastSlot)
         {
-            size_t previousIndex = mCharacterSelection->getIndexSelected();
+            size_t previousCharacterIndex = mCharacterSelection->getIndexSelected();
             mCurrentCharacter = nullptr;
-            mCharacterSelection->removeItemAt(previousIndex);
+            mSaveList->removeAllItems();
+            onSlotSelected(mSaveList, MyGUI::ITEM_NONE);
+            mCharacterSelection->removeItemAt(previousCharacterIndex);
             if (mCharacterSelection->getItemCount())
             {
-                size_t nextCharacter = std::min(previousIndex, mCharacterSelection->getItemCount() - 1);
+                size_t nextCharacter = std::min(previousCharacterIndex, mCharacterSelection->getItemCount() - 1);
                 mCharacterSelection->setIndexSelected(nextCharacter);
                 onCharacterSelected(mCharacterSelection, nextCharacter);
             }
             else
                 mCharacterSelection->setIndexSelected(MyGUI::ITEM_NONE);
         }
+        else
+            fillSaveList(previousIndex);
     }
 
     void SaveGameDialog::onDeleteSlotCancel()
@@ -128,6 +141,12 @@ namespace MWGui
         // This might have previously been a save slot from the list. If so, that is no longer the case
         mSaveList->setIndexSelected(MyGUI::ITEM_NONE);
         onSlotSelected(mSaveList, MyGUI::ITEM_NONE);
+    }
+
+    void SaveGameDialog::onFilterSelectAccept(MyGUI::EditBox* sender)
+    {
+        if (mCurrentSlot)
+            onEditSelectAccept(sender);
     }
 
     void SaveGameDialog::onEditSelectAccept(MyGUI::EditBox* sender)
@@ -174,6 +193,8 @@ namespace MWGui
         }
         if (mSaving)
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mSaveNameEdit);
+        else if (!Settings::gui().mControllerMenus)
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mFilterEdit);
         else
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mSaveList);
 
@@ -184,6 +205,7 @@ namespace MWGui
         mCurrentCharacter = nullptr;
         mCurrentSlot = nullptr;
         mSaveList->removeAllItems();
+        mFilterEdit->setCaption({});
         onSlotSelected(mSaveList, MyGUI::ITEM_NONE);
 
         if (Settings::gui().mControllerMenus)
@@ -373,20 +395,53 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mSaveList);
     }
 
-    void SaveGameDialog::fillSaveList()
+    void SaveGameDialog::onFilterChanged(MyGUI::EditBox* /*sender*/)
     {
+        fillSaveList();
+    }
+
+    bool SaveGameDialog::slotMatchesFilter(const MWState::Slot& slot) const
+    {
+        const std::string filter = mFilterEdit->getOnlyText().asUTF8();
+        if (filter.empty())
+            return true;
+
+        auto matches = [&](std::string_view value) {
+            return Misc::StringUtils::ciFind(value, filter) != std::string_view::npos;
+        };
+
+        return matches(slot.mProfile.mDescription) || matches(slot.mProfile.mPlayerName)
+            || matches(slot.mProfile.mPlayerCellName) || matches(Files::pathToUnicodeString(slot.mPath.filename()));
+    }
+
+    void SaveGameDialog::fillSaveList(size_t preferredIndex)
+    {
+        const MWState::Slot* selectedSlot = mCurrentSlot;
+        size_t selectedIndex = MyGUI::ITEM_NONE;
+
         mSaveList->removeAllItems();
         if (!mCurrentCharacter)
             return;
         for (MWState::Character::SlotIterator it = mCurrentCharacter->begin(); it != mCurrentCharacter->end(); ++it)
         {
-            mSaveList->addItem(it->mProfile.mDescription);
+            if (!slotMatchesFilter(*it))
+                continue;
+
+            mSaveList->addItem(it->mProfile.mDescription, &*it);
+            if (selectedSlot == &*it)
+                selectedIndex = mSaveList->getItemCount() - 1;
         }
-        // When loading, Auto-select the first save, if there is one
-        if (mSaveList->getItemCount() && !mSaving)
+
+        if (selectedIndex == MyGUI::ITEM_NONE && preferredIndex != MyGUI::ITEM_NONE && mSaveList->getItemCount())
+            selectedIndex = std::min(preferredIndex, mSaveList->getItemCount() - 1);
+        // When loading, auto-select the first matching save, if there is one.
+        else if (selectedIndex == MyGUI::ITEM_NONE && mSaveList->getItemCount() && !mSaving)
+            selectedIndex = 0;
+
+        if (selectedIndex != MyGUI::ITEM_NONE)
         {
-            mSaveList->setIndexSelected(0);
-            onSlotSelected(mSaveList, 0);
+            mSaveList->setIndexSelected(selectedIndex);
+            onSlotSelected(mSaveList, selectedIndex);
         }
         else
             onSlotSelected(mSaveList, MyGUI::ITEM_NONE);
@@ -430,14 +485,7 @@ namespace MWGui
         if (mSaving)
             mSaveNameEdit->setCaption(sender->getItemNameAt(pos));
 
-        mCurrentSlot = nullptr;
-        size_t i = 0;
-        for (MWState::Character::SlotIterator it = mCurrentCharacter->begin(); it != mCurrentCharacter->end();
-             ++it, ++i)
-        {
-            if (i == pos)
-                mCurrentSlot = &*it;
-        }
+        mCurrentSlot = *sender->getItemDataAt<const MWState::Slot*>(pos);
         if (!mCurrentSlot)
             throw std::runtime_error("Can't find selected slot");
 

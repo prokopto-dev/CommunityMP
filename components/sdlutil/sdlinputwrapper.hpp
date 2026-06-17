@@ -75,12 +75,13 @@ namespace SDLUtil
         Sint32 mMouseZ;
         Sint32 mMouseX;
         Sint32 mMouseY;
+        float mPreciseMouseWheelRemainder;
 
         bool mWindowHasFocus;
         bool mMouseInWindow;
 
-        Uint16 mScaleX;
-        Uint16 mScaleY;
+        float mScaleX;
+        float mScaleY;
     };
 
 }

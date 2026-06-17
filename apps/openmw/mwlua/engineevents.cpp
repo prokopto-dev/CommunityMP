@@ -114,6 +114,15 @@ namespace MWLua
                 scripts->onSkillUse(event.mSkill, event.useType, event.scale);
         }
 
+        void operator()(const OnSkillUseFailed& event) const
+        {
+            MWWorld::Ptr actor = getPtr(event.mActor);
+            if (actor.isEmpty())
+                return;
+            if (auto* scripts = getLocalScripts(actor))
+                scripts->onSkillUseFailed(event.mSkill, event.useType, event.scale);
+        }
+
         void operator()(const OnSkillLevelUp& event) const
         {
             MWWorld::Ptr actor = getPtr(event.mActor);
@@ -129,7 +138,7 @@ namespace MWLua
             if (actor.isEmpty())
                 return;
             if (auto* scripts = getLocalScripts(actor))
-                scripts->onJailTimeServed(event.mDays);
+                scripts->onJailTimeServed(event.mDays, event.mPreventSkillIncreases, event.mMessageOverride);
         }
 
     private:

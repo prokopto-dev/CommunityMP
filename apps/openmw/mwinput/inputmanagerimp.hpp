@@ -67,6 +67,7 @@ namespace MWInput
         void setDragDrop(bool dragDrop) override;
         void setGamepadGuiCursorEnabled(bool enabled) override;
         bool isGamepadGuiCursorEnabled() override;
+        void setCapturingControllerButtons(bool enabled) override;
 
         void toggleControlSwitch(std::string_view sw, bool value) override;
         bool getControlSwitch(std::string_view sw) override;

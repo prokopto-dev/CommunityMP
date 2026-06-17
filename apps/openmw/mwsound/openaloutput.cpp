@@ -395,40 +395,59 @@ namespace MWSound
 
     class OpenALOutput::DefaultDeviceThread
     {
-    public:
-        std::basic_string<ALCchar> mCurrentName;
-
     private:
+        std::basic_string<ALCchar> mCurrentName;
         OpenALOutput& mOutput;
 
         std::atomic<bool> mQuitNow;
-        std::mutex mMutex;
+        mutable std::mutex mMutex;
         std::condition_variable mCondVar;
         std::thread mThread;
 
         DefaultDeviceThread(const DefaultDeviceThread&) = delete;
         DefaultDeviceThread& operator=(const DefaultDeviceThread&) = delete;
 
+        std::basic_string<ALCchar> getCurrentName() const
+        {
+            const std::lock_guard<std::mutex> lock(mMutex);
+            return mCurrentName;
+        }
+
+    public:
+        void setCurrentName(std::basic_string_view<ALCchar> name)
+        {
+            const std::lock_guard<std::mutex> lock(mMutex);
+            mCurrentName = name;
+        }
+
+    private:
         void run()
         {
             Misc::setCurrentThreadIdlePriority();
-            std::unique_lock<std::mutex> lock(mMutex);
             while (!mQuitNow)
             {
+                const std::basic_string<ALCchar> currentName = getCurrentName();
+                const std::basic_string<ALCchar> defaultName(getDeviceName(nullptr));
+
+                if (mQuitNow)
+                    break;
+
+                if (currentName != defaultName)
                 {
                     const std::lock_guard<std::mutex> openLock(mOutput.mReopenMutex);
-                    std::basic_string_view<ALCchar> defaultName = getDeviceName(nullptr);
-                    if (mCurrentName != defaultName)
+                    if (getCurrentName() != defaultName)
                     {
-                        mCurrentName = defaultName;
-                        Log(Debug::Info) << "Default audio device changed to \"" << mCurrentName << "\"";
+                        setCurrentName(defaultName);
+                        Log(Debug::Info) << "Default audio device changed to \"" << defaultName << "\"";
                         ALCboolean reopened = alcReopenDeviceSOFT(
-                            mOutput.mDevice, mCurrentName.data(), mOutput.mContextAttributes.data());
+                            mOutput.mDevice, defaultName.data(), mOutput.mContextAttributes.data());
                         if (reopened == AL_FALSE)
                             Log(Debug::Warning) << "Failed to switch to new audio device";
                     }
                 }
-                mCondVar.wait_for(lock, std::chrono::seconds(2));
+
+                std::unique_lock<std::mutex> lock(mMutex);
+                mCondVar.wait_for(lock, std::chrono::seconds(2), [this] { return mQuitNow.load(); });
             }
         }
 
@@ -444,8 +463,6 @@ namespace MWSound
         ~DefaultDeviceThread()
         {
             mQuitNow = true;
-            mMutex.lock();
-            mMutex.unlock();
             mCondVar.notify_all();
             mThread.join();
         }
@@ -698,7 +715,7 @@ namespace MWSound
         {
             Log(Debug::Info) << "Reopened audio device";
             if (mDefaultDeviceThread)
-                mDefaultDeviceThread->mCurrentName = getDeviceName(mDevice);
+                mDefaultDeviceThread->setCurrentName(getDeviceName(mDevice));
         }
     }
 

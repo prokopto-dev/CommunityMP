@@ -1,6 +1,8 @@
 #include "types.hpp"
 
+#include "../contentbindings.hpp"
 #include "modelproperty.hpp"
+#include "usertypeutil.hpp"
 
 #include <components/esm3/loadcont.hpp>
 #include <components/lua/luastate.hpp>
@@ -19,17 +21,31 @@ namespace sol
     };
 }
 
-namespace
+namespace MWLua
 {
+    namespace
+    {
+        template <class T>
+        void addUserType(sol::state_view& lua, std::string_view name)
+        {
+            sol::usertype<T> record = lua.new_usertype<T>(name);
+
+            record[sol::meta_function::to_string]
+                = [](const T& rec) -> std::string { return "ESM3_Container[" + rec.mId.toDebugString() + "]"; };
+            record["id"] = sol::readonly_property([](const T& rec) -> ESM::RefId { return rec.mId; });
+
+            Types::addProperty(record, "name", &ESM::Container::mName);
+            Types::addModelProperty(record);
+            Types::addProperty(record, "mwscript", &ESM::Container::mScript);
+            Types::addProperty(record, "weight", &ESM::Container::mWeight);
+            Types::addFlagProperty(record, "isOrganic", ESM::Container::Organic, &ESM::Container::mFlags);
+            Types::addFlagProperty(record, "isRespawning", ESM::Container::Respawn, &ESM::Container::mFlags);
+        }
+    }
+
     ESM::Container tableToContainer(const sol::table& rec)
     {
-        ESM::Container cont;
-
-        // Start from template if provided
-        if (rec["template"] != sol::nil)
-            cont = LuaUtil::cast<ESM::Container>(rec["template"]);
-        else
-            cont.blank();
+        auto cont = Types::initFromTemplate<ESM::Container>(rec);
 
         // Basic fields
         if (rec["name"] != sol::nil)
@@ -62,14 +78,15 @@ namespace
 
         return cont;
     }
-}
-
-namespace MWLua
-{
 
     static const MWWorld::Ptr& containerPtr(const Object& o)
     {
         return verifyType(ESM::REC_CONT, o.ptr());
+    }
+
+    void addMutableContainerType(sol::state_view& lua)
+    {
+        addUserType<MutableRecord<ESM::Container>>(lua, "ESM3_MutableContainer");
     }
 
     void addContainerBindings(sol::table container, const Context& context)

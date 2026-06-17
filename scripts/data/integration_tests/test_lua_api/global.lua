@@ -88,6 +88,22 @@ testing.registerGlobalTest('getGMST', function()
     testing.expectEqual(core.getGMST('Level_Up_Level2'), 'something')
 end)
 
+testing.registerGlobalTest('lua log levels', function()
+    testing.expectEqual(core.LOG_LEVEL.Error, 1)
+    testing.expectEqual(core.LOG_LEVEL.Warning, 2)
+    testing.expectEqual(core.LOG_LEVEL.Info, 3)
+    testing.expectEqual(core.LOG_LEVEL.Verbose, 4)
+    testing.expectEqual(core.LOG_LEVEL.Debug, 5)
+
+    core.log(core.LOG_LEVEL.Warning, 'warning from lua api test', 42)
+    core.log(core.LOG_LEVEL.Verbose, 'verbose from lua api test')
+    core.log(core.LOG_LEVEL.Debug, 'debug from lua api test')
+
+    local ok, err = pcall(function() core.log(0, 'invalid') end)
+    testing.expectEqual(ok, false)
+    testing.expectEqual(err, 'Invalid log level')
+end)
+
 testing.registerGlobalTest('MWScript', function()
     local variableStoreCount = 19
     local variableStore = world.mwscript.getGlobalVariables(player)
@@ -177,6 +193,107 @@ testing.registerGlobalTest('record creation', function()
     local draft = types.Light.createRecordDraft(newLight)
     local record = world.createRecord(draft)
     for key, value in pairs(newLight) do
+        testing.expectEqual(record[key], value)
+    end
+
+    local newApparatus = {
+        name = "TestApparatus",
+        model = "meshes/marker_door.dae",
+        mwscript = "",
+        icon = "icons/tx_apparatus_01.dds",
+        type = types.Apparatus.TYPE.Retort,
+        weight = 6.25,
+        value = 115,
+        quality = 3.5,
+    }
+    record = world.createRecord(types.Apparatus.createRecordDraft(newApparatus))
+    for key, value in pairs(newApparatus) do
+        testing.expectEqual(record[key], value)
+    end
+
+    local newLockpick = {
+        name = "TestLockpick",
+        model = "meshes/marker_door.dae",
+        mwscript = "",
+        icon = "icons/tx_lockpick_01.dds",
+        maxCondition = 12,
+        weight = 1.5,
+        value = 35,
+        quality = 2.25,
+    }
+    record = world.createRecord(types.Lockpick.createRecordDraft(newLockpick))
+    for key, value in pairs(newLockpick) do
+        testing.expectEqual(record[key], value)
+    end
+
+    local newRepair = {
+        name = "TestRepair",
+        model = "meshes/marker_door.dae",
+        mwscript = "",
+        icon = "icons/tx_repair_01.dds",
+        maxCondition = 8,
+        weight = 2.5,
+        value = 42,
+        quality = 1.75,
+    }
+    record = world.createRecord(types.Repair.createRecordDraft(newRepair))
+    for key, value in pairs(newRepair) do
+        testing.expectEqual(record[key], value)
+    end
+
+    local newIngredient = {
+        name = "TestIngredient",
+        model = "meshes/marker_door.dae",
+        mwscript = "",
+        icon = "icons/tx_ingredient_01.dds",
+        weight = 0.2,
+        value = 4,
+        effects = {
+            { id = "restore health", affectedAttribute = "", affectedSkill = "" },
+            { id = "restore fatigue", affectedAttribute = "", affectedSkill = "" },
+        },
+    }
+    record = world.createRecord(types.Ingredient.createRecordDraft(newIngredient))
+    testing.expectEqual(record.name, newIngredient.name)
+    testing.expectEqual(record.model, newIngredient.model)
+    testing.expectEqual(record.mwscript, newIngredient.mwscript)
+    testing.expectEqual(record.icon, newIngredient.icon)
+    testing.expectEqual(record.weight, newIngredient.weight)
+    testing.expectEqual(record.value, newIngredient.value)
+    for index, effect in ipairs(newIngredient.effects) do
+        testing.expectEqual(record.effects[index].id, effect.id)
+        testing.expectEqual(record.effects[index].affectedAttribute, effect.affectedAttribute)
+        testing.expectEqual(record.effects[index].affectedSkill, effect.affectedSkill)
+    end
+    local skillTemplateIngredient = types.Ingredient.createRecordDraft({
+        name = "SkillTemplateIngredient",
+        model = "meshes/marker_door.dae",
+        mwscript = "",
+        icon = "icons/tx_ingredient_01.dds",
+        weight = 0.2,
+        value = 4,
+        effects = {
+            { id = "fortify skill", affectedSkill = "alchemy" },
+        },
+    })
+    local patchedIngredient = types.Ingredient.createRecordDraft({
+        template = skillTemplateIngredient,
+        effects = {
+            { id = "restore fatigue" },
+        },
+    })
+    testing.expectEqual(patchedIngredient.effects[1].id, "restore fatigue")
+    testing.expectEqual(patchedIngredient.effects[1].affectedAttribute, "")
+    testing.expectEqual(patchedIngredient.effects[1].affectedSkill, "")
+
+    local newSound = {
+        fileName = "sound/test.wav",
+        volume = 220,
+        minRange = 10,
+        maxRange = 40,
+    }
+    record = world.createRecord(core.sound.createRecordDraft(newSound))
+    for key, value in pairs(newSound) do
         testing.expectEqual(record[key], value)
     end
 end)
@@ -314,6 +431,16 @@ testing.registerGlobalTest('record model property', function()
     testing.expectEqual(types.NPC.record(player).model, 'meshes/basicplayer.dae')
 end)
 
+testing.registerGlobalTest('npc breath timer', function()
+    local player = world.players[1]
+    types.NPC.setBreathTimer(player, 7.25)
+    testing.expectEqual(types.NPC.getBreathTimer(player), 7.25)
+
+    local ok, err = pcall(function() types.NPC.setBreathTimer(player, math.huge) end)
+    testing.expectEqual(ok, false)
+    testing.expectEqual(err, 'Value must be a finite number')
+end)
+
 local function registerPlayerTest(name)
     testing.registerGlobalTest(name, function()
         local player = initPlayer()
@@ -333,6 +460,8 @@ registerPlayerTest('findRandomPointAroundCircle')
 registerPlayerTest('castNavigationRay')
 registerPlayerTest('findNearestNavMeshPosition')
 registerPlayerTest('player memory limit')
+registerPlayerTest('queued UI mode is reflected immediately')
+registerPlayerTest('ui drag and drop state is exposed')
 
 testing.registerGlobalTest('player weapon attack', function()
     local player = initPlayer()
@@ -390,6 +519,62 @@ testing.registerGlobalTest('load script generated static', function()
     local record = types.Static.records.OMW_Generated_Static
     testing.expectNotEqual(record, nil, 'OMW_Generated_Static should have been generated')
     testing.expectEqual(record.model, 'meshes/generatedonload.nif')
+end)
+
+testing.registerGlobalTest('load script generated content records', function()
+    local apparatus = types.Apparatus.records.OMW_Generated_Apparatus
+    testing.expectNotEqual(apparatus, nil, 'OMW_Generated_Apparatus should have been generated')
+    testing.expectEqual(apparatus.name, 'Generated Apparatus')
+    testing.expectEqual(apparatus.type, types.Apparatus.TYPE.MortarPestle)
+    testing.expectAlmostEqual(apparatus.quality, 2.25)
+
+    local armor = types.Armor.records.OMW_Generated_Armor
+    testing.expectNotEqual(armor, nil, 'OMW_Generated_Armor should have been generated')
+    testing.expectEqual(armor.name, 'Generated Armor')
+    testing.expectEqual(armor.type, types.Armor.TYPE.Cuirass)
+    testing.expectEqual(armor.baseArmor, 24)
+    testing.expectAlmostEqual(armor.enchantCapacity, 6)
+
+    local clothing = types.Clothing.records.OMW_Generated_Clothing
+    testing.expectNotEqual(clothing, nil, 'OMW_Generated_Clothing should have been generated')
+    testing.expectEqual(clothing.name, 'Generated Clothing')
+    testing.expectEqual(clothing.type, types.Clothing.TYPE.Robe)
+    testing.expectAlmostEqual(clothing.enchantCapacity, 4)
+
+    local container = types.Container.records.OMW_Generated_Container
+    testing.expectNotEqual(container, nil, 'OMW_Generated_Container should have been generated')
+    testing.expectEqual(container.name, 'Generated Container')
+    testing.expectEqual(container.isOrganic, false)
+    testing.expectEqual(container.isRespawning, true)
+
+    local creature = types.Creature.records.OMW_Generated_Creature
+    testing.expectNotEqual(creature, nil, 'OMW_Generated_Creature should have been generated')
+    testing.expectEqual(creature.name, 'Generated Creature')
+    testing.expectEqual(creature.type, types.Creature.TYPE.Creatures)
+    testing.expectEqual(creature.attack[2], 3)
+    testing.expectEqual(creature.canWalk, true)
+    testing.expectEqual(creature.isRespawning, true)
+    testing.expectEqual(creature.isPersistent, true)
+
+    local npc = types.NPC.records.OMW_Generated_NPC
+    testing.expectNotEqual(npc, nil, 'OMW_Generated_NPC should have been generated')
+    testing.expectEqual(npc.name, 'Generated NPC')
+    testing.expectEqual(npc.race, 'dark elf')
+    testing.expectEqual(npc.class, 'warrior')
+    testing.expectEqual(npc.isMale, true)
+    testing.expectEqual(npc.isAutocalc, true)
+    testing.expectEqual(npc.isRespawning, true)
+    testing.expectEqual(npc.isPersistent, true)
+    testing.expectEqual(npc.baseDisposition, 45)
+    testing.expectEqual(npc.baseGold, 20)
+
+    local weapon = types.Weapon.records.OMW_Generated_Weapon
+    testing.expectNotEqual(weapon, nil, 'OMW_Generated_Weapon should have been generated')
+    testing.expectEqual(weapon.name, 'Generated Weapon')
+    testing.expectEqual(weapon.type, types.Weapon.TYPE.ShortBladeOneHand)
+    testing.expectEqual(weapon.chopMaxDamage, 9)
+    testing.expectEqual(weapon.slashMaxDamage, 11)
+    testing.expectEqual(weapon.thrustMaxDamage, 7)
 end)
 
 return {

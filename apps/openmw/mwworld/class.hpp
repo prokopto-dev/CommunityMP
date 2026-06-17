@@ -34,7 +34,7 @@ namespace MWRender
 
 namespace MWPhysics
 {
-    class PhysicsSystem;
+    class IPhysicsBackend;
 }
 
 namespace MWMechanics
@@ -89,10 +89,10 @@ namespace MWWorld
         virtual void insertObjectRendering(
             const Ptr& ptr, const std::string& mesh, MWRender::RenderingInterface& renderingInterface) const;
         virtual void insertObject(const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation,
-            MWPhysics::PhysicsSystem& physics) const;
+            MWPhysics::IPhysicsBackend& physics) const;
         ///< Add reference into a cell for rendering (default implementation: don't render anything).
         virtual void insertObjectPhysics(const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation,
-            MWPhysics::PhysicsSystem& physics) const;
+            MWPhysics::IPhysicsBackend& physics) const;
 
         virtual std::string_view getName(const ConstPtr& ptr) const = 0;
         ///< \return name or ID; can return an empty string.
@@ -238,6 +238,12 @@ namespace MWWorld
         virtual void skillUsageSucceeded(
             const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor = 1.f) const;
         ///< Inform actor \a ptr that a skill use has succeeded.
+        ///
+        /// (default implementations: throws an exception)
+
+        virtual void skillUsageFailed(
+            const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor = 1.f) const;
+        ///< Inform actor \a ptr that a skill use has failed.
         ///
         /// (default implementations: throws an exception)
 

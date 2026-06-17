@@ -8,6 +8,7 @@ local function startPackage(args)
     if cancelOther == nil then cancelOther = true end
     if args.type == 'Combat' then
         if not args.target then error("target required") end
+        if not types.Actor.objectIsInstance(args.target) then error("target must be an actor") end
         self:_startAiCombat(args.target, cancelOther)
     elseif args.type == 'Pursue' then
         if not args.target then error("target required") end
@@ -68,7 +69,7 @@ return {
         --- AI Package
         -- @type Package
         -- @field #string type Type of the AI package.
-        -- @field openmw.core#GameObject target Target (usually an actor) of the AI package (can be nil).
+        -- @field openmw.core#GameObject target Target of the AI package (can be nil; combat targets must be actors).
         -- @field #boolean sideWithTarget Whether to help the target in combat (true or false).
         -- @field openmw.util#Vector3 destPosition Destination point of the AI package.
         -- @field #number distance Distance value (can be nil).

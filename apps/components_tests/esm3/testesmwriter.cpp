@@ -1,11 +1,14 @@
 #include <components/esm3/esmwriter.hpp>
+#include <components/toutf8/toutf8.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <random>
+#include <sstream>
 
 namespace ESM
 {
@@ -49,6 +52,49 @@ namespace ESM
             writer.setFormatVersion(MaxLimitedSizeStringsFormatVersion);
             writer.save(stream);
             EXPECT_THROW(writer.writeMaybeFixedSizeString(generateRandomString(33), 32), std::runtime_error);
+        }
+
+        TEST_F(Esm3EsmWriterTest, writeHStringShouldEncodeUnsupportedUtf8AsLegacyReplacement)
+        {
+            std::stringstream stream;
+            ToUTF8::Utf8Encoder encoder(ToUTF8::WINDOWS_1252);
+
+            ESMWriter writer;
+            writer.setEncoder(&encoder);
+            writer.save(stream);
+            writer.writeHNString(
+                "FNAM",
+                "Fargoth\xf0\x9f\x91\x8d");
+
+            const std::string output = stream.str();
+            EXPECT_THAT(output, HasSubstr("Fargoth?"));
+            EXPECT_THAT(output, Not(HasSubstr("\xf0\x9f\x91\x8d")));
+        }
+
+        TEST_F(Esm3EsmWriterTest, writeFixedHStringShouldPadAfterLegacyEncoding)
+        {
+            std::stringstream stream;
+            ToUTF8::Utf8Encoder encoder(ToUTF8::WINDOWS_1252);
+
+            ESMWriter writer;
+            writer.setEncoder(&encoder);
+            writer.save(stream);
+            writer.writeHNString("RNAM", "Caf\xc3\xa9", 8);
+
+            const std::string output = stream.str();
+            const std::size_t subrecord = output.find("RNAM");
+            ASSERT_NE(subrecord, std::string::npos);
+            ASSERT_GE(output.size(), subrecord + 16);
+
+            const auto sizeOffset = subrecord + 4;
+            const auto dataOffset = subrecord + 8;
+            const auto subrecordSize = static_cast<std::uint32_t>(static_cast<unsigned char>(output[sizeOffset]))
+                | (static_cast<std::uint32_t>(static_cast<unsigned char>(output[sizeOffset + 1])) << 8)
+                | (static_cast<std::uint32_t>(static_cast<unsigned char>(output[sizeOffset + 2])) << 16)
+                | (static_cast<std::uint32_t>(static_cast<unsigned char>(output[sizeOffset + 3])) << 24);
+
+            EXPECT_EQ(subrecordSize, 8);
+            EXPECT_EQ(output.substr(dataOffset, 8), std::string("Caf\xe9\0\0\0\0", 8));
         }
 
         struct Esm3EsmWriterRefIdSizeTest : TestWithParam<std::pair<RefId, std::size_t>>

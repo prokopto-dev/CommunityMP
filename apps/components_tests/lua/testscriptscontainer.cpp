@@ -539,6 +539,48 @@ CUSTOM: customdata.lua
         EXPECT_EQ(counter4, 25);
     }
 
+    TEST_F(LuaScriptsContainerTest, RemoveScriptDropsTimers)
+    {
+        using TimerType = LuaUtil::ScriptsContainer::TimerType;
+        LuaUtil::ScriptsContainer scripts(&mLua, "Test");
+        const int removedScriptId = getId(test1Path);
+        const int keptScriptId = getId(test2Path);
+
+        EXPECT_TRUE(scripts.addCustomScript(removedScriptId));
+        EXPECT_TRUE(scripts.addCustomScript(keptScriptId));
+
+        int removedSerializableCounter = 0;
+        int keptSerializableCounter = 0;
+        int removedUnsavableCounter = 0;
+        int keptUnsavableCounter = 0;
+        sol::function removedSerializable = sol::make_object(
+            mLua.unsafeState(), [&](int value) { removedSerializableCounter += value; });
+        sol::function keptSerializable
+            = sol::make_object(mLua.unsafeState(), [&](int value) { keptSerializableCounter += value; });
+        sol::function removedUnsavable = sol::make_object(mLua.unsafeState(), [&]() { removedUnsavableCounter++; });
+        sol::function keptUnsavable = sol::make_object(mLua.unsafeState(), [&]() { keptUnsavableCounter++; });
+
+        scripts.registerTimerCallback(removedScriptId, "A", removedSerializable);
+        scripts.registerTimerCallback(keptScriptId, "A", keptSerializable);
+        scripts.setupSerializableTimer(
+            TimerType::SIMULATION_TIME, 5, removedScriptId, "A", sol::make_object(mLua.unsafeState(), 1));
+        scripts.setupSerializableTimer(
+            TimerType::SIMULATION_TIME, 5, keptScriptId, "A", sol::make_object(mLua.unsafeState(), 3));
+        scripts.setupUnsavableTimer(TimerType::GAME_TIME, 5, removedScriptId, removedUnsavable);
+        scripts.setupUnsavableTimer(TimerType::GAME_TIME, 5, keptScriptId, keptUnsavable);
+
+        scripts.removeScript(removedScriptId);
+
+        testing::internal::CaptureStdout();
+        scripts.processTimers(10, 10);
+        EXPECT_EQ(internal::GetCapturedStdout(), "");
+
+        EXPECT_EQ(removedSerializableCounter, 0);
+        EXPECT_EQ(removedUnsavableCounter, 0);
+        EXPECT_EQ(keptSerializableCounter, 3);
+        EXPECT_EQ(keptUnsavableCounter, 1);
+    }
+
     TEST_F(LuaScriptsContainerTest, CallbackWrapper)
     {
         sol::state_view view = mLua.unsafeState();

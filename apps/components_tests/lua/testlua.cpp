@@ -5,6 +5,8 @@
 #include <components/testing/expecterror.hpp>
 #include <components/testing/util.hpp>
 
+#include <stdexcept>
+
 namespace
 {
     using namespace testing;
@@ -34,6 +36,9 @@ return {
         local counter = require('aaa.counter')
         counter.inc(1)
         return counter.get()
+    end,
+    isCounterCacheCaseInsensitive = function()
+        return require('aaa.counter') == require('AAA.Counter')
     end,
     callRawset = function()
         t = {a = 1, b = 2}
@@ -160,6 +165,7 @@ return {
             EXPECT_EQ(LuaUtil::call(script2["useCounter"]).get<int>(), 43);
         }
         EXPECT_EQ(LuaUtil::call(script["useCounter"]).get<int>(), 45);
+        EXPECT_TRUE(LuaUtil::call(script["isCounterCacheCaseInsensitive"]).get<bool>());
 
         EXPECT_ERROR(LuaUtil::call(script["incorrectRequire"]), "module not found: counter");
     }
@@ -228,6 +234,12 @@ return {
             EXPECT_EQ(LuaUtil::call(script1["apiName"]).get<std::string>(), "api1");
             EXPECT_EQ(LuaUtil::call(script2["apiName"]).get<std::string>(), "api2");
         });
+    }
+
+    TEST_F(LuaStateTest, ProtectedCallConvertsCppExceptionsToLuaErrors)
+    {
+        EXPECT_ERROR(mLua.protectedCall([](LuaUtil::LuaView&) { throw std::runtime_error("boundary failure"); }),
+            "Lua error: boundary failure");
     }
 
     TEST_F(LuaStateTest, GetLuaVersion)

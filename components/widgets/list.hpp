@@ -48,6 +48,8 @@ namespace Gui
         ///< get widget for an item name, useful to set up tooltip
 
         void scrollToTop();
+        void centerItem(std::string_view name);
+        void scrollToBottom();
         void setViewOffset(int offset);
 
         void setPropertyOverride(std::string_view key, std::string_view value) override;

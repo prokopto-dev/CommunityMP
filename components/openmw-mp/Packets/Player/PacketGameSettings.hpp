@@ -1,0 +1,18 @@
+#ifndef OPENMW_PACKETGAMESETTINGS_HPP
+#define OPENMW_PACKETGAMESETTINGS_HPP
+
+#include <components/openmw-mp/Packets/Player/PlayerPacket.hpp>
+#include <components/openmw-mp/NetworkMessages.hpp>
+
+namespace mwmp
+{
+    class PacketGameSettings: public PlayerPacket
+    {
+    public:
+        PacketGameSettings();
+
+        virtual void Packet(PacketStream *newBitstream, bool send);
+    };
+}
+
+#endif //OPENMW_PACKETGAMESETTINGS_HPP

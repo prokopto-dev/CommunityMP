@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout">
+  <Widget type="Widget" skin="" position="0 0 490 331" layer="Windows" name="_Main">
+    <Property key="Visible" value="false"/>
+    <Property key="MinSize" value="220 160"/>
+    <UserString key="CommunityMP_TabFont" value="Russo"/>
+    <UserString key="CommunityMP_TabNormalColour" value="0.78 0.72 0.60"/>
+    <UserString key="CommunityMP_TabSelectedColour" value="1 0.86 0.42"/>
+    <UserString key="CommunityMP_TabSelectedPrefix" value=""/>
+    <UserString key="CommunityMP_TabSelectedSuffix" value=""/>
+    <UserString key="CommunityMP_TabUseSelectedState" value="true"/>
+    <UserString key="CommunityMP_TabApplyTextColour" value="false"/>
+
+    <Widget type="ImageBox" skin="ImageBox" position_real="0 0 1 1" align="Stretch" name="chat_Background">
+      <Property key="ImageTexture" value="mygui\chat\textures\communitymp_chat_frame.png"/>
+      <Property key="NeedMouse" value="false"/>
+    </Widget>
+
+    <Widget type="Button" skin="CommunityMP_ChatTab" position="30 23 42 18" align="Left Top" name="tab_All">
+      <UserString key="CommunityMP_TabCaption" value="All"/>
+    </Widget>
+    <Widget type="Button" skin="CommunityMP_ChatTab" position="74 23 58 18" align="Left Top" name="tab_Server">
+      <UserString key="CommunityMP_TabCaption" value="Server"/>
+    </Widget>
+    <Widget type="Button" skin="CommunityMP_ChatTab" position="134 23 60 18" align="Left Top" name="tab_Global">
+      <UserString key="CommunityMP_TabCaption" value="Global"/>
+    </Widget>
+    <Widget type="Button" skin="CommunityMP_ChatTab" position="196 23 52 18" align="Left Top" name="tab_Local">
+      <UserString key="CommunityMP_TabCaption" value="Local"/>
+    </Widget>
+    <Widget type="Button" skin="CommunityMP_ChatTab" position="250 23 64 18" align="Left Top" name="tab_Private">
+      <UserString key="CommunityMP_TabCaption" value="Private"/>
+    </Widget>
+
+    <Widget type="TextBox" skin="SandText" position="326 22 128 18" align="Right Top" name="label_ChannelTitle">
+      <Property key="FontName" value="Russo"/>
+      <Property key="TextAlign" value="Right VCenter"/>
+      <Property key="TextColour" value="1 0.86 0.42"/>
+      <Property key="TextShadow" value="true"/>
+      <Property key="TextShadowColour" value="0 0 0"/>
+      <Property key="Caption" value="All Channels"/>
+      <Property key="NeedMouse" value="false"/>
+    </Widget>
+    <Widget type="TextBox" skin="SandText" position="326 42 128 16" align="Right Top" name="label_ChannelMode">
+      <Property key="FontName" value="Russo"/>
+      <Property key="TextAlign" value="Right VCenter"/>
+      <Property key="TextColour" value="0.47 0.72 0.86"/>
+      <Property key="TextShadow" value="true"/>
+      <Property key="TextShadowColour" value="0 0 0"/>
+      <Property key="Caption" value="Unified feed"/>
+      <Property key="NeedMouse" value="false"/>
+    </Widget>
+
+    <Widget type="EditBox" skin="MW_TextBoxEdit" position="36 64 418 208" align="Stretch" name="list_History">
+      <Property key="MultiLine" value="1"/>
+      <Property key="ReadOnly" value="true"/>
+      <Property key="FontName" value="Russo"/>
+      <Property key="TextAlign" value="Left Top"/>
+      <Property key="TextColour" value="0.94 0.92 0.84"/>
+      <Property key="InvertSelected" value="false"/>
+      <Property key="WordWrap" value="true"/>
+    </Widget>
+
+    <Widget type="TextBox" skin="SandText" position="49 293 48 22" align="Left Bottom" name="label_InputMode">
+      <Property key="FontName" value="Russo"/>
+      <Property key="TextAlign" value="Center"/>
+      <Property key="TextColour" value="0.47 0.72 0.86"/>
+      <Property key="TextShadow" value="true"/>
+      <Property key="TextShadowColour" value="0 0 0"/>
+      <Property key="Caption" value="OOC"/>
+      <Property key="Visible" value="false"/>
+      <Property key="NeedMouse" value="false"/>
+    </Widget>
+
+    <Widget type="EditBox" skin="CommunityMP_ChatInput" position="103 292 338 22" align="HStretch Bottom" name="edit_Command">
+      <Property key="InvertSelected" value="false"/>
+      <Property key="TextColour" value="1 0.93 0.78"/>
+      <UserString key="AcceptTab" value="true"/>
+    </Widget>
+  </Widget>
+</MyGUI>

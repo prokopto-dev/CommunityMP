@@ -5,6 +5,8 @@
 #include <components/misc/finitevalues.hpp>
 #include <components/settings/values.hpp>
 
+#include <string>
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwrender/camera.hpp"
@@ -65,6 +67,12 @@ namespace MWLua
         api["setExtraPitch"] = [camera](const FiniteFloat v) { camera->setExtraPitch(-v); };
         api["setExtraYaw"] = [camera](const FiniteFloat v) { camera->setExtraYaw(-v); };
         api["setExtraRoll"] = [camera](const FiniteFloat v) { camera->setExtraRoll(-v); };
+        api["setAdditiveExtraPitch"]
+            = [camera](const FiniteFloat v, std::string identifier) { camera->setAdditiveExtraPitch(-v, identifier); };
+        api["setAdditiveExtraYaw"]
+            = [camera](const FiniteFloat v, std::string identifier) { camera->setAdditiveExtraYaw(-v, identifier); };
+        api["setAdditiveExtraRoll"]
+            = [camera](const FiniteFloat v, std::string identifier) { camera->setAdditiveExtraRoll(-v, identifier); };
         api["setProjectionOffset"]
             = [renderingManager](const osg::Vec2f& v) { renderingManager->setProjectionOffset(v); };
         api["getExtraPitch"] = [camera]() { return -camera->getExtraPitch(); };
@@ -78,6 +86,9 @@ namespace MWLua
 
         api["getFirstPersonOffset"] = [camera]() { return camera->getFirstPersonOffset(); };
         api["setFirstPersonOffset"] = [camera](const osg::Vec3f& v) { camera->setFirstPersonOffset(v); };
+        api["setAdditiveFirstPersonOffset"] = [camera](const osg::Vec3f& v, std::string identifier) {
+            camera->setAdditiveFirstPersonOffset(v, identifier);
+        };
 
         api["getFocalPreferredOffset"] = [camera]() -> osg::Vec2f { return camera->getFocalPointTargetOffset(); };
         api["setFocalPreferredOffset"] = [camera](const osg::Vec2f& v) { camera->setFocalPointTargetOffset(v); };

@@ -1,35 +1,79 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MyGUI type="Layout">
-    <!-- correct size is 247 144, adjust when skin is changed to a dialog -->
-    <Widget type="Window" skin="MW_DialogNoTransp" layer="Modal" position="0 0 247 144" align="Center" name="_Main">
-        <Widget type="Widget" skin="" position="14 14 216 116" align="Stretch">
+    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 900 430" align="Center" name="_Main">
+        <Widget type="TextBox" skin="HeaderText" position="32 24 836 28" name="LabelT" align="HCenter Top">
+            <Property key="Caption" value="#{sSpecializationMenu1}"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+        </Widget>
 
-            <!-- Label -->
-            <Widget type="TextBox" skin="HeaderText" position="0 0 216 18" name="LabelT" align="Center Top">
-                <Property key="Caption" value="#{sSpecializationMenu1}"/>
-                <Property key="TextAlign" value="Center Top"/>
+        <Widget type="Widget" skin="MW_Box" position="32 64 836 30" name="CreatorStageRail" align="Left Top">
+            <Widget type="TextBox" skin="ProgressText" position="14 6 148 18" name="CreatorStageIdentity" align="Left Top">
+                <Property key="Caption" value="01 Identity"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
             </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="172 6 148 18" name="CreatorStageAppearance" align="Left Top">
+                <Property key="Caption" value="02 Appearance"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="330 6 148 18" name="CreatorStageClass" align="Left Top">
+                <Property key="Caption" value="03 Class"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="488 6 148 18" name="CreatorStageBirthsign" align="Left Top">
+                <Property key="Caption" value="04 Birthsign"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="646 6 148 18" name="CreatorStageReview" align="Left Top">
+                <Property key="Caption" value="05 Review"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
 
-            <!-- Specialization list -->
-            <Widget type="Button" skin="SandTextButton" position="0 28 216 18" name="Specialization0" align="Left Top">
-                <Property key="TextAlign" value="Top HCenter"/>
+        <Widget type="Widget" skin="MW_Box" position="32 120 836 62" name="CombatRouteCard" align="Left Top">
+            <Widget type="Button" skin="SandTextButton" position="12 12 812 38" name="Specialization0" align="Left Top">
+                <Property key="TextAlign" value="Center"/>
             </Widget>
-            <Widget type="Button" skin="SandTextButton" position="0 46 216 18" name="Specialization1" align="Left Top">
-                <Property key="TextAlign" value="Top HCenter"/>
+        </Widget>
+        <Widget type="Widget" skin="MW_Box" position="32 196 836 62" name="MagicRouteCard" align="Left Top">
+            <Widget type="Button" skin="SandTextButton" position="12 12 812 38" name="Specialization1" align="Left Top">
+                <Property key="TextAlign" value="Center"/>
             </Widget>
-            <Widget type="Button" skin="SandTextButton" position="0 64 216 18" name="Specialization2" align="Left Top">
-                <Property key="TextAlign" value="Top HCenter"/>
+        </Widget>
+        <Widget type="Widget" skin="MW_Box" position="32 272 836 62" name="StealthRouteCard" align="Left Top">
+            <Widget type="Button" skin="SandTextButton" position="12 12 812 38" name="Specialization2" align="Left Top">
+                <Property key="TextAlign" value="Center"/>
             </Widget>
+        </Widget>
 
-            <!-- Dialog buttons -->
-            <Widget type="HBox" position="0 88 216 28">
-                <Widget type="Spacer" />
-                <Widget type="AutoSizedButton" skin="MW_Button" align="Right Bottom" name="CancelButton">
-                    <Property key="ExpandDirection" value="Left Up"/>
-                    <Property key="Caption" value="#{Interface:Cancel}"/>
-                </Widget>
+        <Widget type="HBox" position="0 374 872 28">
+            <Widget type="Spacer"/>
+            <Widget type="AutoSizedButton" skin="MW_Button" align="Right Bottom" name="CancelButton">
+                <Property key="ExpandDirection" value="Left Up"/>
+                <Property key="Caption" value="#{Interface:Cancel}"/>
             </Widget>
-
         </Widget>
     </Widget>
 </MyGUI>

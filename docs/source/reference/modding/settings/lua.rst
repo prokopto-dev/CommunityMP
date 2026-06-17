@@ -70,5 +70,6 @@ Lua Settings
    :range: ≥ 0
    :default: 100
 
-   Lua garbage collector steps per frame.
-   Higher values allow more memory to be freed per frame.
+   Lua garbage collector step granularity per frame.
+   With a Lua worker thread, OpenMW repeats steps while the main thread is busy with non-Lua engine work.
+   Higher values make each step more aggressive.

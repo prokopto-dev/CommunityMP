@@ -35,7 +35,7 @@ jobs:
       if: ${{ inputs.package }}
       run: choco install nsis
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
 
     - shell: bash
       name: Add deps version env to GITHUB_ENV, stripping comments
@@ -70,7 +70,7 @@ jobs:
 
     - name: Cache Qt
       id: qt-cache
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64
         key: qt-cache-${{ env.QT_VER }}-msvc2019_64-v1
@@ -92,6 +92,12 @@ jobs:
 
     - uses: seanmiddleditch/gha-setup-ninja@master
 
+    - name: Prepare TES3MP GNS dependencies
+      run: |
+        git clone --depth 1 https://github.com/microsoft/vcpkg.git deps/vcpkg-gns
+        .\deps\vcpkg-gns\bootstrap-vcpkg.bat -disableMetrics
+        .\deps\vcpkg-gns\vcpkg.exe install gamenetworkingsockets boost-asio boost-iostreams --triplet x64-windows
+
     - name: Configure OpenMW
       run: >
         cmake
@@ -100,7 +106,7 @@ jobs:
         -G Ninja
         -D CMAKE_BUILD_TYPE=${{ inputs.build-type }}
         -D CMAKE_TOOLCHAIN_FILE='${{ github.workspace }}/deps/vcpkg-x64-windows-${{ inputs.msvc }}-${{ env.VCPKG_TAG }}/scripts/buildsystems/vcpkg.cmake'
-        -D CMAKE_PREFIX_PATH='${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64'
+        -D CMAKE_PREFIX_PATH='${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64;${{ github.workspace }}/deps/vcpkg-gns/installed/x64-windows'
         ${{ inputs.package && '-D CMAKE_CXX_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG /Zi"' || '' }}
         ${{ inputs.package && '-D "CMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG /OPT:REF /OPT:ICF /INCREMENTAL:NO"' || '' }}
         -D LuaJit_INCLUDE_DIR='${{ github.workspace }}/deps/vcpkg-x64-windows-${{ inputs.msvc }}-${{ env.VCPKG_TAG }}/installed/x64-windows/include/luajit'
@@ -109,6 +115,10 @@ jobs:
         -D BUILD_COMPONENTS_TESTS=${{ ! inputs.package }}
         -D BUILD_OPENMW_TESTS=${{ ! inputs.package }}
         -D BUILD_OPENCS_TESTS=${{ ! inputs.package }}
+        -D BUILD_TES3MP_CLIENT=ON
+        -D BUILD_TES3MP_SERVER=ON
+        -D BUILD_TES3MP_BROWSER=ON
+        -D BUILD_TES3MP_MASTER=ON
         -D OPENMW_USE_SYSTEM_SQLITE3=OFF
         -D OPENMW_USE_SYSTEM_YAML_CPP=OFF
         -D OPENMW_LTO_BUILD=ON
@@ -142,6 +152,15 @@ jobs:
         cp plugins/imageformats/qsvg.dll ${{ github.workspace }}/build/imageformats
         mkdir ${{ github.workspace }}/build/iconengines
         cp plugins/iconengines/qsvgicon.dll ${{ github.workspace }}/build/iconengines
+
+    - name: Smoke TES3MP GNS runtime
+      if: ${{ ! inputs.package }}
+      shell: pwsh
+      run: >
+        .\scripts\smoke-tes3mp-runtime.ps1
+        -BuildDir '${{ github.workspace }}\build'
+        -Configuration '${{ inputs.build-type }}'
+        -WithLocalMaster
 
     - name: Create symbol server directory structure
       working-directory: ${{ github.workspace }}/build
@@ -184,25 +203,25 @@ jobs:
         cp install/CI-ID.txt SymStore/CI-ID.txt
 
     - name: Store OpenMW archived pdb files
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: openmw-windows-${{ inputs.msvc }}-pdb-${{ github.sha }}
         path: ${{ github.workspace }}/pdb/*
 
     - name: Store OpenMW build artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: openmw-windows-${{ inputs.msvc }}-${{ github.sha }}
         path: ${{ github.workspace }}/install/*
 
     - name: Store symbol server artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: openmw-windows-${{ inputs.msvc }}-sym-store-${{ github.sha }}
         path: ${{ github.workspace }}/SymStore/*
 
     - name: Store log etc. artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v4
       with:
         name: openmw-windows-${{ inputs.msvc }}-logs-and-stuff-${{ github.sha }}
         path: |

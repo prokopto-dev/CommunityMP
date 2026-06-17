@@ -159,8 +159,8 @@ namespace LuaUtil
             return iter->second;
         }
 
-        bool Registry::bind(
-            std::string_view key, const LuaUtil::Callback& callback, const std::vector<std::string_view>& dependencies)
+        bool Registry::bind(std::string_view key, const LuaUtil::Callback& callback,
+            const std::vector<std::string_view>& dependencies, bool persistent)
         {
             Id id = safeIdByKey(key);
             std::vector<Id> dependencyIds;
@@ -172,6 +172,7 @@ namespace LuaUtil
                 mBindings[id].push_back(Binding{
                     callback,
                     std::move(dependencyIds),
+                    persistent,
                 });
             return validEdge;
         }
@@ -232,12 +233,12 @@ namespace LuaUtil
                 if (mValues[node] != newValue)
                 {
                     mValues[node] = sol::object(newValue);
-                    std::vector<LuaUtil::Callback>& handlers = mHandlers[node];
+                    std::vector<Handler>& handlers = mHandlers[node];
                     handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
-                                       [&](const LuaUtil::Callback& handler) {
-                                           if (!handler.isValid())
+                                       [&](const Handler& handler) {
+                                           if (!handler.mCallback.isValid())
                                                return true;
-                                           handler.tryCall(newValue);
+                                           handler.mCallback.tryCall(newValue);
                                            return false;
                                        }),
                         handlers.end());
@@ -247,12 +248,57 @@ namespace LuaUtil
 
         void Registry::clear(bool force)
         {
-            std::vector<Info> infoToKeep;
+            struct PersistentBinding
+            {
+                LuaUtil::Callback mCallback;
+                std::vector<std::string> mDependencies;
+            };
+            struct PersistentAction
+            {
+                Info mInfo;
+                std::vector<Handler> mHandlers;
+                std::vector<PersistentBinding> mBindings;
+            };
+
+            std::vector<PersistentAction> actionsToKeep;
             if (!force)
             {
-                for (const Info& info : mInfo)
-                    if (info.mPersistent)
-                        infoToKeep.push_back(info);
+                for (Id id = 0; id < mInfo.size(); ++id)
+                {
+                    if (!mInfo[id].mPersistent)
+                        continue;
+
+                    PersistentAction action{ mInfo[id], {}, {} };
+                    for (const Handler& handler : mHandlers[id])
+                    {
+                        if (handler.mPersistent && handler.mCallback.isValid())
+                            action.mHandlers.push_back(handler);
+                    }
+
+                    for (const Binding& binding : mBindings[id])
+                    {
+                        if (!binding.mPersistent || !binding.mCallback.isValid())
+                            continue;
+
+                        PersistentBinding persistentBinding{ binding.mCallback, {} };
+                        bool dependenciesArePersistent = true;
+                        persistentBinding.mDependencies.reserve(binding.mDependencies.size());
+                        for (Id dependencyId : binding.mDependencies)
+                        {
+                            if (dependencyId >= mInfo.size() || !mInfo[dependencyId].mPersistent)
+                            {
+                                dependenciesArePersistent = false;
+                                break;
+                            }
+                            persistentBinding.mDependencies.push_back(mKeys[dependencyId]);
+                        }
+
+                        if (dependenciesArePersistent)
+                            action.mBindings.push_back(std::move(persistentBinding));
+                    }
+
+                    actionsToKeep.push_back(std::move(action));
+                }
             }
             mKeys.clear();
             mIds.clear();
@@ -263,8 +309,23 @@ namespace LuaUtil
             mBindingTree.clear();
             if (!force)
             {
-                for (const Info& i : infoToKeep)
-                    insert(i);
+                for (const PersistentAction& action : actionsToKeep)
+                    insert(action.mInfo);
+
+                for (PersistentAction& action : actionsToKeep)
+                {
+                    const Id id = safeIdByKey(action.mInfo.mKey);
+                    mHandlers[id] = std::move(action.mHandlers);
+
+                    for (const PersistentBinding& binding : action.mBindings)
+                    {
+                        std::vector<std::string_view> dependencies;
+                        dependencies.reserve(binding.mDependencies.size());
+                        for (const std::string& dependency : binding.mDependencies)
+                            dependencies.push_back(dependency);
+                        bind(action.mInfo.mKey, binding.mCallback, dependencies, true);
+                    }
+                }
             }
         }
     }
@@ -301,21 +362,21 @@ namespace LuaUtil
             return mInfo[iter->second];
         }
 
-        void Registry::registerHandler(std::string_view key, const LuaUtil::Callback& callback)
+        void Registry::registerHandler(std::string_view key, const LuaUtil::Callback& callback, bool persistent)
         {
             Id id = safeIdByKey(key);
-            mHandlers[id].push_back(callback);
+            mHandlers[id].push_back(Handler{ callback, persistent });
         }
 
         void Registry::activate(std::string_view key)
         {
             Id id = safeIdByKey(key);
-            std::vector<LuaUtil::Callback>& handlers = mHandlers[id];
+            std::vector<Handler>& handlers = mHandlers[id];
             handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
-                               [&](const LuaUtil::Callback& handler) {
-                                   if (!handler.isValid())
+                               [&](const Handler& handler) {
+                                   if (!handler.mCallback.isValid())
                                        return true;
-                                   handler.tryCall();
+                                   handler.mCallback.tryCall();
                                    return false;
                                }),
                 handlers.end());
@@ -323,20 +384,39 @@ namespace LuaUtil
 
         void Registry::clear(bool force)
         {
-            std::vector<Info> infoToKeep;
+            struct PersistentTrigger
+            {
+                Info mInfo;
+                std::vector<Handler> mHandlers;
+            };
+
+            std::vector<PersistentTrigger> triggersToKeep;
             if (!force)
             {
-                for (const Info& info : mInfo)
-                    if (info.mPersistent)
-                        infoToKeep.push_back(info);
+                for (Id id = 0; id < mInfo.size(); ++id)
+                {
+                    if (!mInfo[id].mPersistent)
+                        continue;
+
+                    PersistentTrigger trigger{ mInfo[id], {} };
+                    for (const Handler& handler : mHandlers[id])
+                    {
+                        if (handler.mPersistent && handler.mCallback.isValid())
+                            trigger.mHandlers.push_back(handler);
+                    }
+                    triggersToKeep.push_back(std::move(trigger));
+                }
             }
             mInfo.clear();
             mHandlers.clear();
             mIds.clear();
             if (!force)
             {
-                for (const Info& i : infoToKeep)
-                    insert(i);
+                for (PersistentTrigger& trigger : triggersToKeep)
+                {
+                    insert(trigger.mInfo);
+                    mHandlers[safeIdByKey(trigger.mInfo.mKey)] = std::move(trigger.mHandlers);
+                }
             }
         }
     }

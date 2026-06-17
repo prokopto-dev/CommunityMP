@@ -25,6 +25,10 @@
 #include "../mwworld/globals.hpp"
 #include "../mwworld/inventorystore.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/MechanicsHelper.hpp"
+#endif
+
 #include "actorutil.hpp"
 #include "difficultyscaling.hpp"
 #include "movement.hpp"
@@ -243,9 +247,16 @@ namespace MWMechanics
 
             if (Misc::Rng::roll0to99(world->getPrng()) >= getHitChance(attacker, victim, skillValue))
             {
+                if (attacker == getPlayer())
+                    attacker.getClass().skillUsageFailed(attacker, weaponSkill, ESM::Skill::Weapon_SuccessfulHit);
+
                 MWBase::Environment::get().getLuaManager()->onHit(attacker, victim, weapon, projectile, 0,
                     attackStrength, damage, false, hitPosition, false, MWMechanics::DamageSourceType::Ranged);
                 MWMechanics::reduceWeaponCondition(damage, false, weapon, attacker);
+#ifdef BUILD_TES3MP_CLIENT
+                MechanicsHelper::queueLocalRangedAttack(
+                    attacker, victim, weapon, projectile, attackStrength, true, false, damage, hitPosition, false, false);
+#endif
                 return;
             }
 
@@ -293,6 +304,13 @@ namespace MWMechanics
 
         if (validVictim)
         {
+#ifdef BUILD_TES3MP_CLIENT
+            const bool projectileIsWeapon = !weapon.isEmpty() && projectile == weapon;
+            MechanicsHelper::queueLocalRangedAttack(attacker, victim, weapon, projectile, attackStrength, true, true,
+                damage, hitPosition, appliedEnchantment && projectileIsWeapon,
+                appliedEnchantment && !projectileIsWeapon);
+#endif
+
             // Non-enchanted arrows shot at enemies have a chance to turn up in their inventory
             if (victim != getPlayer() && !appliedEnchantment)
             {

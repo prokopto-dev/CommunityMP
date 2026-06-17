@@ -36,6 +36,17 @@
 -- @param #number amount
 
 ---
+-- Resurrect the actor.
+-- For the player, restores the game from a game-over state if necessary.
+-- For non-player actors that are dead, fully resets their runtime state
+-- (stats, inventory, AI) while keeping their world position and refreshing
+-- the base record from the current content files. Reopens the loot window
+-- if it was open on this actor.
+-- Available in global and local scripts. Can only be used on self in local scripts.
+-- @function [parent=#Actor] resurrect
+-- @param openmw.core#GameObject actor
+
+---
 -- Check if the given actor is dead (health reached 0, so death process started).
 -- @function [parent=#Actor] isDead
 -- @param openmw.core#GameObject actor
@@ -130,6 +141,19 @@
 -- @function [parent=#Actor] getCurrentSpeed
 -- @param openmw.core#GameObject actor
 -- @return #number
+
+---
+-- Current inertial force. This is not the same as velocity: it does not include current input
+-- movement and may be zeroed while grounded, swimming, or levitating.
+-- @function [parent=#Actor] getInertialForce
+-- @param openmw.core#GameObject actor
+-- @return openmw.util#Vector3
+
+---
+-- Set current inertial force. Can be used only in global scripts or in local scripts on self.
+-- @function [parent=#Actor] setInertialForce
+-- @param openmw.core#GameObject actor
+-- @param openmw.util#Vector3 force
 
 ---
 -- Is the actor standing on ground. Can be called only from a local script.
@@ -930,6 +954,19 @@
 -- @return #boolean
 
 ---
+-- Get the actor's current breath timer, in seconds until drowning starts.
+-- @function [parent=#NPC] getBreathTimer
+-- @param openmw.core#GameObject actor NPC or player object
+-- @return #number
+
+---
+-- Set the actor's current breath timer, in seconds until drowning starts.
+-- Can be used only in global scripts or in local scripts on self.
+-- @function [parent=#NPC] setBreathTimer
+-- @param openmw.core#GameObject actor NPC or player object
+-- @param #number timeLeft
+
+---
 -- Get all factions in which NPC has a membership.
 -- Note: this function does not take in account an expelling state.
 -- @function [parent=#NPC] getFactions
@@ -1708,6 +1745,13 @@
 -- @field #Item baseType @{#Item}
 
 ---
+-- Creates an @{#IngredientRecord} without adding it to the world database.
+-- Use @{openmw_world#(world).createRecord} to add the record to the world.
+-- @function [parent=#Ingredient] createRecordDraft
+-- @param #IngredientRecord ingredient A Lua table with the fields of an IngredientRecord, with an optional field `template` that accepts an @{#IngredientRecord} as a base.
+-- @return #IngredientRecord A strongly typed Ingredient record.
+
+---
 -- A read-only list of all @{#IngredientRecord}s in the world database.
 -- Implements [iterables#List](iterables.html#List) of #IngredientRecord.
 -- @field [parent=#Ingredient] #list<#IngredientRecord> records
@@ -2048,6 +2092,12 @@
 -- @extends #Item
 -- @field #Item baseType @{#Item}
 
+---
+-- Creates an @{#ApparatusRecord} without adding it to the world database.
+-- Use @{openmw_world#(world).createRecord} to add the record to the world.
+-- @function [parent=#Apparatus] createRecordDraft
+-- @param #ApparatusRecord apparatus A Lua table with the fields of an ApparatusRecord, with an optional field `template` that accepts an @{#ApparatusRecord} as a base.
+-- @return #ApparatusRecord A strongly typed Apparatus record.
 
 ---
 -- A read-only list of all @{#ApparatusRecord}s in the world database.
@@ -2097,6 +2147,13 @@
 -- @type Lockpick
 -- @extends #Item
 -- @field #Item baseType @{#Item}
+
+---
+-- Creates a @{#LockpickRecord} without adding it to the world database.
+-- Use @{openmw_world#(world).createRecord} to add the record to the world.
+-- @function [parent=#Lockpick] createRecordDraft
+-- @param #LockpickRecord lockpick A Lua table with the fields of a LockpickRecord, with an optional field `template` that accepts a @{#LockpickRecord} as a base.
+-- @return #LockpickRecord A strongly typed Lockpick record.
 
 ---
 -- A read-only list of all @{#LockpickRecord}s in the world database.
@@ -2182,6 +2239,13 @@
 -- @type Repair
 -- @extends #Item
 -- @field #Item baseType @{#Item}
+
+---
+-- Creates a @{#RepairRecord} without adding it to the world database.
+-- Use @{openmw_world#(world).createRecord} to add the record to the world.
+-- @function [parent=#Repair] createRecordDraft
+-- @param #RepairRecord repair A Lua table with the fields of a RepairRecord, with an optional field `template` that accepts a @{#RepairRecord} as a base.
+-- @return #RepairRecord A strongly typed Repair record.
 
 ---
 -- A read-only list of all @{#RepairRecord}s in the world database.

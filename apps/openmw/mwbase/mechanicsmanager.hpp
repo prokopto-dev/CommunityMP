@@ -103,6 +103,9 @@ namespace MWBase
         virtual int countDeaths(const ESM::RefId& id) const = 0;
         ///< Return the number of deaths for actors with the given ID.
 
+        virtual void setDeaths(const ESM::RefId& id, int count) = 0;
+        ///< Set the number of deaths for actors with the given ID.
+
         /// Check if \a observer is potentially aware of \a ptr. Does not do a line of sight check!
         virtual bool awarenessCheck(const MWWorld::Ptr& ptr, const MWWorld::Ptr& observer, bool useCache = true) = 0;
 
@@ -168,6 +171,12 @@ namespace MWBase
 
         virtual void forceStateUpdate(const MWWorld::Ptr& ptr) = 0;
         ///< Forces an object to refresh its animation state.
+
+        virtual void replayAttackStart(const MWWorld::Ptr& ptr, std::string_view attackType) = 0;
+
+        virtual void replayAttackRelease(
+            const MWWorld::Ptr& ptr, std::string_view attackType, float attackStrength)
+            = 0;
 
         virtual bool playAnimationGroup(
             const MWWorld::Ptr& ptr, std::string_view groupName, int mode, uint32_t number = 1, bool scripted = false)

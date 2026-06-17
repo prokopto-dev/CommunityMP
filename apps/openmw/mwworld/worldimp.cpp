@@ -1,6 +1,8 @@
 #include "worldimp.hpp"
 
 #include <charconv>
+#include <map>
+#include <utility>
 #include <vector>
 
 #include <osg/ComputeBoundsVisitor>
@@ -16,6 +18,7 @@
 #include <components/esm3/cellref.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
+#include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadench.hpp>
@@ -65,6 +68,12 @@
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
+#endif
+
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/aiavoiddoor.hpp" //Used to tell actors to avoid doors
 #include "../mwmechanics/combat.hpp"
@@ -86,10 +95,12 @@
 
 #include "../mwclass/door.hpp"
 
-#include "../mwphysics/actor.hpp"
 #include "../mwphysics/collisiontype.hpp"
+#include "../mwphysics/iphysicsactor.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
+#include "../mwphysics/iphysicsobject.hpp"
 #include "../mwphysics/object.hpp"
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/physicsbackend.hpp"
 
 #include "../mwsound/constants.hpp"
 
@@ -129,6 +140,89 @@ namespace MWWorld
                 { Globals::sPCHasTurnIn, ESM::Variant(0) },
             };
         }
+
+#ifdef BUILD_TES3MP_CLIENT
+        ESM::Cell makeTes3mpCellStateCell(const MWWorld::Cell& cell)
+        {
+            ESM::Cell stateCell;
+
+            if (cell.isExterior())
+            {
+                stateCell.mData.mX = cell.getGridX();
+                stateCell.mData.mY = cell.getGridY();
+            }
+            else
+            {
+                stateCell.mData.mFlags = ESM::Cell::Interior;
+                stateCell.mName = std::string(cell.getNameId());
+            }
+
+            stateCell.mRegion = cell.getRegion();
+            stateCell.updateId();
+            return stateCell;
+        }
+
+        void syncTes3mpActiveCellStates(const Scene::CellStoreCollection& activeCells)
+        {
+            static std::map<std::string, ESM::Cell> reportedActiveCells;
+
+            if (!mwmp::Main::isInitialized())
+            {
+                reportedActiveCells.clear();
+                return;
+            }
+
+            if (!mwmp::Main::get().hasSentInitialPlayerPackets())
+            {
+                reportedActiveCells.clear();
+                return;
+            }
+
+            mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer == nullptr || !localPlayer->isLoggedIn())
+            {
+                reportedActiveCells.clear();
+                return;
+            }
+
+            std::map<std::string, ESM::Cell> currentActiveCells;
+            for (const CellStore* cellStore : activeCells)
+            {
+                if (cellStore == nullptr || cellStore->getCell() == nullptr)
+                    continue;
+
+                ESM::Cell stateCell = makeTes3mpCellStateCell(*cellStore->getCell());
+                currentActiveCells.emplace(stateCell.getDescription(), stateCell);
+            }
+
+            bool changed = false;
+
+            for (const auto& [description, stateCell] : reportedActiveCells)
+            {
+                if (!currentActiveCells.contains(description))
+                {
+                    localPlayer->storeCellState(stateCell, mwmp::CellState::UNLOAD);
+                    changed = true;
+                }
+            }
+
+            for (const auto& [description, stateCell] : currentActiveCells)
+            {
+                if (!reportedActiveCells.contains(description))
+                {
+                    localPlayer->storeCellState(stateCell, mwmp::CellState::LOAD);
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+                return;
+
+            localPlayer->sendCellStates();
+            localPlayer->clearCellStates();
+            reportedActiveCells = std::move(currentActiveCells);
+        }
+#endif
     }
 
     struct GameContentLoader : public ContentLoader
@@ -232,7 +326,7 @@ namespace MWWorld
     void World::init(Debug::Level maxRecastLogLevel, osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
         SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue)
     {
-        mPhysics = std::make_unique<MWPhysics::PhysicsSystem>(mResourceSystem, rootNode);
+        mPhysics = MWPhysics::makePhysicsBackend(mResourceSystem, rootNode);
 
         if (Settings::navigator().mEnable)
         {
@@ -293,7 +387,11 @@ namespace MWWorld
 
         MWBase::Environment::get().getLuaManager()->newGameStarted();
 
-        if (bypass && !mStartCell.empty())
+        if (bypass
+#ifdef BUILD_TES3MP_CLIENT
+            && !mwmp::Main::isInitialized()
+#endif
+            && !mStartCell.empty())
         {
             ESM::Position pos;
             ESM::RefId cellId = findExteriorPosition(mStartCell, pos);
@@ -308,6 +406,22 @@ namespace MWWorld
                 changeToInteriorCell(mStartCell, pos, true);
             }
         }
+#ifdef BUILD_TES3MP_CLIENT
+        else if (bypass && mwmp::Main::isInitialized())
+        {
+            // TES3MP drives chargen through packets, so start in a safe visible
+            // staging cell and let the server send the final saved/spawn cell.
+            ESM::Position pos;
+            pos.pos[0] = 1130.3388671875f;
+            pos.pos[1] = -387.14947509766f;
+            pos.pos[2] = 193.f;
+            pos.rot[0] = 0.09375f;
+            pos.rot[1] = 0;
+            pos.rot[2] = 1.5078122615814f;
+
+            changeToInteriorCell("Seyda Neen, Census and Excise Office", pos, true);
+        }
+#endif
         else
         {
             for (int i = 0; i < 5; ++i)
@@ -554,6 +668,11 @@ namespace MWWorld
         return mGlobalVariables.getType(name);
     }
 
+    void World::ensureGlobal(GlobalVariableName name, char type)
+    {
+        mGlobalVariables.ensure(name, type);
+    }
+
     std::string_view World::getCellName(const MWWorld::CellStore* cell) const
     {
         if (!cell)
@@ -590,6 +709,29 @@ namespace MWWorld
         }
 
         return mStore.get<ESM::GameSetting>().find("sDefaultCellname")->mValue.getString();
+    }
+
+    bool World::isCellActive(const MWWorld::CellStore& cell)
+    {
+        return mWorldScene->isCellActive(cell);
+    }
+
+    void World::unloadCell(MWWorld::CellStore& cell)
+    {
+        mWorldScene->unloadCell(&cell);
+    }
+
+    bool World::resetCellStore(MWWorld::CellStore& cell)
+    {
+        if (mWorldScene->isCellActive(cell))
+            mWorldScene->unloadCell(&cell);
+
+        return mWorldModel.resetCellStore(cell);
+    }
+
+    void World::refreshNavigator()
+    {
+        updateNavigator();
     }
 
     void World::removeRefScript(const MWWorld::CellRef* ref)
@@ -1086,7 +1228,7 @@ namespace MWWorld
             if (movePhysics)
             {
                 mPhysics->updatePosition(newPtr);
-                if (const MWPhysics::Object* object = mPhysics->getObject(newPtr))
+                if (const MWPhysics::IPhysicsObject* object = mPhysics->getObject(newPtr))
                     updateNavigatorObject(*object);
             }
         }
@@ -1171,6 +1313,10 @@ namespace MWWorld
             objRot[1] = rot.y();
             objRot[2] = rot.z();
         }
+
+        objRot[0] = Misc::Convert::makeFiniteRotationAngle(objRot[0]);
+        objRot[1] = Misc::Convert::makeFiniteRotationAngle(objRot[1]);
+        objRot[2] = Misc::Convert::makeFiniteRotationAngle(objRot[2]);
 
         if (ptr.getClass().isActor())
         {
@@ -1381,21 +1527,48 @@ namespace MWWorld
     {
         auto navigatorUpdateGuard = mNavigator->makeUpdateGuard();
 
-        mPhysics->forEachAnimatedObject([&](const auto& pair) {
+        for (const auto& pair : mPhysics->getAnimatedObjects())
+        {
             const auto [object, changed] = pair;
             if (changed)
                 updateNavigatorObject(*object, navigatorUpdateGuard.get());
-        });
+        }
 
         for (const auto& door : mDoorStates)
             if (const auto object = mPhysics->getObject(door.first))
                 updateNavigatorObject(*object, navigatorUpdateGuard.get());
 
+        for (const auto& event : mPhysics->drainDynamicBodyEvents())
+        {
+            const DetourNavigator::ObjectId id(event.mPtr.mRef);
+            if (event.mType == MWPhysics::IPhysicsBackend::DynamicBodyEvent::Type::Remove)
+            {
+                mNavigator->removeObject(id, navigatorUpdateGuard.get());
+                continue;
+            }
+
+            ESM::Position position = event.mPtr.getRefData().getPosition();
+            position.pos[0] = event.mPosition.x();
+            position.pos[1] = event.mPosition.y();
+            position.pos[2] = event.mPosition.z();
+            const osg::Vec3f rotation = Misc::toEulerAnglesZYX(event.mRotation);
+            position.rot[0] = rotation.x();
+            position.rot[1] = rotation.y();
+            position.rot[2] = rotation.z();
+
+            const DetourNavigator::ObjectTransform objectTransform{ position, event.mScale };
+            const btTransform transform(
+                Misc::Convert::toBullet(event.mRotation), Misc::Convert::toBullet(event.mPosition));
+            mNavigator->addObject(
+                id, DetourNavigator::ObjectShapes(event.mNavmeshShape, objectTransform), transform,
+                navigatorUpdateGuard.get());
+        }
+
         mNavigator->update(getPlayerPtr().getRefData().getPosition().asVec3(), navigatorUpdateGuard.get());
     }
 
     void World::updateNavigatorObject(
-        const MWPhysics::Object& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
+        const MWPhysics::IPhysicsObject& object, const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
     {
         if (object.getShapeInstance()->mVisualCollisionType != Resource::VisualCollisionType::None)
             return;
@@ -1438,7 +1611,7 @@ namespace MWWorld
                 auto localPoint = objPos.asVec3() - point;
                 osg::Vec3f direction = osg::Quat(diff, osg::Vec3f(0, 0, 1)) * localPoint - localPoint;
                 direction.normalize();
-                mPhysics->reportCollision(Misc::Convert::toBullet(point), Misc::Convert::toBullet(normal));
+                mPhysics->reportCollision(point, normal);
                 if (direction * normal < 0) // door is turning away from actor
                     continue;
 
@@ -1514,7 +1687,7 @@ namespace MWWorld
 
     void World::setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external)
     {
-        MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);
+        MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(ptr);
         if (physicActor && physicActor->getCollisionMode() != internal)
         {
             physicActor->enableCollisionMode(internal);
@@ -1524,7 +1697,7 @@ namespace MWWorld
 
     bool World::isActorCollisionEnabled(const MWWorld::Ptr& ptr)
     {
-        MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);
+        MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(ptr);
         return physicActor && physicActor->getCollisionMode();
     }
 
@@ -1573,6 +1746,10 @@ namespace MWWorld
         mPhysics->debugDraw();
 
         mWorldScene->update(duration);
+
+#ifdef BUILD_TES3MP_CLIENT
+        syncTes3mpActiveCellStates(mWorldScene->getActiveCells());
+#endif
 
         mRendering->update(duration, paused);
 
@@ -1706,15 +1883,18 @@ namespace MWWorld
         maxDistance += camDist;
         MWWorld::Ptr focusObject;
         MWRender::RenderingManager::RayResult rayToObject;
+        const bool ignoreActors = false;
+        const bool ignoreTerrain = true;
 
         if (MWBase::Environment::get().getWindowManager()->isGuiMode())
         {
             float x, y;
             MWBase::Environment::get().getWindowManager()->getMousePosition(x, y);
-            rayToObject = mRendering->castCameraToViewportRay(x, y, maxDistance, ignorePlayer);
+            rayToObject = mRendering->castCameraToViewportRay(x, y, maxDistance, ignorePlayer, ignoreActors, ignoreTerrain);
         }
         else
-            rayToObject = mRendering->castCameraToViewportRay(0.5f, 0.5f, maxDistance, ignorePlayer);
+            rayToObject = mRendering->castCameraToViewportRay(
+                0.5f, 0.5f, maxDistance, ignorePlayer, ignoreActors, ignoreTerrain);
 
         focusObject = rayToObject.mHitObject;
         if (focusObject.isEmpty() && rayToObject.mHitRefnum.isSet())
@@ -1807,6 +1987,19 @@ namespace MWWorld
         return mWeatherManager->getNextWeather();
     }
 
+    int World::getQueuedWeatherScriptId() const
+    {
+        const int queuedWeather = mWeatherManager->getQueuedWeatherID();
+        if (queuedWeather < 0)
+            return -1;
+
+        const MWWorld::Weather* weather = mWeatherManager->getWeather(static_cast<size_t>(queuedWeather));
+        if (weather == nullptr)
+            return -1;
+
+        return weather->mScriptId;
+    }
+
     float World::getWeatherTransition() const
     {
         return mWeatherManager->getTransitionFactor();
@@ -1825,6 +2018,12 @@ namespace MWWorld
     void World::changeWeather(const ESM::RefId& region, const ESM::RefId& id)
     {
         mWeatherManager->changeWeather(region, id);
+    }
+
+    void World::setWeatherState(const ESM::RefId& region, int currentWeather, int nextWeather, int queuedWeather,
+        float transitionFactor, bool force)
+    {
+        mWeatherManager->setWeatherState(region, currentWeather, nextWeather, queuedWeather, transitionFactor, force);
     }
 
     void World::modRegion(const ESM::RefId& regionid, std::span<const uint8_t> chances)
@@ -2062,6 +2261,7 @@ namespace MWWorld
             return false;
 
         const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
+        const MWPhysics::IPhysicsActor* actor = mPhysics->getActor(ptr);
 
         if (stats.isDead())
             return false;
@@ -2071,6 +2271,9 @@ namespace MWWorld
             && stats.getMagicEffects().getOrDefault(ESM::MagicEffect::Paralyze).getModifier() > 0)
             return false;
 
+        if (actor && actor->isForceFalling())
+            return false;
+
         if (ptr.getClass().canFly(ptr))
             return true;
 
@@ -2078,7 +2281,6 @@ namespace MWWorld
             && isLevitationEnabled())
             return true;
 
-        const MWPhysics::Actor* actor = mPhysics->getActor(ptr);
         if (!actor)
             return true;
 
@@ -2274,7 +2476,7 @@ namespace MWWorld
 
         Ptr player = mPlayer->getPlayer();
 
-        const MWPhysics::Actor* actor = mPhysics->getActor(player);
+        const MWPhysics::IPhysicsActor* actor = mPhysics->getActor(player);
         if (!actor)
             throw std::runtime_error("can't find player");
 
@@ -2555,7 +2757,7 @@ namespace MWWorld
 
     void World::enableActorCollision(const MWWorld::Ptr& actor, bool enable)
     {
-        MWPhysics::Actor* physicActor = mPhysics->getActor(actor);
+        MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(actor);
         if (physicActor)
             physicActor->enableCollisionBody(enable);
     }
@@ -2956,7 +3158,11 @@ namespace MWWorld
         if (!selectedSpell.empty())
         {
             const ESM::Spell* spell = mStore.get<ESM::Spell>().find(selectedSpell);
-            cast.cast(spell);
+            const bool success = cast.cast(spell);
+#ifdef BUILD_TES3MP_CLIENT
+            MechanicsHelper::queueLocalCastRelease(
+                actor, target, static_cast<char>(mwmp::Cast::REGULAR), selectedSpell, success, scriptedSpell);
+#endif
         }
         else
         {
@@ -2964,7 +3170,11 @@ namespace MWWorld
             if (inv.getSelectedEnchantItem() != inv.end())
             {
                 const auto& itemPtr = *inv.getSelectedEnchantItem();
-                cast.cast(itemPtr);
+                const bool success = cast.cast(itemPtr);
+#ifdef BUILD_TES3MP_CLIENT
+                MechanicsHelper::queueLocalCastRelease(actor, target, static_cast<char>(mwmp::Cast::ITEM),
+                    itemPtr.getCellRef().getRefId(), success, scriptedSpell);
+#endif
             }
         }
     }
@@ -3088,7 +3298,12 @@ namespace MWWorld
 
     float World::getPhysicsFrameRateDt() const
     {
-        return mPhysics->mPhysicsDt;
+        return mPhysics->getPhysicsDt();
+    }
+
+    bool World::setPhysicsFrameRate(float framesPerSecond)
+    {
+        return mPhysics->setPhysicsFrameRate(framesPerSecond);
     }
 
     bool World::findInteriorPositionInWorldSpace(const MWWorld::CellStore* cell, osg::Vec3f& result)
@@ -3569,6 +3784,24 @@ namespace MWWorld
             return mPhysics->getHalfExtents(object);
     }
 
+    osg::Vec3f World::getActorInertialForce(const ConstPtr& actor) const
+    {
+        return mPhysics->getInertialForce(actor);
+    }
+
+    void World::setActorInertialForce(const Ptr& actor, const osg::Vec3f& force)
+    {
+        mPhysics->setInertialForce(actor, force);
+    }
+
+    void World::forceActorFall(const Ptr& actor)
+    {
+        if (!actor.getClass().isActor())
+            return;
+
+        mPhysics->forceActorFall(actor);
+    }
+
     std::filesystem::path World::exportSceneGraph(const Ptr& ptr)
     {
         auto file = mUserDataPath / "openmw.osgt";
@@ -3643,7 +3876,7 @@ namespace MWWorld
 
     bool World::isWalkingOnWater(const ConstPtr& actor) const
     {
-        const MWPhysics::Actor* physicActor = mPhysics->getActor(actor);
+        const MWPhysics::IPhysicsActor* physicActor = mPhysics->getActor(actor);
         if (physicActor && physicActor->isWalkingOnWater())
             return true;
         return false;
@@ -3723,7 +3956,7 @@ namespace MWWorld
 
     DetourNavigator::AgentBounds World::getPathfindingAgentBounds(const MWWorld::ConstPtr& actor) const
     {
-        const MWPhysics::Actor* physicsActor = mPhysics->getActor(actor);
+        const MWPhysics::IPhysicsActor* physicsActor = mPhysics->getActor(actor);
         if (physicsActor == nullptr || !actor.isInCell() || actor.getCell()->isExterior())
             return DetourNavigator::AgentBounds{ Settings::game().mActorCollisionShapeType,
                 Settings::game().mDefaultActorPathfindHalfExtents };
@@ -3784,7 +4017,7 @@ namespace MWWorld
 
     void World::setActorActive(const MWWorld::Ptr& ptr, bool value)
     {
-        if (MWPhysics::Actor* const actor = mPhysics->getActor(ptr))
+        if (MWPhysics::IPhysicsActor* const actor = mPhysics->getActor(ptr))
             actor->setActive(value);
     }
 }

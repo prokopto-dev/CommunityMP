@@ -333,8 +333,11 @@ namespace MWScript
                     return;
                 }
 
-                dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext())
-                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObjectBy(ptr, newPos - curPos, true));
+                MWBase::World* world = MWBase::Environment::get().getWorld();
+                MWWorld::Ptr newPtr = ptr.getClass().isActor() ? world->moveObject(ptr, newPos, true, true)
+                                                               : world->moveObjectBy(ptr, newPos - curPos, true);
+
+                dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(ptr, newPtr);
             }
         };
 

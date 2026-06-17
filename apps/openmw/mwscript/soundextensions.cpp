@@ -15,6 +15,11 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/inventorystore.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/ScriptController.hpp"
+
 #include "interpretercontext.hpp"
 #include "ref.hpp"
 
@@ -66,8 +71,20 @@ namespace MWScript
                 const VFS::Path::Normalized music(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
 
-                MWBase::Environment::get().getSoundManager()->streamMusic(
-                    Misc::ResourceHelpers::correctMusicPath(music), MWSound::MusicType::MWScript);
+                const VFS::Path::Normalized correctedMusic = Misc::ResourceHelpers::correctMusicPath(music);
+
+                if (mwmp::Main::isInitialized())
+                {
+                    auto& context = static_cast<MWScript::InterpreterContext&>(runtime.getContext());
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = ScriptController::getPacketOriginFromContextType(context.getContextType());
+                    objectList->originClientScript = context.getCurrentScriptName();
+                    objectList->addMusicPlay(correctedMusic.value());
+                    objectList->sendMusicPlay();
+                }
+
+                MWBase::Environment::get().getSoundManager()->streamMusic(correctedMusic, MWSound::MusicType::MWScript);
             }
         };
 

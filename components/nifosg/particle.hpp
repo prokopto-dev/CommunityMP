@@ -37,6 +37,8 @@ namespace NifOsg
 
         void setQuota(int quota);
 
+        osg::BoundingBox computeBoundingBox() const override;
+
         void drawImplementation(osg::RenderInfo& renderInfo) const override;
 
     private:

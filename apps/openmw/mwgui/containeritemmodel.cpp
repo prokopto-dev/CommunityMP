@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <components/debug/debuglog.hpp>
+
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
@@ -100,6 +102,22 @@ namespace MWGui
         return -1;
     }
 
+    MWWorld::Ptr ContainerItemModel::getItemSource(const MWWorld::Ptr& item) const
+    {
+        MWWorld::ContainerStore* itemStore = item.getContainerStore();
+        if (itemStore == nullptr)
+            return MWWorld::Ptr();
+
+        for (const auto& source : mItemSources)
+        {
+            MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+            if (&store == itemStore)
+                return source.first;
+        }
+
+        return MWWorld::Ptr();
+    }
+
     MWWorld::Ptr ContainerItemModel::addItem(const ItemStack& item, size_t count, bool allowAutoEquip)
     {
         auto& source = mItemSources[0];
@@ -169,8 +187,17 @@ namespace MWGui
 
             for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
             {
-                if (!(*it).getClass().showsInInventory(*it))
+                try
+                {
+                    if (!(*it).getClass().showsInInventory(*it))
+                        continue;
+                }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << "Skipping invalid container item "
+                                        << it->getCellRef().getRefId().serializeText() << ": " << e.what();
                     continue;
+                }
 
                 bool found = false;
                 for (ItemStack& itemStack : mItems)

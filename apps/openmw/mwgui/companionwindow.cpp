@@ -122,6 +122,9 @@ namespace MWGui
 
     void CompanionWindow::dragItem(MyGUI::Widget* /*sender*/, std::size_t count)
     {
+        if (!MWBase::Environment::get().getWindowManager()->isItemDragDropEnabled())
+            return;
+
         mDragAndDrop->startDrag(mSelectedItem, mSortModel, mModel, mItemView, count);
     }
 

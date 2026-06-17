@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iomanip>
+#include <map>
 #include <sstream>
 
 #include <components/compiler/extensions.hpp>
@@ -74,6 +75,12 @@
 
 #include "../mwrender/animation.hpp"
 
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/ScriptController.hpp"
+
 #include "interpretercontext.hpp"
 #include "ref.hpp"
 
@@ -144,6 +151,54 @@ namespace
             else
                 ++it;
         }
+    }
+
+    bool shouldSendScriptObjectPacket(Interpreter::Runtime& runtime, const MWWorld::Ptr& ptr)
+    {
+        if (!mwmp::Main::isInitialized() || !ptr.isInCell())
+            return false;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->isLoggedIn())
+            return false;
+
+        auto& context = static_cast<MWScript::InterpreterContext&>(runtime.getContext());
+        const unsigned char packetOrigin = ScriptController::getPacketOriginFromContextType(context.getContextType());
+
+        return context.sendPackets || packetOrigin == mwmp::CLIENT_CONSOLE || packetOrigin == mwmp::CLIENT_DIALOGUE;
+    }
+
+    mwmp::ObjectList* prepareScriptObjectPacket(Interpreter::Runtime& runtime)
+    {
+        auto& context = static_cast<MWScript::InterpreterContext&>(runtime.getContext());
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = ScriptController::getPacketOriginFromContextType(context.getContextType());
+        objectList->originClientScript = context.getCurrentScriptName();
+        return objectList;
+    }
+
+    bool shouldSendScriptObjectStatePacket(Interpreter::Runtime& runtime, const MWWorld::Ptr& ptr, bool enabled)
+    {
+        if (!shouldSendScriptObjectPacket(runtime, ptr))
+            return false;
+
+        auto& context = static_cast<MWScript::InterpreterContext&>(runtime.getContext());
+        const unsigned char packetOrigin = ScriptController::getPacketOriginFromContextType(context.getContextType());
+        if (packetOrigin == mwmp::CLIENT_CONSOLE || packetOrigin == mwmp::CLIENT_DIALOGUE)
+            return true;
+
+        static std::map<std::string, bool> sLastScriptObjectStates;
+        const std::string key = ptr.getCell()->getCell()->getId().serializeText() + "|"
+            + std::to_string(ptr.getCellRef().getRefNum().mIndex) + "|" + ptr.getCellRef().getRefId().serializeText();
+
+        auto [it, inserted] = sLastScriptObjectStates.emplace(key, enabled);
+        if (!inserted && it->second == enabled)
+            return false;
+
+        it->second = enabled;
+        return true;
     }
 
 }
@@ -244,6 +299,14 @@ namespace MWScript
             void execute(Interpreter::Runtime& runtime) override
             {
                 MWWorld::Ptr ptr = R()(runtime);
+                if (shouldSendScriptObjectStatePacket(runtime, ptr, true))
+                {
+                    mwmp::ObjectList* objectList = prepareScriptObjectPacket(runtime);
+                    objectList->addObjectState(ptr, true);
+                    objectList->sendObjectState();
+                    return;
+                }
+
                 MWBase::Environment::get().getWorld()->enable(ptr);
             }
         };
@@ -274,6 +337,14 @@ namespace MWScript
                 {
                     ptr = R()(runtime);
                 }
+                if (shouldSendScriptObjectStatePacket(runtime, ptr, false))
+                {
+                    mwmp::ObjectList* objectList = prepareScriptObjectPacket(runtime);
+                    objectList->addObjectState(ptr, false);
+                    objectList->sendObjectState();
+                    return;
+                }
+
                 MWBase::Environment::get().getWorld()->disable(ptr);
             }
         };
@@ -385,6 +456,18 @@ namespace MWScript
                     runtime.pop();
                 }
 
+                if (shouldSendScriptObjectPacket(runtime, ptr) && ptr.getCellRef().getLockLevel() != lockLevel)
+                {
+                    mwmp::ObjectList* objectList = prepareScriptObjectPacket(runtime);
+                    objectList->addObjectLock(ptr, lockLevel);
+                    objectList->sendObjectLock();
+
+                    if (ptr.getType() == ESM::Door::sRecordId && !ptr.getCellRef().getTeleport())
+                        MWBase::Environment::get().getWorld()->activateDoor(ptr, MWWorld::DoorState::Idle);
+
+                    return;
+                }
+
                 ptr.getCellRef().lock(lockLevel);
 
                 // Instantly reset door to closed state
@@ -403,6 +486,14 @@ namespace MWScript
             void execute(Interpreter::Runtime& runtime) override
             {
                 MWWorld::Ptr ptr = R()(runtime);
+                if (shouldSendScriptObjectPacket(runtime, ptr) && ptr.getCellRef().isLocked())
+                {
+                    mwmp::ObjectList* objectList = prepareScriptObjectPacket(runtime);
+                    objectList->addObjectLock(ptr, 0);
+                    objectList->sendObjectLock();
+                    return;
+                }
+
                 if (ptr.getCellRef().isLocked())
                     ptr.getCellRef().unlock();
             }
@@ -936,7 +1027,12 @@ namespace MWScript
         class OpFall : public Interpreter::Opcode0
         {
         public:
-            void execute(Interpreter::Runtime& runtime) override {}
+            void execute(Interpreter::Runtime& runtime) override
+            {
+                MWWorld::Ptr ptr = R()(runtime);
+                if (ptr.getClass().isActor())
+                    MWBase::Environment::get().getWorld()->forceActorFall(ptr);
+            }
         };
 
         template <class R>

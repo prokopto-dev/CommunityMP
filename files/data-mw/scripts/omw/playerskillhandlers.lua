@@ -54,7 +54,8 @@ local function getSkillLevelUpOptions(skillid, source)
     end
 
     local options = {}
-    if source == 'jail' and not (skillid == 'security' or skillid == 'sneak') then
+    if source == I.SkillProgression.SKILL_INCREASE_SOURCES.JailNoSkillIncreases or
+        (source == I.SkillProgression.SKILL_INCREASE_SOURCES.Jail and not (skillid == 'security' or skillid == 'sneak')) then
         options.skillIncreaseValue = -1
     else
         options.skillIncreaseValue = 1
@@ -116,7 +117,7 @@ local function skillLevelUpHandler(skillid, source, params)
     end
 end
 
-local function jailTimeServed(days)
+local function jailTimeServed(days, preventSkillIncreases, messageOverride)
     if not days or days <= 0 then
         return
     end
@@ -128,14 +129,22 @@ local function jailTimeServed(days)
         skillByNumber[#skillByNumber+1] = skillid
     end
 
+    local jailSource = I.SkillProgression.SKILL_INCREASE_SOURCES.Jail
+    if preventSkillIncreases then
+        jailSource = I.SkillProgression.SKILL_INCREASE_SOURCES.JailNoSkillIncreases
+    end
+
     math.randomseed(core.getSimulationTime())
     for day=1,days do
         local skillid = skillByNumber[math.random(#skillByNumber)]
         -- skillLevelUp() handles skill-based increase/decrease
-        I.SkillProgression.skillLevelUp(skillid, I.SkillProgression.SKILL_INCREASE_SOURCES.Jail)
+        I.SkillProgression.skillLevelUp(skillid, jailSource)
     end
 
     local message = mechanicsL10n('ReleasedFromPrison', { days = days })
+    if messageOverride and messageOverride ~= '' then
+        message = messageOverride
+    end
     for skillid, skillStat in pairs(NPC.stats.skills) do
         local diff = skillStat(self).base - oldSkillLevels[skillid]
         if diff ~= 0 then

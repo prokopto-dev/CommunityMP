@@ -41,7 +41,7 @@ namespace MWClass
         /// @param force do this even if the ptr is flying
 
         void insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-            MWPhysics::PhysicsSystem& physics) const override;
+            MWPhysics::IPhysicsBackend& physics) const override;
 
         bool useAnim() const override;
 

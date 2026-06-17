@@ -4,6 +4,8 @@
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 
+#include <algorithm>
+
 #include <components/misc/strings/algorithm.hpp>
 
 namespace Gui
@@ -175,6 +177,21 @@ namespace Gui
     void MWList::scrollToTop()
     {
         mScrollView->setViewOffset(MyGUI::IntPoint(0, 0));
+    }
+
+    void MWList::centerItem(std::string_view name)
+    {
+        MyGUI::Button* button = getItemWidget(name);
+        const int maxOffset = std::max(0, mScrollView->getCanvasSize().height - mScrollView->getHeight());
+        const int itemCenter = button->getTop() + button->getHeight() / 2;
+        const int centered = std::clamp(itemCenter - mScrollView->getHeight() / 2, 0, maxOffset);
+        mScrollView->setViewOffset(MyGUI::IntPoint(0, -centered));
+    }
+
+    void MWList::scrollToBottom()
+    {
+        const int bottom = std::max(0, mScrollView->getCanvasSize().height - mScrollView->getHeight());
+        mScrollView->setViewOffset(MyGUI::IntPoint(0, -bottom));
     }
 
     void MWList::setViewOffset(int offset)

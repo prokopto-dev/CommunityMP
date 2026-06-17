@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <string>
 
 #include <MyGUI_Button.h>
 #include <MyGUI_EditBox.h>
@@ -32,6 +33,13 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#endif
+
 #include "companionwindow.hpp"
 #include "container.hpp"
 #include "countdialog.hpp"
@@ -58,6 +66,31 @@ namespace
         return (!equipmentSlots.empty() && equipmentSlots.front() == MWWorld::InventoryStore::Slot_CarriedRight);
     }
 
+#ifdef BUILD_TES3MP_CLIENT
+    void syncTes3mpWorldItemPickup(
+        const MWWorld::Ptr& worldObject, const MWWorld::Ptr& inventoryObject, int count)
+    {
+        if (!mwmp::Main::isInitialized() || worldObject.isEmpty() || inventoryObject.isEmpty()
+            || !worldObject.isInCell())
+            return;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->isLoggedIn())
+            return;
+
+        if (worldObject.getCellRef().getRefId().serializeText().find("$dynamic") != std::string::npos)
+            return;
+
+        localPlayer->sendItemChange(inventoryObject, count, mwmp::InventoryChanges::ADD);
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->originClientScript.clear();
+        objectList->addObjectGeneric(worldObject);
+        objectList->sendObjectDelete();
+    }
+#endif
 }
 
 namespace MWGui
@@ -415,6 +448,9 @@ namespace MWGui
 
     void InventoryWindow::dragItem(MyGUI::Widget* /*sender*/, std::size_t count)
     {
+        if (!MWBase::Environment::get().getWindowManager()->isItemDragDropEnabled())
+            return;
+
         ensureSelectedItemUnequipped(static_cast<int>(count));
         mDragAndDrop->startDrag(mSelectedItem, mSortModel, mTradeModel, mItemView, count);
         notifyContentChanged();
@@ -840,6 +876,10 @@ namespace MWGui
         // can't use ActionTake here because we need an MWWorld::Ptr to the newly inserted object
         MWWorld::Ptr newObject = *player.getClass().getContainerStore(player).add(object, count);
 
+#ifdef BUILD_TES3MP_CLIENT
+        syncTes3mpWorldItemPickup(object, newObject, count);
+#endif
+
         // remove from world
         MWBase::Environment::get().getWorld()->deleteObject(object);
 
@@ -865,7 +905,10 @@ namespace MWGui
         }
         else
         {
-            mDragAndDrop->startDrag(static_cast<int>(i), mSortModel, mTradeModel, mItemView, count);
+            if (MWBase::Environment::get().getWindowManager()->isItemDragDropEnabled())
+                mDragAndDrop->startDrag(static_cast<int>(i), mSortModel, mTradeModel, mItemView, count);
+            else
+                mItemView->update();
         }
 
         MWBase::Environment::get().getWindowManager()->updateSpellWindow();

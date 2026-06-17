@@ -175,7 +175,7 @@ namespace MWLua
                   parsedOptions.mPersistent = persistent;
                   manager->inputActions().insert(std::move(parsedOptions));
               };
-        api["bindAction"] = [manager = context.mLuaManager](
+        api["bindAction"] = [manager = context.mLuaManager, persistent = context.mType == Context::Menu](
                                 std::string_view key, const sol::table& callback, sol::table dependencies) {
             std::vector<std::string_view> parsedDependencies;
             parsedDependencies.reserve(dependencies.size());
@@ -186,12 +186,13 @@ namespace MWLua
                     throw std::domain_error("The dependencies argument must be a list of Action keys");
                 parsedDependencies.push_back(dependency.as<std::string_view>());
             }
-            if (!manager->inputActions().bind(key, LuaUtil::Callback::fromLua(callback), parsedDependencies))
+            if (!manager->inputActions().bind(key, LuaUtil::Callback::fromLua(callback), parsedDependencies, persistent))
                 throw std::domain_error("Cyclic action binding");
         };
         api["registerActionHandler"]
-            = [manager = context.mLuaManager](std::string_view key, const sol::table& callback) {
-                  manager->inputActions().registerHandler(key, LuaUtil::Callback::fromLua(callback));
+            = [manager = context.mLuaManager, persistent = context.mType == Context::Menu](
+                  std::string_view key, const sol::table& callback) {
+                  manager->inputActions().registerHandler(key, LuaUtil::Callback::fromLua(callback), persistent);
               };
         api["getBooleanActionValue"] = [manager = context.mLuaManager](std::string_view key) {
             return manager->inputActions().valueOfType(key, LuaUtil::InputAction::Type::Boolean);
@@ -215,8 +216,9 @@ namespace MWLua
                   manager->inputTriggers().insert(std::move(parsedOptions));
               };
         api["registerTriggerHandler"]
-            = [manager = context.mLuaManager](std::string_view key, const sol::table& callback) {
-                  manager->inputTriggers().registerHandler(key, LuaUtil::Callback::fromLua(callback));
+            = [manager = context.mLuaManager, persistent = context.mType == Context::Menu](
+                  std::string_view key, const sol::table& callback) {
+                  manager->inputTriggers().registerHandler(key, LuaUtil::Callback::fromLua(callback), persistent);
               };
         api["activateTrigger"]
             = [manager = context.mLuaManager](std::string_view key) { manager->inputTriggers().activate(key); };
@@ -246,6 +248,8 @@ namespace MWLua
             input->setGamepadGuiCursorEnabled(v);
             MWBase::Environment::get().getWindowManager()->setCursorActive(v);
         };
+        api["_setCapturingControllerButtons"]
+            = [input](bool v) { input->setCapturingControllerButtons(v); };
         api["getMouseMoveX"] = [input]() { return input->getMouseMoveX(); };
         api["getMouseMoveY"] = [input]() { return input->getMouseMoveY(); };
         api["getAxisValue"] = [input](int axis) {

@@ -1,50 +1,102 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MyGUI type="Layout">
-    <Widget type="Window" skin="MW_DialogNoTransp" layer="Modal" position="0 0 487 275" align="Center" name="_Main">
-        <Widget type="Widget" skin="" position="17 14 457 246" align="Stretch">
+    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 900 560" align="Center" name="_Main">
+        <Widget type="TextBox" skin="HeaderText" position="32 24 836 28" name="LabelT" align="HCenter Top">
+            <Property key="Caption" value="#{sSkillsMenu1}"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+        </Widget>
 
-            <!-- Label -->
-            <Widget type="TextBox" skin="HeaderText" position="0 0 457 18" name="LabelT" align="HCenter Top">
-                <Property key="Caption" value="#{sSkillsMenu1}"/>
-                <Property key="TextAlign" value="HCenter Top"/>
+        <Widget type="Widget" skin="MW_Box" position="32 64 836 30" name="CreatorStageRail" align="Left Top">
+            <Widget type="TextBox" skin="ProgressText" position="14 6 148 18" name="CreatorStageIdentity" align="Left Top">
+                <Property key="Caption" value="01 Identity"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
             </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="172 6 148 18" name="CreatorStageAppearance" align="Left Top">
+                <Property key="Caption" value="02 Appearance"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="330 6 148 18" name="CreatorStageClass" align="Left Top">
+                <Property key="Caption" value="03 Class"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="488 6 148 18" name="CreatorStageBirthsign" align="Left Top">
+                <Property key="Caption" value="04 Birthsign"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="646 6 148 18" name="CreatorStageReview" align="Left Top">
+                <Property key="Caption" value="05 Review"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
 
-            <!-- Combat list -->
-            <Widget type="TextBox" skin="HeaderText" position="0 32 154 18" name="CombatLabelT" align="Left Top">
+        <Widget type="Widget" skin="MW_Box" position="32 116 258 358" name="CombatSkillPanel" align="Left Top">
+            <Widget type="TextBox" skin="HeaderText" position="16 14 226 24" name="CombatLabelT" align="Left Top">
                 <Property key="Caption" value="#{sSpecializationCombat}"/>
-                <Property key="TextAlign" value="Left Top"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
             </Widget>
-            <Widget type="ScrollView" skin="MW_ScrollView" position="0 50 154 168" name="CombatSkills" align="Left Top">
+            <Widget type="ScrollView" skin="MW_ScrollView" position="16 52 226 288" name="CombatSkills" align="Left Top">
                 <Property key="CanvasAlign" value="Left"/>
             </Widget>
+        </Widget>
 
-            <!-- Magic list -->
-            <Widget type="TextBox" skin="HeaderText" position="158 32 154 18" name="MagicLabelT" align="Left Top">
+        <Widget type="Widget" skin="MW_Box" position="321 116 258 358" name="MagicSkillPanel" align="Left Top">
+            <Widget type="TextBox" skin="HeaderText" position="16 14 226 24" name="MagicLabelT" align="Left Top">
                 <Property key="Caption" value="#{sSpecializationMagic}"/>
-                <Property key="TextAlign" value="Left Top"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
             </Widget>
-            <Widget type="ScrollView" skin="MW_ScrollView" position="158 50 154 168" name="MagicSkills" align="Left Top">
+            <Widget type="ScrollView" skin="MW_ScrollView" position="16 52 226 288" name="MagicSkills" align="Left Top">
                 <Property key="CanvasAlign" value="Left"/>
             </Widget>
+        </Widget>
 
-            <!-- Stealth list -->
-            <Widget type="TextBox" skin="HeaderText" position="316 32 131 18" name="StealthLabelT" align="Left Top">
+        <Widget type="Widget" skin="MW_Box" position="610 116 258 358" name="StealthSkillPanel" align="Left Top">
+            <Widget type="TextBox" skin="HeaderText" position="16 14 226 24" name="StealthLabelT" align="Left Top">
                 <Property key="Caption" value="#{sSpecializationStealth}"/>
-                <Property key="TextAlign" value="Left Top"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
             </Widget>
-            <Widget type="ScrollView" skin="MW_ScrollView" position="316 50 154 168" name="StealthSkills" align="Left Top">
+            <Widget type="ScrollView" skin="MW_ScrollView" position="16 52 226 288" name="StealthSkills" align="Left Top">
                 <Property key="CanvasAlign" value="Left"/>
             </Widget>
+        </Widget>
 
-            <!-- Dialog buttons -->
-            <Widget type="HBox" position="0 218 457 28">
-                <Widget type="Spacer" />
-                <Widget type="AutoSizedButton" skin="MW_Button" align="Right Bottom" name="CancelButton">
-                    <Property key="ExpandDirection" value="Left Up"/>
-                    <Property key="Caption" value="#{Interface:Cancel}"/>
-                </Widget>
+        <Widget type="HBox" position="0 516 872 28">
+            <Widget type="Spacer"/>
+            <Widget type="AutoSizedButton" skin="MW_Button" align="Right Bottom" name="CancelButton">
+                <Property key="ExpandDirection" value="Left Up"/>
+                <Property key="Caption" value="#{Interface:Cancel}"/>
             </Widget>
-
         </Widget>
     </Widget>
 </MyGUI>

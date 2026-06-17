@@ -1,6 +1,8 @@
 #include "shadervisitor.hpp"
 
+#include <cctype>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -19,6 +21,8 @@
 #include <osgUtil/TangentSpaceGenerator>
 
 #include <components/debug/debuglog.hpp>
+#include <components/material/materialapplier.hpp>
+#include <components/material/materialregistry.hpp>
 #include <components/misc/osguservalues.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/resource/imagemanager.hpp>
@@ -29,6 +33,7 @@
 #include <components/sceneutil/texturetype.hpp>
 #include <components/sceneutil/util.hpp>
 #include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/stereo/stereomanager.hpp>
 #include <components/vfs/manager.hpp>
 
@@ -37,6 +42,61 @@
 
 namespace Shader
 {
+    namespace
+    {
+        const std::vector<std::pair<std::string, float>>& parallaxOverrides()
+        {
+            static const std::vector<std::pair<std::string, float>> overrides = [] {
+                std::vector<std::pair<std::string, float>> parsed;
+                std::stringstream stream(Settings::shaders().mParallaxOverrides.get());
+                std::string entry;
+                while (std::getline(stream, entry, ';'))
+                {
+                    const std::size_t delimiter = entry.find('=');
+                    if (delimiter == std::string::npos)
+                        continue;
+
+                    std::string pattern = entry.substr(0, delimiter);
+                    std::string value = entry.substr(delimiter + 1);
+                    auto trim = [](std::string& s) {
+                        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+                            s.erase(s.begin());
+                        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+                            s.pop_back();
+                    };
+                    trim(pattern);
+                    trim(value);
+                    if (pattern.empty())
+                        continue;
+
+                    try
+                    {
+                        parsed.emplace_back(Misc::StringUtils::lowerCase(pattern), std::stof(value));
+                    }
+                    catch (const std::exception&)
+                    {
+                    }
+                }
+                return parsed;
+            }();
+            return overrides;
+        }
+
+        float lookupParallaxOverride(const std::string& diffuseFilename)
+        {
+            if (diffuseFilename.empty())
+                return -1.f;
+
+            const std::string lower = Misc::StringUtils::lowerCase(diffuseFilename);
+            for (const auto& [pattern, value] : parallaxOverrides())
+            {
+                if (lower.find(pattern) != std::string::npos)
+                    return value;
+            }
+            return -1.f;
+        }
+    }
+
     /**
      * Miniature version of osg::StateSet used to track state added by the shader visitor which should be ignored when
      * it's applied a second time, and removed when shaders are removed.
@@ -187,6 +247,7 @@ namespace Shader
         , mReconstructNormalZ(false)
         , mTexStageRequiringTangents(-1)
         , mSoftParticles(false)
+        , mParallaxScaleOverride(-1.f)
         , mNode(nullptr)
     {
     }
@@ -352,6 +413,14 @@ namespace Shader
                                     mRequirements.back().mTexStageRequiringTangents = unit;
                                 }
                                 diffuseMap = texture;
+                                if (diffuseMap->getImage(0) != nullptr)
+                                {
+                                    mRequirements.back().mDiffuseFilename = diffuseMap->getImage(0)->getFileName();
+                                    const float parallaxOverride
+                                        = lookupParallaxOverride(mRequirements.back().mDiffuseFilename);
+                                    if (parallaxOverride >= 0.f)
+                                        mRequirements.back().mParallaxScaleOverride = parallaxOverride;
+                                }
                             }
                             else if (texName == "specularMap")
                                 specularMap = texture;
@@ -730,6 +799,26 @@ namespace Shader
         if (!node.getUserValue("shaderPrefix", shaderPrefix))
             shaderPrefix = mDefaultShaderPrefix;
 
+        if (mMaterialRegistry != nullptr)
+        {
+            std::string refId;
+            for (const osg::Node* current = &node; current != nullptr;
+                 current = current->getNumParents() > 0 ? current->getParent(0) : nullptr)
+            {
+                if (current->getUserValue("refId", refId) && !refId.empty())
+                    break;
+            }
+
+            if (const Material::MaterialDef* matched
+                = mMaterialRegistry->matchMesh("", node.getName(), reqs.mDiffuseFilename, refId))
+            {
+                if (!matched->mShaderPrefix.empty())
+                    shaderPrefix = matched->mShaderPrefix;
+                Material::mergeDefines(*matched, defineMap);
+                Material::pushUniforms(*matched, writableStateSet);
+            }
+        }
+
         auto program = mShaderManager.getProgram(shaderPrefix, defineMap, mProgramTemplate);
         writableStateSet->setAttributeAndModes(program, osg::StateAttribute::ON);
         addedState->setAttributeAndModes(std::move(program));
@@ -738,6 +827,14 @@ namespace Shader
         {
             writableStateSet->addUniform(new osg::Uniform(name.c_str(), unit), osg::StateAttribute::ON);
             addedState->addUniform(name);
+        }
+
+        if (reqs.mParallaxScaleOverride >= 0.f)
+        {
+            writableStateSet->addUniform(
+                new osg::Uniform("parallaxScale", reqs.mParallaxScaleOverride),
+                osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+            addedState->addUniform("parallaxScale");
         }
 
         if (!addedState->empty())

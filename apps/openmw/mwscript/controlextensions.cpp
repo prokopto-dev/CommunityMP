@@ -16,6 +16,8 @@
 
 #include "../mwmechanics/creaturestats.hpp"
 
+#include "../mwmp/ScriptController.hpp"
+
 #include "interpretercontext.hpp"
 #include "ref.hpp"
 
@@ -57,12 +59,61 @@ namespace MWScript
             }
         };
 
+        template <class R>
         class OpToggleCollision : public Interpreter::Opcode0
         {
+            bool toggleCollision(Interpreter::Runtime& runtime, const MWWorld::Ptr& ptr) const
+            {
+                MWBase::World* world = MWBase::Environment::get().getWorld();
+
+                if (ptr.isEmpty() || ptr == world->getPlayerPtr())
+                    return world->toggleCollisionMode();
+
+                if (!ptr.getClass().isActor())
+                {
+                    runtime.getContext().report("Collision can only be toggled for actors");
+                    return world->isActorCollisionEnabled(world->getPlayerPtr());
+                }
+
+                const bool enabled = !world->isActorCollisionEnabled(ptr);
+                world->setActorCollisionMode(ptr, enabled, enabled);
+
+                if (enabled)
+                    world->adjustPosition(ptr, true);
+
+                return enabled;
+            }
+
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
-                bool enabled = MWBase::Environment::get().getWorld()->toggleCollisionMode();
+                MWWorld::Ptr ptr;
+
+                if constexpr (R::implicit)
+                {
+                    const MWScript::InterpreterContext& context
+                        = static_cast<const MWScript::InterpreterContext&>(runtime.getContext());
+
+                    if (context.getContextType() == ScriptController::Console)
+                    {
+                        ptr = R()(runtime, false, true);
+
+                        if (!ptr.isEmpty() && !ptr.getClass().isActor())
+                            ptr = MWWorld::Ptr();
+                    }
+                }
+                else
+                {
+                    ptr = R()(runtime, true, true);
+
+                    if (!ptr.getClass().isActor())
+                    {
+                        runtime.getContext().report("Collision can only be toggled for actors");
+                        return;
+                    }
+                }
+
+                bool enabled = toggleCollision(runtime, ptr);
 
                 runtime.getContext().report(enabled ? "Collision -> On" : "Collision -> Off");
             }
@@ -190,7 +241,8 @@ namespace MWScript
                     Compiler::Control::opcodeGetDisabled + i, Compiler::Control::controls[i]);
             }
 
-            interpreter.installSegment5<OpToggleCollision>(Compiler::Control::opcodeToggleCollision);
+            interpreter.installSegment5<OpToggleCollision<ImplicitRef>>(Compiler::Control::opcodeToggleCollision);
+            interpreter.installSegment5<OpToggleCollision<ExplicitRef>>(Compiler::Control::opcodeToggleCollisionExplicit);
 
             // Force Run
             interpreter.installSegment5<OpClearMovementFlag<ImplicitRef>>(

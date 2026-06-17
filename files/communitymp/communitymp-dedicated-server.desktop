@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=CommunityMP Dedicated Server
+Comment=Launch the CommunityMP dedicated server
+Exec=communitymp --server
+Terminal=true
+Categories=Game;RolePlaying;

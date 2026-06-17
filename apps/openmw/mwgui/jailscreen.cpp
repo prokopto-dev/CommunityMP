@@ -16,6 +16,11 @@
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/store.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "jailscreen.hpp"
 
 namespace MWGui
@@ -44,6 +49,15 @@ namespace MWGui
         mProgressBar->setScrollRange(100 + 1);
         mProgressBar->setScrollPosition(0);
         mProgressBar->setTrackSize(0);
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::isInitialized())
+        {
+            mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer != nullptr && !localPlayer->jailProgressText.empty())
+                setText("LoadingText", localPlayer->jailProgressText);
+        }
+#endif
     }
 
     void JailScreen::onFrame(float dt)
@@ -58,10 +72,30 @@ namespace MWGui
         if (mFadeTimeRemaining <= 0)
         {
             MWWorld::Ptr player = MWMechanics::getPlayer();
-            MWBase::Environment::get().getWorld()->teleportToClosestMarker(
-                player, ESM::RefId::stringRefId("prisonmarker"));
-            MWBase::Environment::get().getWindowManager()->fadeScreenOut(
-                0.f); // override fade-in caused by cell transition
+            bool teleportToJail = true;
+
+#ifdef BUILD_TES3MP_CLIENT
+            if (mwmp::Main::isInitialized())
+            {
+                mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+                teleportToJail = localPlayer == nullptr || !localPlayer->ignoreJailTeleportation;
+            }
+#endif
+
+            if (teleportToJail)
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                if (mwmp::Main::isInitialized())
+                {
+                    if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+                        localPlayer->queueCellChangeReason(mwmp::CELL_CHANGE_REASON_JAIL);
+                }
+#endif
+                MWBase::Environment::get().getWorld()->teleportToClosestMarker(
+                    player, ESM::RefId::stringRefId("prisonmarker"));
+                MWBase::Environment::get().getWindowManager()->fadeScreenOut(
+                    0.f); // override fade-in caused by cell transition
+            }
 
             setVisible(true);
             mTimeAdvancer.run(100);
@@ -81,12 +115,41 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->fadeScreenIn(0.5);
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
+        bool multiplayerSession = false;
+        bool preventJailSkillIncreases = false;
+        std::string jailEndText;
+
+#ifdef BUILD_TES3MP_CLIENT
+        mwmp::LocalPlayer* localPlayer = nullptr;
+        if (mwmp::Main::isInitialized())
+        {
+            multiplayerSession = true;
+            localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer != nullptr)
+            {
+                preventJailSkillIncreases = localPlayer->ignoreJailSkillIncreases;
+                jailEndText = localPlayer->jailEndText;
+            }
+        }
+#endif
 
         MWBase::Environment::get().getMechanicsManager()->rest(mDays * 24, true);
-        MWBase::Environment::get().getWorld()->advanceTime(mDays * 24);
+        if (!multiplayerSession)
+            MWBase::Environment::get().getWorld()->advanceTime(mDays * 24);
 
         // We should not worsen corprus when in prison
         player.getClass().getCreatureStats(player).getActiveSpells().skipWorsenings(mDays * 24);
-        MWBase::Environment::get().getLuaManager()->jailTimeServed(player, mDays);
+        MWBase::Environment::get().getLuaManager()->jailTimeServed(
+            player, mDays, preventJailSkillIncreases, jailEndText);
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (localPlayer != nullptr)
+        {
+            localPlayer->ignoreJailTeleportation = false;
+            localPlayer->ignoreJailSkillIncreases = false;
+            localPlayer->jailProgressText = "";
+            localPlayer->jailEndText = "";
+        }
+#endif
     }
 }

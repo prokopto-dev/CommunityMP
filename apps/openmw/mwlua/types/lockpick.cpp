@@ -72,6 +72,7 @@ namespace MWLua
     void addLockpickBindings(sol::table lockpick, const Context& context)
     {
         addRecordFunctionBinding<ESM::Lockpick>(lockpick, context);
+        lockpick["createRecordDraft"] = tableToLockpick;
 
         sol::state_view lua = context.sol();
         addUserType<ESM::Lockpick>(lua, "ESM3_Lockpick");

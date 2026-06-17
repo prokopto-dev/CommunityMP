@@ -610,6 +610,45 @@ namespace MWWorld
 
     CellStore::~CellStore() = default;
 
+    void CellStore::clearMovementLinks()
+    {
+        MWWorld::WorldModel* worldModel = MWBase::Environment::get().getWorldModel();
+
+        for (const auto& [base, otherCell] : mMovedHere)
+        {
+            otherCell->mMovedToAnotherCell.erase(base);
+            otherCell->requestMergedRefsUpdate();
+
+            if (worldModel != nullptr)
+                worldModel->registerPtr(MWWorld::Ptr(base, otherCell));
+        }
+
+        for (const auto& [base, otherCell] : mMovedToAnotherCell)
+        {
+            otherCell->mMovedHere.erase(base);
+            otherCell->requestMergedRefsUpdate();
+
+            if (worldModel != nullptr)
+                worldModel->deregisterLiveCellRef(*base);
+        }
+
+        mMovedHere.clear();
+        mMovedToAnotherCell.clear();
+        requestMergedRefsUpdate();
+    }
+
+    void CellStore::deregisterPointers()
+    {
+        MWWorld::WorldModel* worldModel = MWBase::Environment::get().getWorldModel();
+        if (worldModel == nullptr)
+            return;
+
+        Misc::tupleForEach(mCellStoreImp->mRefLists, [worldModel](auto& store) {
+            for (auto& ref : store.mList)
+                worldModel->deregisterLiveCellRef(ref);
+        });
+    }
+
     const MWWorld::Cell* CellStore::getCell() const
     {
         return &mCellVariant;

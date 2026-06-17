@@ -36,7 +36,7 @@ namespace MWGui
         void update();
         void onFrame();
 
-        void finish();
+        void finish(bool removeDraggedItems = false);
     };
 
 }

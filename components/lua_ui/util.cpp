@@ -47,14 +47,21 @@ namespace LuaUi
 
     void clearGameInterface()
     {
+        WidgetExtension::clearDeferredFocusEvents();
         while (!Element::sGameElements.empty())
             Element::erase(Element::sGameElements.begin()->second.get());
     }
 
     void clearMenuInterface()
     {
+        WidgetExtension::clearDeferredFocusEvents();
         while (!Element::sMenuElements.empty())
             Element::erase(Element::sMenuElements.begin()->second.get());
+    }
+
+    void flushDeferredFocusEvents()
+    {
+        WidgetExtension::flushDeferredFocusEvents();
     }
 
     bool warnUnused(std::vector<std::string>& warnings, sol::object object, const std::string& tableName,

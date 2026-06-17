@@ -3,7 +3,15 @@
 #include <MyGUI_Button.h>
 #include <MyGUI_InputManager.h>
 
+#include <components/esm3/loadcell.hpp>
 #include <components/settings/values.hpp>
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#endif
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -33,6 +41,73 @@
 
 namespace MWGui
 {
+#ifdef BUILD_TES3MP_CLIENT
+    namespace
+    {
+        ESM::Cell makePacketCell(const MWWorld::Ptr& ptr)
+        {
+            const MWWorld::Cell& cell = *ptr.getCell()->getCell();
+            ESM::Cell packetCell;
+
+            if (cell.isExterior())
+            {
+                packetCell.mData.mX = cell.getGridX();
+                packetCell.mData.mY = cell.getGridY();
+            }
+            else
+            {
+                packetCell.mData.mFlags = ESM::Cell::Interior;
+                packetCell.mName = std::string(cell.getNameId());
+            }
+
+            packetCell.mRegion = cell.getRegion();
+            packetCell.updateId();
+            return packetCell;
+        }
+
+        bool canSyncContainerInteraction(const MWWorld::Ptr& container)
+        {
+            if (!mwmp::Main::isInitialized() || container.isEmpty() || !container.isInCell())
+                return false;
+
+            mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            return localPlayer != nullptr && localPlayer->isLoggedIn();
+        }
+
+        void sendContainerInteractionLockChange(const MWWorld::Ptr& container, unsigned char subAction)
+        {
+            if (!canSyncContainerInteraction(container))
+                return;
+
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->originClientScript.clear();
+            objectList->cell = makePacketCell(container);
+            objectList->action = mwmp::BaseObjectList::REQUEST;
+            objectList->containerSubAction = subAction;
+            objectList->addBaseObject(objectList->getBaseObjectFromPtr(container));
+            objectList->sendContainer();
+        }
+
+        void sendContainerChange(const MWWorld::Ptr& container, const ItemStack& item, std::size_t itemCount,
+            std::size_t actionCount, unsigned char action, unsigned char subAction)
+        {
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+            objectList->cell = makePacketCell(container);
+            objectList->action = action;
+            objectList->containerSubAction = subAction;
+
+            mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(container);
+            objectList->addContainerItem(
+                baseObject, item, static_cast<int>(itemCount), static_cast<int>(actionCount));
+            objectList->addBaseObject(baseObject);
+            objectList->sendContainer();
+        }
+    }
+#endif
 
     ContainerWindow::ContainerWindow(DragAndDrop& dragAndDrop, ItemTransfer& itemTransfer)
         : WindowBase("openmw_container_window.layout")
@@ -113,13 +188,19 @@ namespace MWGui
     {
         if (mModel == nullptr)
             return;
+        if (!MWBase::Environment::get().getWindowManager()->isItemDragDropEnabled())
+            return;
 
         const ItemStack item = mModel->getItem(mSelectedItem);
 
         if (!mModel->onTakeItem(item.mBase, static_cast<int>(count)))
             return;
 
+#ifdef BUILD_TES3MP_CLIENT
+        sendContainerChange(mPtr, item, item.mCount, count, mwmp::BaseObjectList::REMOVE, mwmp::BaseObjectList::DRAG);
+#else
         mDragAndDrop->startDrag(mSelectedItem, mSortModel, mModel, mItemView, count);
+#endif
     }
 
     void ContainerWindow::transferItem(MyGUI::Widget* /*sender*/, std::size_t count)
@@ -132,7 +213,11 @@ namespace MWGui
         if (!mModel->onTakeItem(item.mBase, static_cast<int>(count)))
             return;
 
+#ifdef BUILD_TES3MP_CLIENT
+        sendContainerChange(mPtr, item, item.mCount, count, mwmp::BaseObjectList::REMOVE, mwmp::BaseObjectList::DRAG);
+#else
         mItemTransfer->apply(item, count, *mItemView);
+#endif
     }
 
     void ContainerWindow::dropItem()
@@ -142,8 +227,19 @@ namespace MWGui
 
         bool success = mModel->onDropItem(mDragAndDrop->mItem.mBase, static_cast<int>(mDragAndDrop->mDraggedCount));
 
+#ifdef BUILD_TES3MP_CLIENT
+        if (success)
+        {
+            ItemStack item = mDragAndDrop->mItem;
+            item.mCount = mDragAndDrop->mDraggedCount;
+            sendContainerChange(
+                mPtr, item, mDragAndDrop->mDraggedCount, 0, mwmp::BaseObjectList::ADD, mwmp::BaseObjectList::DROP);
+            mDragAndDrop->finish(true);
+        }
+#else
         if (success)
             mDragAndDrop->drop(mModel, mItemView);
+#endif
     }
 
     void ContainerWindow::onBackgroundSelected()
@@ -156,6 +252,9 @@ namespace MWGui
     {
         if (container.isEmpty() || (container.getType() != ESM::REC_CONT && !container.getClass().isActor()))
             throw std::runtime_error("Invalid argument in ContainerWindow::setPtr");
+#ifdef BUILD_TES3MP_CLIENT
+        mwmp::Main::get().getLocalPlayer()->storeCurrentContainer(container);
+#endif
         bool lootAnyway = mTreatNextOpenAsLoot;
         mTreatNextOpenAsLoot = false;
         mPtr = container;
@@ -208,8 +307,16 @@ namespace MWGui
     void ContainerWindow::onClose()
     {
         // Make sure the window was actually closed and not temporarily hidden.
-        if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Container))
+        bool isStillOpen = MWBase::Environment::get().getWindowManager()->containsMode(GM_Container);
+        if (isStillOpen)
             return;
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (!mPtr.isEmpty())
+            sendContainerInteractionLockChange(mPtr, mwmp::BaseObjectList::LOCK_RELEASE);
+        if (mwmp::Main::isInitialized() && mwmp::Main::get().getLocalPlayer() != nullptr)
+            mwmp::Main::get().getLocalPlayer()->clearCurrentContainer();
+#endif
 
         if (mModel)
             mModel->onClose();
@@ -235,6 +342,31 @@ namespace MWGui
 
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
 
+#ifdef BUILD_TES3MP_CLIENT
+        mModel->update();
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->cell = makePacketCell(mPtr);
+        objectList->action = mwmp::BaseObjectList::REMOVE;
+        objectList->containerSubAction = mwmp::BaseObjectList::TAKE_ALL;
+        mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(mPtr);
+
+        for (size_t i = 0; i < mModel->getItemCount(); ++i)
+        {
+            const ItemStack item = mModel->getItem(static_cast<ItemModel::ModelIndex>(i));
+            if (!mModel->onTakeItem(item.mBase, static_cast<int>(item.mCount)))
+                break;
+            objectList->addContainerItem(baseObject, item, static_cast<int>(item.mCount), static_cast<int>(item.mCount));
+        }
+
+        if (!baseObject.containerItems.empty())
+        {
+            objectList->addBaseObject(baseObject);
+            objectList->sendContainer();
+        }
+#else
         // transfer everything into the player's inventory
         ItemModel* playerModel = MWBase::Environment::get().getWindowManager()->getInventoryWindow()->getModel();
         assert(mModel);
@@ -275,6 +407,7 @@ namespace MWGui
         }
 
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
+#endif
     }
 
     void ContainerWindow::onDisposeCorpseButtonClicked(MyGUI::Widget* /*sender*/)
@@ -395,6 +528,43 @@ namespace MWGui
     {
         mItemView->setActiveControllerWindow(active);
         WindowBase::setActiveControllerWindow(active);
+    }
+
+    bool ContainerWindow::isOnDragAndDrop() const
+    {
+        return mDragAndDrop->mIsOnDragAndDrop;
+    }
+
+    bool ContainerWindow::dragItemByPtr(const MWWorld::Ptr& itemPtr, std::size_t count)
+    {
+        if (mModel == nullptr || count == 0)
+            return false;
+        if (!MWBase::Environment::get().getWindowManager()->isItemDragDropEnabled())
+            return false;
+
+        mModel->update();
+        for (ItemModel::ModelIndex i = 0; i < static_cast<int>(mModel->getItemCount()); ++i)
+        {
+            if (mModel->getItem(i).mBase == itemPtr)
+            {
+                mDragAndDrop->startDrag(i, mSortModel, mModel, mItemView, count);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool ContainerWindow::usesContainer(const MWWorld::Ptr& container) const
+    {
+        return mModel != nullptr && mModel->usesContainer(container);
+    }
+
+    void ContainerWindow::refresh()
+    {
+        if (mItemView != nullptr)
+            mItemView->update();
+        mUpdateNextFrame = false;
     }
 
     void ContainerWindow::onFrame(float dt)

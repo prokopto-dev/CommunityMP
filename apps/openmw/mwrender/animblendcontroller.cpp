@@ -236,15 +236,16 @@ namespace MWRender
         if (!mInterpActive)
             return;
 
-        // Shouldn't happen, but potentially an edge case where a new bone was added
-        // between gatherRecursiveBoneTransforms and this update
-        // currently OpenMW will never do this
-        assert(mBlendBoneTransforms.find(bone) != mBlendBoneTransforms.end());
+        // A multiplayer proxy can change animation state while blending is in progress; skip any bone that no
+        // longer has a gathered source transform instead of throwing from std::map::at below.
+        auto blendBoneTransform = mBlendBoneTransforms.find(bone);
+        if (blendBoneTransform == mBlendBoneTransforms.end())
+            return;
 
         // Every frame the osgAnimation controller updates this
         // so it is ok that we update it directly below
         const osg::Matrixf& currentSampledMatrix = bone->getMatrix();
-        const osg::Matrixf& lastSampledMatrix = mBlendBoneTransforms.at(bone);
+        const osg::Matrixf& lastSampledMatrix = blendBoneTransform->second;
 
         const osg::Vec3f scale = currentSampledMatrix.getScale();
         const osg::Quat rotation = currentSampledMatrix.getRotate();

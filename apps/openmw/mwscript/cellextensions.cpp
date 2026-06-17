@@ -23,10 +23,26 @@
 
 #include "../mwmechanics/actorutil.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace MWScript
 {
     namespace Cell
     {
+#ifdef BUILD_TES3MP_CLIENT
+        void queueScriptCellChangeReason()
+        {
+            if (!mwmp::Main::isInitialized())
+                return;
+
+            if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+                localPlayer->queueCellChangeReason(mwmp::CELL_CHANGE_REASON_SCRIPT);
+        }
+#endif
+
         class OpCellChanged : public Interpreter::Opcode0
         {
         public:
@@ -96,6 +112,9 @@ namespace MWScript
 
                 if (const ESM::RefId refId = world->findExteriorPosition(cell, pos); !refId.empty())
                 {
+#ifdef BUILD_TES3MP_CLIENT
+                    queueScriptCellChangeReason();
+#endif
                     MWWorld::ActionTeleport(refId, pos, false).execute(playerPtr);
                     playerPtr = world->getPlayerPtr(); // could be changed by ActionTeleport
                     world->adjustPosition(playerPtr, false);
@@ -103,6 +122,9 @@ namespace MWScript
                 }
                 if (const ESM::RefId refId = world->findInteriorPosition(cell, pos); !refId.empty())
                 {
+#ifdef BUILD_TES3MP_CLIENT
+                    queueScriptCellChangeReason();
+#endif
                     MWWorld::ActionTeleport(refId, pos, false).execute(playerPtr);
                     return;
                 }
@@ -133,6 +155,9 @@ namespace MWScript
 
                 pos.rot[0] = pos.rot[1] = pos.rot[2] = 0;
 
+#ifdef BUILD_TES3MP_CLIENT
+                queueScriptCellChangeReason();
+#endif
                 MWWorld::ActionTeleport(ESM::RefId::esm3ExteriorCell(x, y), pos, false).execute(playerPtr);
                 playerPtr = world->getPlayerPtr(); // could be changed by ActionTeleport
                 world->adjustPosition(playerPtr, false);

@@ -83,10 +83,10 @@ namespace MWPhysics
     {
         mCaster = caster;
         mCasterColObj = [this, &caster]() -> const btCollisionObject* {
-            const Actor* actor = mPhysics->getActor(caster);
+            const Actor* actor = mPhysics->getActorImpl(caster);
             if (actor)
                 return actor->getCollisionObject();
-            const Object* object = mPhysics->getObject(caster);
+            const Object* object = mPhysics->getObjectImpl(caster);
             if (object)
                 return object->getCollisionObject();
             return nullptr;
@@ -99,7 +99,7 @@ namespace MWPhysics
         mValidTargets.clear();
         for (const auto& ptr : targets)
         {
-            const auto* physicActor = mPhysics->getActor(ptr);
+            const auto* physicActor = mPhysics->getActorImpl(ptr);
             if (physicActor)
                 mValidTargets.push_back(physicActor->getCollisionObject());
         }

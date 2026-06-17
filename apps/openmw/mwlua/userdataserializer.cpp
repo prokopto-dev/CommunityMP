@@ -1,10 +1,12 @@
 #include "userdataserializer.hpp"
 
 #include <cstring>
+#include <string>
 
 #include <components/lua/serialization.hpp>
 #include <components/misc/endianness.hpp>
 
+#include "dialogueinfo.hpp"
 #include "object.hpp"
 
 namespace MWLua
@@ -39,10 +41,27 @@ namespace MWLua
                 appendObjectIdList(out, data.as<LObjectList>().mIds);
                 return true;
             }
+            if (data.is<DialogueInfo>())
+            {
+                appendDialogueInfo(out, data.as<DialogueInfo>());
+                return true;
+            }
             return false;
         }
 
         constexpr static std::string_view sObjListTypeName = "objlist";
+        constexpr static std::string_view sDialogueInfoTypeName = "dialinfo";
+
+        void appendDialogueInfo(LuaUtil::BinaryData& out, const DialogueInfo& info) const
+        {
+            std::string payload;
+            payload.push_back(static_cast<char>(info.getType()));
+            payload += info.getRecordId().serializeText();
+            payload.push_back('\0');
+            payload += info.getInfoId().serializeText();
+            append(out, sDialogueInfoTypeName, payload.data(), payload.size());
+        }
+
         void appendObjectIdList(LuaUtil::BinaryData& out, const ObjectIdList& objList) const
         {
             static_assert(sizeof(ESM::RefNum) == 8);
@@ -99,6 +118,21 @@ namespace MWLua
                     sol::stack::push<LObjectList>(lua, LObjectList{ std::move(objList) });
                 else
                     sol::stack::push<GObjectList>(lua, GObjectList{ std::move(objList) });
+                return true;
+            }
+            if (typeName == sDialogueInfoTypeName)
+            {
+                if (binaryData.size() < 3)
+                    throw std::runtime_error("Invalid size of DialogueInfo in MWLua::Serializer");
+
+                const auto separator = binaryData.find('\0', 1);
+                if (separator == std::string_view::npos || separator == 1 || separator == binaryData.size() - 1)
+                    throw std::runtime_error("Invalid DialogueInfo payload in MWLua::Serializer");
+
+                const ESM::Dialogue::Type type = static_cast<ESM::Dialogue::Type>(binaryData[0]);
+                const ESM::RefId recordId = ESM::RefId::deserializeText(binaryData.substr(1, separator - 1));
+                const ESM::RefId infoId = ESM::RefId::deserializeText(binaryData.substr(separator + 1));
+                sol::stack::push<DialogueInfo>(lua, DialogueInfo(type, recordId, infoId));
                 return true;
             }
             return false;

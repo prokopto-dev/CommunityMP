@@ -3,6 +3,7 @@
 
 #include <array>
 #include <memory>
+#include <vector>
 
 #include <MyGUI_EditBox.h>
 
@@ -10,8 +11,31 @@
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadclas.hpp>
 
+#include "avatarpreview.hpp"
 #include "widgets.hpp"
 #include "windowbase.hpp"
+
+namespace MWRender
+{
+    class RaceSelectionPreview;
+}
+
+namespace MyGUI
+{
+    class Button;
+    class ImageBox;
+    class ITexture;
+}
+
+namespace osg
+{
+    class Group;
+}
+
+namespace Resource
+{
+    class ResourceSystem;
+}
 
 namespace MWGui
 {
@@ -45,8 +69,6 @@ namespace MWGui
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 
     private:
-        void fitToText(MyGUI::TextBox* widget);
-        void layoutVertically(MyGUI::Widget* widget, int margin);
         MyGUI::Widget* mTextBox;
         MyGUI::TextBox* mText;
         MyGUI::Widget* mButtonBar;
@@ -55,7 +77,7 @@ namespace MWGui
     };
 
     // Lets the player choose between 3 ways of creating a class
-    class ClassChoiceDialog : public InfoBoxDialog
+    class ClassChoiceDialog : public WindowModal
     {
     public:
         // Corresponds to the buttons that can be clicked
@@ -66,7 +88,27 @@ namespace MWGui
             Class_Create = 2,
             Class_Back = 3
         };
-        ClassChoiceDialog();
+        ClassChoiceDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
+        ~ClassChoiceDialog() override;
+
+        void onFrame(float duration) override;
+
+        bool exit() override { return false; }
+
+        typedef MyGUI::delegates::MultiDelegate<int> EventHandle_Int;
+        EventHandle_Int eventButtonSelected;
+
+    protected:
+        void onButtonClicked(MyGUI::Widget* sender);
+        bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
+
+    private:
+        MyGUI::ImageBox* mAvatarPreviewImage = nullptr;
+        std::vector<MyGUI::Button*> mButtons;
+        AvatarPreviewController mAvatarPreviewController;
+        std::unique_ptr<MWRender::RaceSelectionPreview> mAvatarPreview;
+        std::unique_ptr<MyGUI::ITexture> mAvatarPreviewTexture;
+        size_t mControllerFocus = 0;
     };
 
     class GenerateClassResultDialog : public WindowModal
@@ -109,13 +151,15 @@ namespace MWGui
     class PickClassDialog : public WindowModal
     {
     public:
-        PickClassDialog();
+        PickClassDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
+        ~PickClassDialog() override;
 
         const ESM::RefId& getClassId() const { return mCurrentClassId; }
         void setClassId(const ESM::RefId& classId);
 
         void setNextButtonShow(bool shown);
         void onOpen() override;
+        void onFrame(float duration) override;
 
         bool exit() override { return false; }
 
@@ -144,6 +188,7 @@ namespace MWGui
         void updateStats();
 
         MyGUI::ImageBox* mClassImage;
+        MyGUI::ImageBox* mAvatarPreviewImage;
         MyGUI::ListBox* mClassList;
         MyGUI::TextBox* mSpecializationName;
         MyGUI::Button* mBackButton;
@@ -153,6 +198,9 @@ namespace MWGui
         Widgets::MWSkillPtr mMinorSkill[5];
 
         ESM::RefId mCurrentClassId;
+        AvatarPreviewController mAvatarPreviewController;
+        std::unique_ptr<MWRender::RaceSelectionPreview> mAvatarPreview;
+        std::unique_ptr<MyGUI::ITexture> mAvatarPreviewTexture;
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
     };
@@ -287,7 +335,7 @@ namespace MWGui
     class CreateClassDialog : public WindowModal
     {
     public:
-        CreateClassDialog();
+        CreateClassDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
         virtual ~CreateClassDialog();
 
         bool exit() override { return false; }
@@ -300,6 +348,7 @@ namespace MWGui
         std::vector<ESM::RefId> getMinorSkills() const;
 
         void setNextButtonShow(bool shown);
+        void onFrame(float duration) override;
 
         // Events
         typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
@@ -333,6 +382,7 @@ namespace MWGui
         void update();
 
     private:
+        MyGUI::ImageBox* mAvatarPreviewImage;
         MyGUI::EditBox* mEditName;
         MyGUI::TextBox* mSpecializationName;
         std::vector<MyGUI::Button*> mButtons;
@@ -348,6 +398,9 @@ namespace MWGui
         std::unique_ptr<DescriptionDialog> mDescDialog;
 
         ESM::Class::Specialization mSpecializationId;
+        AvatarPreviewController mAvatarPreviewController;
+        std::unique_ptr<MWRender::RaceSelectionPreview> mAvatarPreview;
+        std::unique_ptr<MyGUI::ITexture> mAvatarPreviewTexture;
 
         Widgets::MWAttributePtr mAffectedAttribute;
         Widgets::MWSkillPtr mAffectedSkill;

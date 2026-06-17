@@ -7,6 +7,7 @@
 #include "typedaipackage.hpp"
 
 #include "../mwworld/cellstore.hpp" // for Doors
+#include "../mwworld/timestamp.hpp"
 
 #include <components/esm3/loadpgrd.hpp>
 
@@ -103,6 +104,8 @@ namespace MWMechanics
         void writeState(ESM::AiSequence::AiSequence& sequence) const override;
 
     private:
+        bool shouldExpireCombat() const;
+
         /// Returns true if combat should end
         bool attack(const MWWorld::Ptr& actor, const MWWorld::Ptr& target, AiCombatStorage& storage,
             CharacterController& characterController);
@@ -116,6 +119,8 @@ namespace MWMechanics
         void updateActorsMovement(const MWWorld::Ptr& actor, float duration, AiCombatStorage& storage);
         void rotateActorOnAxis(const MWWorld::Ptr& actor, int axis, MWMechanics::Movement& actorMovementSettings,
             AiCombatStorage& storage);
+
+        MWWorld::TimeStamp mStartTime;
     };
 
 }

@@ -8,6 +8,12 @@ file(GLOB UNITTEST_SRC_FILES
     esm/testrefid.cpp
     esm/variant.cpp
 
+    openmw-mp/basepacket.cpp
+    openmw-mp/clientsettings.cpp
+    openmw-mp/endpoint.cpp
+    openmw-mp/serverluacompat.cpp
+    openmw-mp/timerapi.cpp
+
     lua/testasync.cpp
     lua/testconfiguration.cpp
     lua/testinputactions.cpp
@@ -23,6 +29,7 @@ file(GLOB UNITTEST_SRC_FILES
     misc/compression.cpp
     misc/progressreporter.cpp
     misc/testendianness.cpp
+    misc/testconvert.cpp
     misc/testmathutil.cpp
     misc/testresourcehelpers.cpp
     misc/teststringops.cpp
@@ -65,6 +72,7 @@ file(GLOB UNITTEST_SRC_FILES
 
     files/conversiontests.cpp
     files/hash.cpp
+    files/wineutils.cpp
 
     toutf8/toutf8.cpp
 
@@ -79,6 +87,7 @@ file(GLOB UNITTEST_SRC_FILES
     esm3/testinfoorder.cpp
     esm3/testcstringids.cpp
 
+    nifosg/testparticle.cpp
     nifosg/testnifloader.cpp
 
     esmterrain/testgridsampling.cpp
@@ -86,6 +95,7 @@ file(GLOB UNITTEST_SRC_FILES
     resource/testobjectcache.cpp
     resource/testresourcesystem.cpp
 
+    vfs/testfilesystemarchive.cpp
     vfs/testpathutil.cpp
 
     sceneutil/osgacontroller.cpp
@@ -97,9 +107,24 @@ file(GLOB UNITTEST_SRC_FILES
     nif/testphysics.cpp
 )
 
+if(BUILD_TES3MP_TARGETS)
+    list(APPEND UNITTEST_SRC_FILES
+        openmw-mp/gnstransport.cpp
+    )
+endif()
+
 source_group(apps\\components-tests FILES ${UNITTEST_SRC_FILES})
 
 openmw_add_executable(components-tests ${UNITTEST_SRC_FILES})
+
+target_sources(components-tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/apps/openmw-mp/Script/API/TimerAPI.cpp
+    ${CMAKE_SOURCE_DIR}/apps/openmw-mp/Script/ScriptFunction.cpp
+)
+
+target_include_directories(components-tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/apps/openmw-mp
+)
 
 target_link_libraries(components-tests
     GTest::GTest

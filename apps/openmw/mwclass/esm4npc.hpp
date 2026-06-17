@@ -37,13 +37,13 @@ namespace MWClass
         }
 
         void insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-            MWPhysics::PhysicsSystem& physics) const override
+            MWPhysics::IPhysicsBackend& physics) const override
         {
             insertObjectPhysics(ptr, model, rotation, physics);
         }
 
         void insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-            MWPhysics::PhysicsSystem& physics) const override
+            MWPhysics::IPhysicsBackend& physics) const override
         {
             // ESM4Impl::insertObjectPhysics(ptr, getModel(ptr), rotation, physics);
         }

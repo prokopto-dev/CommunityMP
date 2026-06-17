@@ -12,6 +12,12 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#include "../mwmp/ScriptController.hpp"
+
+#include "interpretercontext.hpp"
 #include "ref.hpp"
 
 namespace MWScript
@@ -53,6 +59,17 @@ namespace MWScript
 
                     if (mode < 0 || mode > 2)
                         throw std::runtime_error("animation mode out of range");
+                }
+
+                auto& context = static_cast<MWScript::InterpreterContext&>(runtime.getContext());
+                if (context.sendPackets && mwmp::Main::isInitialized())
+                {
+                    mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+                    objectList->reset();
+                    objectList->packetOrigin = ScriptController::getPacketOriginFromContextType(context.getContextType());
+                    objectList->originClientScript = context.getCurrentScriptName();
+                    objectList->addObjectAnimPlay(ptr, std::string(group), mode);
+                    objectList->sendObjectAnimPlay();
                 }
 
                 MWBase::Environment::get().getMechanicsManager()->playAnimationGroup(

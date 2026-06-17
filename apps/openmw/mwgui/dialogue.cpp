@@ -9,6 +9,8 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadcrea.hpp>
+#include <components/l10n/manager.hpp>
+#include <components/misc/strings/algorithm.hpp>
 #include <components/settings/values.hpp>
 #include <components/translation/translation.hpp>
 #include <components/widgets/box.hpp>
@@ -36,6 +38,20 @@
 
 namespace MWGui
 {
+    namespace
+    {
+        std::string getGoodbyeText()
+        {
+            std::string goodbye = MWBase::Environment::get().getL10nManager()->getMessage("Interface", "Goodbye");
+            Misc::StringUtils::replaceAll(goodbye, "\xE2\x80\xAF", " ");
+            Misc::StringUtils::replaceAll(goodbye, "\xC2\xA0", " ");
+            Misc::StringUtils::replaceAll(goodbye, "\xC3\xA2\xE2\x82\xAC\xC2\xAF", " ");
+            Misc::StringUtils::replaceAll(goodbye, "\xC3\x82\xC2\xA0", " ");
+            Misc::StringUtils::replaceAll(goodbye, "___", " ");
+            return goodbye;
+        }
+    }
+
     void ResponseCallback::addResponse(std::string_view title, std::string_view text)
     {
         mWindow->addResponse(title, text, mNeedMargin);
@@ -336,6 +352,8 @@ namespace MWGui
         mTopicsList->eventItemSelected += MyGUI::newDelegate(this, &DialogueWindow::onSelectListItem);
 
         getWidget(mGoodbyeButton, "ByeButton");
+        const std::string goodbye = getGoodbyeText();
+        mGoodbyeButton->setCaption(MyGUI::UString(goodbye));
         mGoodbyeButton->eventMouseButtonClick += MyGUI::newDelegate(this, &DialogueWindow::onByeClicked);
 
         getWidget(mDispositionBar, "Disposition");
@@ -353,7 +371,7 @@ namespace MWGui
 
         mControllerScrollWidget = mHistory->getParent();
         mControllerButtons.mA = "#{Interface:Ask}";
-        mControllerButtons.mB = "#{Interface:Goodbye}";
+        mControllerButtons.mB = goodbye;
         mControllerButtons.mRStick = "#{Interface:ScrollUp}";
     }
 
@@ -361,6 +379,27 @@ namespace MWGui
     {
         MyGUI::UString message = MyGUI::LanguageManager::getInstance().replaceTags("#{sBarterDialog5}");
         addResponse({}, message);
+    }
+
+    void DialogueWindow::activateTopic(std::string_view topic)
+    {
+        onTopicActivated(std::string(topic));
+    }
+
+    void DialogueWindow::showPersuasionDialog()
+    {
+        mPersuasionDialog.setVisible(true);
+    }
+
+    void DialogueWindow::openCompanionShare()
+    {
+        MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Companion, mPtr);
+    }
+
+    void DialogueWindow::openService(MWBase::DialogueManager::ServiceType service, GuiMode mode)
+    {
+        if (!MWBase::Environment::get().getDialogueManager()->checkServiceRefused(mCallback.get(), service))
+            MWBase::Environment::get().getWindowManager()->pushGuiMode(mode, mPtr);
     }
 
     bool DialogueWindow::exit()
@@ -694,11 +733,7 @@ namespace MWGui
             link->eventActivated += MyGUI::newDelegate(this, &DialogueWindow::onGoodbyeActivated);
             auto interactiveId = TypesetBook::InteractiveId(link.get());
             mLinks.push_back(std::move(link));
-            const std::string& goodbye = MWBase::Environment::get()
-                                             .getESMStore()
-                                             ->get<ESM::GameSetting>()
-                                             .find("sGoodbye")
-                                             ->mValue.getString();
+            const std::string goodbye = getGoodbyeText();
             BookTypesetter::Style* questionStyle = typesetter->createHotStyle(
                 body, textColours.answer, textColours.answerOver, textColours.answerPressed, interactiveId);
             typesetter->lineBreak();
@@ -852,12 +887,12 @@ namespace MWGui
             bool changed = false;
             if (flag & MWBase::DialogueManager::TopicType::Specific)
             {
-                button->changeWidgetSkin("MW_ListLine_Specific");
+                button->changeWidgetSkin("MW_DialogueTopicLine_Specific");
                 changed = true;
             }
             else if (flag & MWBase::DialogueManager::TopicType::Exhausted)
             {
-                button->changeWidgetSkin("MW_ListLine_Exhausted");
+                button->changeWidgetSkin("MW_DialogueTopicLine_Exhausted");
                 changed = true;
             }
 
@@ -897,37 +932,28 @@ namespace MWGui
     void DialogueWindow::setControllerFocus(size_t index, bool focused)
     {
         // List is mTopicsList + "Goodbye" button below the list.
-        if (index > mTopicsList->getItemCount())
+        const size_t itemCount = mTopicsList->getItemCount();
+        if (index > itemCount)
             return;
 
-        if (index == mTopicsList->getItemCount())
+        if (index == itemCount)
         {
             mGoodbyeButton->setStateSelected(focused);
-        }
-        else
-        {
-            const std::string& keyword = mTopicsList->getItemNameAt(mControllerFocus);
-            if (keyword.empty())
-                return;
+            if (focused)
+                mTopicsList->scrollToBottom();
 
-            MyGUI::Button* button = mTopicsList->getItemWidget(keyword);
-            button->setStateSelected(focused);
+            return;
         }
+
+        const std::string& keyword = mTopicsList->getItemNameAt(index);
+        if (keyword.empty())
+            return;
+
+        MyGUI::Button* button = mTopicsList->getItemWidget(keyword);
+        button->setStateSelected(focused);
 
         if (focused)
-        {
-            // Scroll the side bar to keep the active item in view
-            int offset = 0;
-            for (int i = 6; i < static_cast<int>(index); i++)
-            {
-                const std::string& keyword = mTopicsList->getItemNameAt(i);
-                if (keyword.empty())
-                    offset += 18 + sVerticalPadding * 2;
-                else
-                    offset += mTopicsList->getItemWidget(keyword)->getHeight() + sVerticalPadding * 2;
-            }
-            mTopicsList->setViewOffset(-offset);
-        }
+            mTopicsList->centerItem(keyword);
     }
 
     bool DialogueWindow::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)

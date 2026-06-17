@@ -1,6 +1,7 @@
 #include "physicssystem.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -22,6 +23,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/misc/constants.hpp>
 #include <components/misc/convert.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/strings/conversion.hpp>
@@ -153,6 +155,35 @@ namespace MWPhysics
         return mShapeManager.get();
     }
 
+    std::vector<std::pair<const IPhysicsObject*, bool>> PhysicsSystem::getAnimatedObjects() const
+    {
+        std::vector<std::pair<const IPhysicsObject*, bool>> objects;
+        objects.reserve(mAnimatedObjects.size());
+
+        for (const auto& [object, changed] : mAnimatedObjects)
+            objects.emplace_back(object, changed);
+
+        return objects;
+    }
+
+    bool PhysicsSystem::setPhysicsFrameRate(float framesPerSecond)
+    {
+        if (!std::isfinite(framesPerSecond) || framesPerSecond <= 0.f)
+        {
+            Log(Debug::Warning) << "Ignoring invalid physics framerate " << framesPerSecond;
+            return false;
+        }
+
+        const float physicsDt = 1.f / framesPerSecond;
+        if (std::abs(mPhysicsDt - physicsDt) <= 0.000001f)
+            return true;
+
+        mPhysicsDt = physicsDt;
+        mTaskScheduler->setPhysicsDt(mPhysicsDt);
+        Log(Debug::Info) << "Physics framerate set to " << framesPerSecond << " FPS.";
+        return true;
+    }
+
     bool PhysicsSystem::toggleDebugRendering()
     {
         mDebugDrawEnabled = !mDebugDrawEnabled;
@@ -173,7 +204,7 @@ namespace MWPhysics
 
     bool PhysicsSystem::isOnSolidGround(const MWWorld::Ptr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (!physactor || !physactor->getOnGround() || !physactor->getCollisionMode())
             return false;
 
@@ -211,12 +242,12 @@ namespace MWPhysics
         {
             if (!ptr.isEmpty())
             {
-                const Actor* actor = getActor(ptr);
+                const Actor* actor = getActorImpl(ptr);
                 if (actor)
                     ignoreList.push_back(actor->getCollisionObject());
                 else
                 {
-                    const Object* object = getObject(ptr);
+                    const Object* object = getObjectImpl(ptr);
                     if (object)
                         ignoreList.push_back(object->getCollisionObject());
                 }
@@ -227,7 +258,7 @@ namespace MWPhysics
         {
             for (const MWWorld::Ptr& target : targets)
             {
-                const Actor* actor = getActor(target);
+                const Actor* actor = getActorImpl(target);
                 if (actor)
                     targetCollisionObjects.push_back(actor->getCollisionObject());
             }
@@ -292,19 +323,19 @@ namespace MWPhysics
 
     bool PhysicsSystem::isOnGround(const MWWorld::Ptr& actor)
     {
-        Actor* physactor = getActor(actor);
+        Actor* physactor = getActorImpl(actor);
         return physactor && physactor->getOnGround() && physactor->getCollisionMode();
     }
 
     bool PhysicsSystem::canMoveToWaterSurface(const MWWorld::ConstPtr& actor, const float waterlevel)
     {
-        const auto* physactor = getActor(actor);
+        const auto* physactor = getActorImpl(actor);
         return physactor && physactor->canMoveToWaterSurface(waterlevel, mCollisionWorld.get());
     }
 
     osg::Vec3f PhysicsSystem::getHalfExtents(const MWWorld::ConstPtr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (physactor)
             return physactor->getHalfExtents();
         else
@@ -313,7 +344,7 @@ namespace MWPhysics
 
     osg::Vec3f PhysicsSystem::getOriginalHalfExtents(const MWWorld::ConstPtr& actor) const
     {
-        if (const Actor* physactor = getActor(actor))
+        if (const Actor* physactor = getActorImpl(actor))
             return physactor->getOriginalHalfExtents();
         else
             return osg::Vec3f();
@@ -321,16 +352,45 @@ namespace MWPhysics
 
     osg::Vec3f PhysicsSystem::getRenderingHalfExtents(const MWWorld::ConstPtr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (physactor)
             return physactor->getRenderingHalfExtents();
         else
             return osg::Vec3f();
     }
 
+    osg::Vec3f PhysicsSystem::getInertialForce(const MWWorld::ConstPtr& actor) const
+    {
+        const Actor* physactor = getActorImpl(actor);
+        if (physactor)
+            return physactor->getInertialForce();
+        else
+            return osg::Vec3f();
+    }
+
+    void PhysicsSystem::setInertialForce(const MWWorld::Ptr& actor, const osg::Vec3f& force)
+    {
+        Actor* physactor = getActorImpl(actor);
+        if (physactor)
+            physactor->setInertialForce(force);
+    }
+
+    void PhysicsSystem::forceActorFall(const MWWorld::Ptr& actor)
+    {
+        Actor* physactor = getActorImpl(actor);
+        if (!physactor)
+            return;
+
+        osg::Vec3f force = physactor->getInertialForce();
+        force.z() = std::min(force.z(), -Constants::GravityConst * Constants::UnitsPerMeter * 0.1f);
+        physactor->setInertialForce(force);
+        physactor->setOnGround(false);
+        physactor->forceFall();
+    }
+
     osg::BoundingBox PhysicsSystem::getBoundingBox(const MWWorld::ConstPtr& object) const
     {
-        const Object* physobject = getObject(object);
+        const Object* physobject = getObjectImpl(object);
         if (!physobject)
             return osg::BoundingBox();
         btVector3 min, max;
@@ -340,7 +400,7 @@ namespace MWPhysics
 
     osg::Vec3f PhysicsSystem::getCollisionObjectPosition(const MWWorld::ConstPtr& actor) const
     {
-        const Actor* physactor = getActor(actor);
+        const Actor* physactor = getActorImpl(actor);
         if (physactor)
             return physactor->getCollisionObjectPosition();
         else
@@ -417,7 +477,7 @@ namespace MWPhysics
         if (!shapeInstance || !shapeInstance->mCollisionShape)
             return;
 
-        assert(!getObject(ptr));
+        assert(!getObjectImpl(ptr));
 
         // Override collision type based on shape content.
         switch (shapeInstance->mVisualCollisionType)
@@ -480,7 +540,17 @@ namespace MWPhysics
         }
     }
 
-    Actor* PhysicsSystem::getActor(const MWWorld::Ptr& ptr)
+    IPhysicsActor* PhysicsSystem::getActor(const MWWorld::Ptr& ptr)
+    {
+        return getActorImpl(ptr);
+    }
+
+    const IPhysicsActor* PhysicsSystem::getActor(const MWWorld::ConstPtr& ptr) const
+    {
+        return getActorImpl(ptr);
+    }
+
+    Actor* PhysicsSystem::getActorImpl(const MWWorld::Ptr& ptr)
     {
         ActorMap::iterator found = mActors.find(ptr.mRef);
         if (found != mActors.end())
@@ -488,7 +558,7 @@ namespace MWPhysics
         return nullptr;
     }
 
-    const Actor* PhysicsSystem::getActor(const MWWorld::ConstPtr& ptr) const
+    const Actor* PhysicsSystem::getActorImpl(const MWWorld::ConstPtr& ptr) const
     {
         ActorMap::const_iterator found = mActors.find(ptr.mRef);
         if (found != mActors.end())
@@ -496,7 +566,12 @@ namespace MWPhysics
         return nullptr;
     }
 
-    const Object* PhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
+    const IPhysicsObject* PhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
+    {
+        return getObjectImpl(ptr);
+    }
+
+    const Object* PhysicsSystem::getObjectImpl(const MWWorld::ConstPtr& ptr) const
     {
         ObjectMap::const_iterator found = mObjects.find(ptr.mRef);
         if (found != mObjects.end())
@@ -638,6 +713,7 @@ namespace MWPhysics
         {
             actor->setVelocity(osg::Vec3f());
             actor->setInertialForce(osg::Vec3f());
+            actor->clearForceFall();
         }
     }
 
@@ -661,10 +737,11 @@ namespace MWPhysics
 
             float waterlevel = -std::numeric_limits<float>::max();
             bool waterCollision = false;
+            const bool forceFalling = physicActor->isForceFalling();
             if (cell.getCell()->hasWater())
             {
                 waterlevel = cell.getWaterLevel();
-                if (physicActor->getCollisionMode())
+                if (!forceFalling && physicActor->getCollisionMode())
                     waterCollision = effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude();
             }
 
@@ -732,7 +809,7 @@ namespace MWPhysics
 
     void PhysicsSystem::moveActors()
     {
-        auto* player = getActor(MWMechanics::getPlayer());
+        auto* player = getActorImpl(MWMechanics::getPlayer());
         const auto world = MWBase::Environment::get().getWorld();
 
         // copy new ptr position in temporary vector. player is handled separately as its movement might change active
@@ -871,6 +948,11 @@ namespace MWPhysics
         stats.setAttribute(frameNumber, "Physics HeightFields", static_cast<double>(mHeightFields.size()));
     }
 
+    void PhysicsSystem::reportCollision(const osg::Vec3f& position, const osg::Vec3f& normal)
+    {
+        reportCollision(Misc::Convert::toBullet(position), Misc::Convert::toBullet(normal));
+    }
+
     void PhysicsSystem::reportCollision(const btVector3& position, const btVector3& normal)
     {
         if (mDebugDrawEnabled)
@@ -901,6 +983,7 @@ namespace MWPhysics
         , mOldHeight(0)
         , mStuckFrames(0)
         , mFlying(MWBase::Environment::get().getWorld()->isFlying(actor.getPtr()))
+        , mForceFalling(actor.isForceFalling())
         , mWasOnGround(actor.getOnGround())
         , mIsAquatic(actor.getPtr().getClass().isPureWaterCreature(actor.getPtr()))
         , mWaterCollision(waterCollision)

@@ -6,6 +6,8 @@
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_InputManager.h>
 
+#include <cmath>
+
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/format.hpp>
 #include <components/widgets/numericeditbox.hpp>
@@ -23,6 +25,13 @@
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#endif
 
 #include "containeritemmodel.hpp"
 #include "countdialog.hpp"
@@ -114,6 +123,209 @@ namespace
 
         return true;
     }
+
+#ifdef BUILD_TES3MP_CLIENT
+    struct Tes3mpBarterItemSnapshot
+    {
+        MWWorld::Ptr mContainer;
+        std::string mRefId;
+        int mCount = 0;
+        int mCharge = -1;
+        double mEnchantmentCharge = -1;
+        std::string mSoul;
+    };
+
+    bool canSyncTes3mpBarter(const MWWorld::Ptr& merchant)
+    {
+        if (!mwmp::Main::isInitialized() || merchant.isEmpty() || !merchant.isInCell())
+            return false;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        return localPlayer != nullptr && localPlayer->isLoggedIn();
+    }
+
+    ESM::Cell makeTes3mpBarterPacketCell(const MWWorld::Ptr& merchant)
+    {
+        ESM::Cell packetCell;
+
+        if (merchant.isEmpty() || merchant.getCell() == nullptr || merchant.getCell()->getCell() == nullptr)
+            return packetCell;
+
+        const MWWorld::Cell& cell = *merchant.getCell()->getCell();
+        if (cell.isExterior())
+        {
+            packetCell.mData.mX = cell.getGridX();
+            packetCell.mData.mY = cell.getGridY();
+        }
+        else
+        {
+            packetCell.mData.mFlags = ESM::Cell::Interior;
+            packetCell.mName = std::string(cell.getNameId());
+        }
+
+        packetCell.mRegion = cell.getRegion();
+        packetCell.updateId();
+        return packetCell;
+    }
+
+    bool canSnapshotTes3mpBarterItem(const std::string& refId, double enchantmentCharge)
+    {
+        return !refId.empty() && refId.find("$dynamic") == std::string::npos && std::isfinite(enchantmentCharge);
+    }
+
+    MWWorld::Ptr getTes3mpBarterItemSource(const MWGui::ItemStack& item, const MWWorld::Ptr& fallbackContainer)
+    {
+        if (item.mCreator != nullptr)
+        {
+            if (const auto* containerModel = dynamic_cast<const MWGui::ContainerItemModel*>(item.mCreator))
+            {
+                MWWorld::Ptr source = containerModel->getItemSource(item.mBase);
+                if (!source.isEmpty() && source.isInCell())
+                    return source;
+            }
+        }
+
+        return fallbackContainer;
+    }
+
+    std::vector<Tes3mpBarterItemSnapshot> snapshotTes3mpBarterItems(
+        const std::vector<MWGui::ItemStack>& items, const MWWorld::Ptr& fallbackContainer)
+    {
+        std::vector<Tes3mpBarterItemSnapshot> snapshots;
+        snapshots.reserve(items.size());
+
+        for (const MWGui::ItemStack& item : items)
+        {
+            const int count = static_cast<int>(item.mCount);
+            if (item.mBase.isEmpty() || count <= 0)
+                continue;
+
+            const std::string refId = item.mBase.getCellRef().getRefId().serializeText();
+            const double enchantmentCharge = item.mBase.getCellRef().getEnchantmentCharge();
+            if (!canSnapshotTes3mpBarterItem(refId, enchantmentCharge))
+                continue;
+
+            Tes3mpBarterItemSnapshot snapshot;
+            snapshot.mContainer = getTes3mpBarterItemSource(item, fallbackContainer);
+            if (snapshot.mContainer.isEmpty() || !snapshot.mContainer.isInCell())
+                continue;
+
+            snapshot.mRefId = refId;
+            snapshot.mCount = count;
+            snapshot.mCharge = item.mBase.getCellRef().getCharge();
+            snapshot.mEnchantmentCharge = enchantmentCharge;
+            snapshot.mSoul = item.mBase.getCellRef().getSoul().serializeText();
+            snapshots.push_back(snapshot);
+        }
+
+        return snapshots;
+    }
+
+    void addTes3mpBarterContainerItem(
+        mwmp::BaseObject& baseObject, const Tes3mpBarterItemSnapshot& item, unsigned char action)
+    {
+        mwmp::ContainerItem containerItem;
+        containerItem.refId = item.mRefId;
+        containerItem.count = item.mCount;
+        containerItem.charge = item.mCharge;
+        containerItem.enchantmentCharge = item.mEnchantmentCharge;
+        containerItem.soul = item.mSoul;
+        containerItem.actionCount = action == mwmp::BaseObjectList::REMOVE ? item.mCount : 0;
+        baseObject.containerItems.push_back(containerItem);
+    }
+
+    void sendTes3mpBarterContainerDelta(
+        const MWWorld::Ptr& merchant, unsigned char action, const std::vector<Tes3mpBarterItemSnapshot>& items)
+    {
+        if (!canSyncTes3mpBarter(merchant) || items.empty())
+            return;
+
+        std::vector<MWWorld::Ptr> containers;
+        containers.reserve(items.size());
+
+        for (const Tes3mpBarterItemSnapshot& item : items)
+        {
+            if (item.mContainer.isEmpty() || !canSyncTes3mpBarter(item.mContainer))
+                continue;
+
+            bool knownContainer = false;
+            for (const MWWorld::Ptr& container : containers)
+            {
+                if (container == item.mContainer)
+                {
+                    knownContainer = true;
+                    break;
+                }
+            }
+
+            if (!knownContainer)
+                containers.push_back(item.mContainer);
+        }
+
+        for (const MWWorld::Ptr& container : containers)
+        {
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            objectList->reset();
+            objectList->cell = makeTes3mpBarterPacketCell(container);
+            objectList->packetOrigin = mwmp::CLIENT_DIALOGUE;
+            objectList->originClientScript.clear();
+            objectList->action = action;
+            objectList->containerSubAction = mwmp::BaseObjectList::BARTER;
+
+            mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(container);
+
+            for (const Tes3mpBarterItemSnapshot& item : items)
+            {
+                if (item.mContainer == container)
+                    addTes3mpBarterContainerItem(baseObject, item, action);
+            }
+
+            if (!baseObject.containerItems.empty())
+            {
+                objectList->addBaseObject(baseObject);
+                objectList->sendContainer();
+            }
+        }
+    }
+
+    void sendTes3mpBarterGoldDelta(const MWWorld::Ptr& merchant, int balance)
+    {
+        if (!canSyncTes3mpBarter(merchant) || balance == 0)
+            return;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        const int goldCount = std::abs(balance);
+        localPlayer->sendItemChange(MWWorld::ContainerStore::sGoldId.serializeText(), goldCount,
+            balance > 0 ? mwmp::InventoryChanges::ADD : mwmp::InventoryChanges::REMOVE);
+
+        MWMechanics::CreatureStats& stats = merchant.getClass().getCreatureStats(merchant);
+        const MWWorld::TimeStamp lastRestock = stats.getLastRestockTime();
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_DIALOGUE;
+        objectList->originClientScript.clear();
+        objectList->addObjectMiscellaneous(
+            merchant, stats.getGoldPool(), lastRestock.getHour(), lastRestock.getDay());
+        objectList->sendObjectMiscellaneous();
+    }
+
+    void sendTes3mpBarterLockRelease(const MWWorld::Ptr& merchant)
+    {
+        if (!canSyncTes3mpBarter(merchant))
+            return;
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_DIALOGUE;
+        objectList->originClientScript.clear();
+        objectList->cell = makeTes3mpBarterPacketCell(merchant);
+        objectList->action = mwmp::BaseObjectList::REQUEST;
+        objectList->containerSubAction = mwmp::BaseObjectList::LOCK_RELEASE;
+        objectList->addBaseObject(objectList->getBaseObjectFromPtr(merchant));
+        objectList->sendContainer();
+    }
+#endif
 }
 
 namespace MWGui
@@ -462,6 +674,12 @@ namespace MWGui
             return;
         }
 
+#ifdef BUILD_TES3MP_CLIENT
+        const std::vector<Tes3mpBarterItemSnapshot> syncedPlayerBought = snapshotTes3mpBarterItems(playerBought, mPtr);
+        const std::vector<Tes3mpBarterItemSnapshot> syncedMerchantBought = snapshotTes3mpBarterItems(merchantBought, mPtr);
+        const int syncedBalance = mCurrentBalance;
+#endif
+
         // make the item transfer
         mTradeModel->transferItems();
         playerItemModel->transferItems();
@@ -473,6 +691,12 @@ namespace MWGui
             mPtr.getClass().getCreatureStats(mPtr).setGoldPool(
                 mPtr.getClass().getCreatureStats(mPtr).getGoldPool() - mCurrentBalance);
         }
+
+#ifdef BUILD_TES3MP_CLIENT
+        sendTes3mpBarterContainerDelta(mPtr, mwmp::BaseObjectList::REMOVE, syncedPlayerBought);
+        sendTes3mpBarterContainerDelta(mPtr, mwmp::BaseObjectList::ADD, syncedMerchantBought);
+        sendTes3mpBarterGoldDelta(mPtr, syncedBalance);
+#endif
 
         eventTradeDone();
 
@@ -671,6 +895,10 @@ namespace MWGui
         // Make sure the window was actually closed and not temporarily hidden.
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Barter))
             return;
+#ifdef BUILD_TES3MP_CLIENT
+        if (!mPtr.isEmpty())
+            sendTes3mpBarterLockRelease(mPtr);
+#endif
         resetReference();
     }
 

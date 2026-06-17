@@ -15,7 +15,7 @@
 
 namespace MWPhysics
 {
-    class PhysicsSystem;
+    class IPhysicsBackend;
 }
 
 namespace Loading
@@ -47,7 +47,7 @@ namespace MWWorld
     {
     public:
         ProjectileManager(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
-            MWRender::RenderingManager* rendering, MWPhysics::PhysicsSystem* physics);
+            MWRender::RenderingManager* rendering, MWPhysics::IPhysicsBackend* physics);
 
         /// If caster is an actor, the actor's facing orientation is used. Otherwise fallbackDirection is used.
         void launchMagicBolt(const ESM::RefId& spellId, const MWWorld::Ptr& caster, const osg::Vec3f& fallbackDirection,
@@ -74,7 +74,7 @@ namespace MWWorld
         osg::ref_ptr<osg::Group> mParent;
         Resource::ResourceSystem* mResourceSystem;
         MWRender::RenderingManager* mRendering;
-        MWPhysics::PhysicsSystem* mPhysics;
+        MWPhysics::IPhysicsBackend* mPhysics;
         float mCleanupTimer;
 
         struct State

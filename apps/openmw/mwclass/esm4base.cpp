@@ -11,7 +11,7 @@
 #include "../mwrender/renderinginterface.hpp"
 #include "../mwrender/vismask.hpp"
 
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 #include "../mwworld/ptr.hpp"
 
 namespace MWClass
@@ -27,7 +27,7 @@ namespace MWClass
     }
 
     void ESM4Impl::insertObjectPhysics(
-        const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation, MWPhysics::PhysicsSystem& physics)
+        const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation, MWPhysics::IPhysicsBackend& physics)
     {
         physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::CollisionType_World);
     }

@@ -39,27 +39,24 @@ local Skill = core.stats.Skill
 -- @type SkillLevelUpSource
 -- @field #string Book book
 -- @field #string Jail jail
+-- @field #string JailNoSkillIncreases jailNoSkillIncreases
 -- @field #string Trainer trainer
 -- @field #string Usage usage
 
 
 local skillUsedHandlers = {}
+local skillUsedFailedHandlers = {}
 local skillLevelUpHandlers = {}
 
-local function skillUsed(skillid, options)
-    if #skillUsedHandlers == 0 then
-        -- If there are no handlers, then there won't be any effect, so skip calculations
-        return
-    end
-    
+local function makeSkillUseOptions(skillid, options)
     -- Make a copy so we don't change the caller's table
     options = auxUtil.shallowCopy(options)
-    
+
     -- Compute use value if it was not supplied directly
     if not options.skillGain then
         if not options.useType or options.useType > 3 or options.useType < 0 then
             print('Error: Unknown useType: '..tostring(options.useType))
-            return
+            return nil
         end
         local skillStat = NPC.stats.skills[skillid](self)
         local skillRecord = Skill.record(skillid)
@@ -70,7 +67,35 @@ local function skillUsed(skillid, options)
         end
     end
 
+    return options
+end
+
+local function skillUsed(skillid, options)
+    if #skillUsedHandlers == 0 then
+        -- If there are no handlers, then there won't be any effect, so skip calculations
+        return
+    end
+
+    options = makeSkillUseOptions(skillid, options)
+    if not options then
+        return
+    end
+
     auxUtil.callEventHandlers(skillUsedHandlers, skillid, options)
+end
+
+local function skillUsedFailed(skillid, options)
+    if #skillUsedFailedHandlers == 0 then
+        -- If there are no handlers, then there won't be any effect, so skip calculations
+        return
+    end
+
+    options = makeSkillUseOptions(skillid, options)
+    if not options then
+        return
+    end
+
+    auxUtil.callEventHandlers(skillUsedFailedHandlers, skillid, options)
 end
 
 local function skillLevelUp(skillid, source)
@@ -115,11 +140,18 @@ return {
     --         params.skillGain = oldSkillGain * visibility
     --     end
     -- end)
+    --
+    -- -- Grant partial XP for failed spell casts
+    -- I.SkillProgression.addSkillUsedFailedHandler(function(skillid, params)
+    --     if params.useType == I.SkillProgression.SKILL_USE_TYPES.Spellcast_Success then
+    --         I.SkillProgression.skillUsed(skillid, { skillGain = params.skillGain * 0.25, useType = params.useType })
+    --     end
+    -- end)
     -- 
     interface = {
         --- Interface version
         -- @field [parent=#SkillProgression] #number version
-        version = 2,
+        version = 3,
 
         --- Add new skill level up handler for this actor.
         -- For load order consistency, handlers should be added in the body if your script.
@@ -151,6 +183,17 @@ return {
         addSkillUsedHandler = function(handler)
             skillUsedHandlers[#skillUsedHandlers + 1] = handler
         end,
+
+        --- Add new failed skillUsed handler for this actor.
+        -- For load order consistency, handlers should be added in the body of your script.
+        -- If `handler(skillid, options)` returns false, other handlers will be skipped.
+        -- Where options is a modifiable table of skill progression values, and can be modified to change the behavior of later handlers.
+        -- Contains a `skillGain` value as well as a shallow copy of the options passed to @{#SkillProgression.skillUsedFailed}.
+        -- @function [parent=#SkillProgression] addSkillUsedFailedHandler
+        -- @param #function handler The handler.
+        addSkillUsedFailedHandler = function(handler)
+            skillUsedFailedHandlers[#skillUsedFailedHandlers + 1] = handler
+        end,
         
         --- Trigger a skill use, activating relevant handlers
         -- @function [parent=#SkillProgression] skillUsed
@@ -169,6 +212,13 @@ return {
         -- custom handlers when making custom skill progressions.
         --
         skillUsed = skillUsed,
+
+        --- Trigger a failed skill use, activating relevant handlers.
+        -- @function [parent=#SkillProgression] skillUsedFailed
+        -- @param #string skillid The ID of the skill that failed to be used
+        -- @param options A table of parameters. Must contain one of `skillGain` or `useType`.
+        -- Accepts the same fields as @{#SkillProgression.skillUsed}.
+        skillUsedFailed = skillUsedFailed,
 
         --- @{#SkillUseType}
         -- @field [parent=#SkillProgression] #SkillUseType SKILL_USE_TYPES Available skill usage types
@@ -204,7 +254,7 @@ return {
         --- Trigger a skill level up, activating relevant handlers
         -- @function [parent=#SkillProgression] skillLevelUp
         -- @param #string skillid The id of the skill to level up.
-        -- @param #SkillLevelUpSource source The source of the skill increase. Note that passing a value of @{#SkillLevelUpSource.Jail} will cause a skill decrease for all skills except sneak and security.
+        -- @param #SkillLevelUpSource source The source of the skill increase. Note that passing a value of @{#SkillLevelUpSource.Jail} will cause a skill decrease for all skills except sneak and security. @{#SkillLevelUpSource.JailNoSkillIncreases} makes all jail-selected skills decrease.
         skillLevelUp = skillLevelUp,
 
         --- Construct a table of skill level up options
@@ -221,6 +271,7 @@ return {
             Usage = 'usage',
             Trainer = 'trainer',
             Jail = 'jail',
+            JailNoSkillIncreases = 'jailNoSkillIncreases',
         },
         
         --- Compute the total skill gain required to level up a skill based on its current level, and other modifying factors such as major skills and specialization.
@@ -232,6 +283,9 @@ return {
         -- Use the interface in these handlers so any overrides will receive the calls.
         _onSkillUse = function (skillid, useType, scale)
             I.SkillProgression.skillUsed(skillid, {useType = useType, scale = scale})
+        end,
+        _onSkillUseFailed = function (skillid, useType, scale)
+            I.SkillProgression.skillUsedFailed(skillid, {useType = useType, scale = scale})
         end,
         _onSkillLevelUp = function (skillid, source)
             I.SkillProgression.skillLevelUp(skillid, source)

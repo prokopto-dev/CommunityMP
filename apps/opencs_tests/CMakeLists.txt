@@ -1,5 +1,7 @@
 file(GLOB OPENCS_TESTS_SRC_FILES
     main.cpp
+    model/tools/testrecordidcheck.cpp
+    model/world/testidcompletionmanager.cpp
     model/world/testinfocollection.cpp
     model/world/testuniversalid.cpp
 )

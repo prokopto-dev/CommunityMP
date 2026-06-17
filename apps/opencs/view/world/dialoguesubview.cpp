@@ -977,6 +977,21 @@ void CSVWorld::DialogueSubView::switchToRow(int row)
     getEditWidget().setDisabled(isLocked() || state == CSMWorld::RecordBase::State_Deleted);
 }
 
+void CSVWorld::DialogueSubView::switchToIdAndUseHint(const CSMWorld::UniversalId& id, const std::string& hint)
+{
+    int idColumn = getTable().findColumnIndex(CSMWorld::Columns::ColumnId_Id);
+    QModelIndex index = getTable().getModelIndex(id.getId(), idColumn);
+    if (!index.isValid())
+        return;
+
+    switchToRow(index.row());
+
+    if (!hint.empty())
+        useHint(hint);
+    else
+        getEditWidget().setFocus();
+}
+
 void CSVWorld::DialogueSubView::requestFocus(const std::string& id)
 {
     int idColumn = getTable().findColumnIndex(CSMWorld::Columns::ColumnId_Id);

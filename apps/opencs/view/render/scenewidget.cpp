@@ -41,11 +41,13 @@
 #include <osgViewer/View>
 #include <osgViewer/ViewerBase>
 #include <osgViewer/ViewerEventHandlers>
+#include <osgUtil/RenderBin>
 
 #include <components/debug/debuglog.hpp>
 #include <components/misc/constants.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/lightmanager.hpp>
 #include <components/sceneutil/stateupdater.hpp>
@@ -106,6 +108,18 @@ namespace
     private:
         int mIndex;
     };
+
+    void ensureRenderBinPrototypes()
+    {
+        [[maybe_unused]] static const bool prototypesAdded = [] {
+            osg::ref_ptr<osgUtil::RenderBin> distortionRenderBin
+                = new osgUtil::RenderBin(osgUtil::RenderBin::SORT_BACK_TO_FRONT);
+            distortionRenderBin->getStateSet()->setAttributeAndModes(new SceneUtil::AutoDepth,
+                osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+            osgUtil::RenderBin::addRenderBinPrototype("Distortion", distortionRenderBin);
+            return true;
+        }();
+    }
 }
 
 namespace CSVRender
@@ -116,6 +130,8 @@ namespace CSVRender
         : QWidget(parent, f)
         , mRootNode(nullptr)
     {
+        ensureRenderBinPrototypes();
+
         mView = new osgViewer::View;
 
         mWidget = new osgQOpenGLWidget(this);

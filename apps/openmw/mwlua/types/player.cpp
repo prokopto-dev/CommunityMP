@@ -18,6 +18,11 @@
 #include "apps/openmw/mwworld/globals.hpp"
 #include "apps/openmw/mwworld/player.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "apps/openmw/mwmp/LocalPlayer.hpp"
+#include "apps/openmw/mwmp/Main.hpp"
+#endif
+
 namespace MWLua
 {
     struct Quests
@@ -109,6 +114,51 @@ namespace
             throw std::runtime_error("Topic " + topicId.toDebugString() + " could not be found in the journal");
         return it->second;
     }
+
+#ifdef BUILD_TES3MP_CLIENT
+    mwmp::LocalPlayer* getLoggedInTes3mpLocalPlayer()
+    {
+        if (!mwmp::Main::isInitialized())
+            return nullptr;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->canSendJournalChanges())
+            return nullptr;
+
+        return localPlayer;
+    }
+
+    bool sendTes3mpLuaJournalIndexPacket(const ESM::RefId& questId, int index)
+    {
+        mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayer();
+        if (localPlayer == nullptr)
+            return false;
+
+        localPlayer->sendJournalIndex(questId.serializeText(), index);
+        return true;
+    }
+
+    bool sendTes3mpLuaJournalEntryPacket(const ESM::RefId& questId, int index, const MWWorld::Ptr& actor)
+    {
+        mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayer();
+        if (localPlayer == nullptr)
+            return false;
+
+        localPlayer->sendJournalEntry(questId.serializeText(), index, actor);
+        return true;
+    }
+
+    bool sendTes3mpLuaJournalFinishedPacket(const ESM::RefId& questId, bool finished)
+    {
+        mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayer();
+        if (localPlayer == nullptr)
+            return false;
+
+        localPlayer->sendJournalFinished(questId.serializeText(), finished);
+        return true;
+    }
+
+#endif
 }
 
 namespace MWLua
@@ -331,7 +381,13 @@ namespace MWLua
             if (!self.mMutable)
                 throw std::runtime_error("Value can only be changed in global or player scripts!");
             context.mLuaManager->addAction(
-                [self, stage] { MWBase::Environment::get().getJournal()->setJournalIndex(self.mQuestId, stage); },
+                [self, stage] {
+#ifdef BUILD_TES3MP_CLIENT
+                    if (sendTes3mpLuaJournalIndexPacket(self.mQuestId, stage))
+                        return;
+#endif
+                    MWBase::Environment::get().getJournal()->setJournalIndex(self.mQuestId, stage);
+                },
                 "setQuestStageAction");
         };
         quest["stage"] = sol::property(getQuestStage, setQuestStage);
@@ -350,7 +406,13 @@ namespace MWLua
                 if (!q.mMutable)
                     throw std::runtime_error("Value can only be changed in global or player scripts!");
                 context.mLuaManager->addAction(
-                    [q, finished, journal] { journal->getOrStartQuest(q.mQuestId).setFinished(finished); },
+                    [q, finished, journal] {
+#ifdef BUILD_TES3MP_CLIENT
+                        if (sendTes3mpLuaJournalFinishedPacket(q.mQuestId, finished))
+                            return;
+#endif
+                        journal->getOrStartQuest(q.mQuestId).setFinished(finished);
+                    },
                     "setQuestFinishedAction");
             });
         quest["addJournalEntry"] = [context](const Quest& q, int stage, sol::optional<GObject> actor) {
@@ -363,6 +425,10 @@ namespace MWLua
                     MWWorld::Ptr actorPtr;
                     if (actor)
                         actorPtr = actor->ptr();
+#ifdef BUILD_TES3MP_CLIENT
+                    if (sendTes3mpLuaJournalEntryPacket(q.mQuestId, stage, actorPtr))
+                        return;
+#endif
                     MWBase::Environment::get().getJournal()->addEntry(q.mQuestId, stage, actorPtr);
                 },
                 "addJournalEntryAction");

@@ -1,6 +1,7 @@
 #ifndef MWGUI_RACE_H
 #define MWGUI_RACE_H
 
+#include "avatarpreview.hpp"
 #include "windowbase.hpp"
 #include <components/esm/refid.hpp>
 #include <memory>
@@ -48,6 +49,7 @@ namespace MWGui
         void setNextButtonShow(bool shown);
         void onOpen() override;
         void onClose() override;
+        void onFrame(float duration) override;
 
         bool exit() override { return false; }
 
@@ -118,6 +120,7 @@ namespace MWGui
 
         std::unique_ptr<MWRender::RaceSelectionPreview> mPreview;
         std::unique_ptr<MyGUI::ITexture> mPreviewTexture;
+        AvatarPreviewController mAvatarPreviewController;
 
         bool mPreviewDirty;
 

@@ -1,6 +1,7 @@
 #include "types.hpp"
 #include "usertypeutil.hpp"
 
+#include "../luamanagerimp.hpp"
 #include "../localscripts.hpp"
 
 #include <components/esm3/loaddoor.hpp>
@@ -13,6 +14,13 @@
 
 #include "apps/openmw/mwworld/class.hpp"
 #include "apps/openmw/mwworld/worldmodel.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "apps/openmw/mwmp/LocalPlayer.hpp"
+#include "apps/openmw/mwmp/Main.hpp"
+#include "apps/openmw/mwmp/Networking.hpp"
+#include "apps/openmw/mwmp/ObjectList.hpp"
+#endif
 
 namespace sol
 {
@@ -82,6 +90,67 @@ namespace MWLua
         return verifyType(ESM::REC_DOOR4, o.ptr());
     }
 
+    MWWorld::DoorState getTargetDoorState(const MWWorld::Ptr& ptr, sol::optional<bool> openState)
+    {
+        if (openState.has_value())
+            return *openState ? MWWorld::DoorState::Opening : MWWorld::DoorState::Closing;
+
+        MWWorld::DoorState state = ptr.getClass().getDoorState(ptr);
+        switch (state)
+        {
+            case MWWorld::DoorState::Idle:
+                if (ptr.getRefData().getPosition().rot[2] == ptr.getCellRef().getPosition().rot[2])
+                    return MWWorld::DoorState::Opening;
+                return MWWorld::DoorState::Closing;
+            case MWWorld::DoorState::Closing:
+                return MWWorld::DoorState::Opening;
+            case MWWorld::DoorState::Opening:
+            default:
+                return MWWorld::DoorState::Closing;
+        }
+    }
+
+    void activateDoor(const MWWorld::Ptr& ptr, MWWorld::DoorState state)
+    {
+        MWBase::Environment::get().getWorld()->activateDoor(ptr, state);
+    }
+
+#ifdef BUILD_TES3MP_CLIENT
+    bool canSendTes3mpLuaDoorPacket(const MWWorld::Ptr& ptr, Context::Type contextType)
+    {
+        if (contextType != Context::Global || !mwmp::Main::isInitialized() || !ptr.isInCell())
+            return false;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        return localPlayer != nullptr && localPlayer->isLoggedIn();
+    }
+
+    mwmp::ObjectList* prepareTes3mpLuaDoorPacket()
+    {
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_SCRIPT_GLOBAL;
+        objectList->originClientScript = "openmw-lua:global";
+        return objectList;
+    }
+
+    bool sendTes3mpLuaDoorStatePacket(const MWWorld::Ptr& ptr, MWWorld::DoorState state, Context::Type contextType)
+    {
+        if (!canSendTes3mpLuaDoorPacket(ptr, contextType))
+            return false;
+
+        mwmp::ObjectList* objectList = prepareTes3mpLuaDoorPacket();
+        objectList->addDoorState(ptr, state);
+        objectList->sendDoorState();
+        return true;
+    }
+
+    bool shouldQueueTes3mpLuaDoorPacket(Context::Type contextType)
+    {
+        return contextType == Context::Global && mwmp::Main::isInitialized();
+    }
+#endif
+
     void addMutableDoorType(sol::state_view& lua)
     {
         addUserType<MutableRecord<ESM::Door>>(lua, "ESM3_MutableDoor");
@@ -115,20 +184,30 @@ namespace MWLua
 
             return doorIsIdle && !doorIsOpen;
         };
-        door["activateDoor"] = [](const Object& o, sol::optional<bool> openState) {
+        door["activateDoor"] = [context](const Object& o, sol::optional<bool> openState) {
             bool allowChanges = o.isGObject() || o.isSelfObject();
             if (!allowChanges)
                 throw std::runtime_error("Can only be used in global scripts or in local scripts on self.");
 
             const MWWorld::Ptr& ptr = doorPtr(o);
-            auto world = MWBase::Environment::get().getWorld();
+            MWWorld::DoorState state = getTargetDoorState(ptr, openState);
 
-            if (!openState.has_value())
-                world->activateDoor(ptr);
-            else if (*openState)
-                world->activateDoor(ptr, MWWorld::DoorState::Opening);
-            else
-                world->activateDoor(ptr, MWWorld::DoorState::Closing);
+#ifdef BUILD_TES3MP_CLIENT
+            if (shouldQueueTes3mpLuaDoorPacket(context.mType))
+            {
+                context.mLuaManager->addAction(
+                    [object = o, state, contextType = context.mType] {
+                        const MWWorld::Ptr& actionPtr = doorPtr(object);
+                        if (sendTes3mpLuaDoorStatePacket(actionPtr, state, contextType))
+                            return;
+                        activateDoor(actionPtr, state);
+                    },
+                    "TES3MP Lua door activation");
+                return;
+            }
+#endif
+
+            activateDoor(ptr, state);
         };
         door["isTeleport"] = [](const Object& o) { return doorPtr(o).getCellRef().getTeleport(); };
         door["destPosition"]

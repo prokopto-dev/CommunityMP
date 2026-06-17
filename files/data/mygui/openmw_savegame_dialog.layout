@@ -21,6 +21,11 @@
                 <UserString key="VStretch" value="true"/>
                 <Property key="Spacing" value="8"/>
 
+                <Widget type="EditBox" skin="MW_TextBoxEditWithBorder" position="0 0 0 23" name="FilterEdit">
+                    <UserString key="HStretch" value="true"/>
+                    <UserString key="AcceptTab" value="true"/>
+                </Widget>
+
                 <Widget type="ListBox" skin="MW_List" position="0 0 200 200" name="SaveList">
                     <UserString key="HStretch" value="true"/>
                     <UserString key="VStretch" value="true"/>

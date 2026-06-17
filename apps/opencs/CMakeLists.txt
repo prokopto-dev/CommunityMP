@@ -43,6 +43,7 @@ opencs_units (model/tools
     birthsigncheck spellcheck referencecheck referenceablecheck scriptcheck bodypartcheck
     startscriptcheck search searchoperation searchstage pathgridcheck soundgencheck magiceffectcheck
     mergestages gmstcheck topicinfocheck journalcheck enchantmentcheck effectlistcheck
+    recordidcheck
     )
 
 opencs_hdrs (model/tools

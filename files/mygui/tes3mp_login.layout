@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout" version="3.2.0">
+    <Widget type="Window" skin="MW_Dialog" position="0 0 640 462" layer="Windows" name="_Main">
+        <Widget type="TextBox" skin="HeaderText" position="24 16 592 28" align="Left Top" name="TitleText">
+            <Property key="TextAlign" value="Center"/>
+            <Property key="Caption" value="Multiplayer Sign In"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="ProgressText" position="52 52 536 42" align="Left Top" name="IntroText">
+            <Property key="TextAlign" value="Center"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value=""/>
+        </Widget>
+
+        <Widget type="TextBox" skin="ProgressText" position="52 106 150 22" align="Left Top" name="ServerLabel">
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="Caption" value="Server"/>
+        </Widget>
+        <Widget type="TextBox" skin="ProgressText" position="220 106 368 22" align="Left Top" name="ServerText">
+            <Property key="TextAlign" value="Left VCenter"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="HeaderText" position="52 139 536 22" align="Left Top" name="AccountSectionText">
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="Caption" value="Server account"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="ProgressText" position="52 174 150 22" align="Left Top" name="LoginLabel">
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="Caption" value="Account username"/>
+        </Widget>
+        <Widget type="EditBox" skin="MW_TextEdit" position="220 168 368 32" align="Left Top" name="EditLogin"/>
+
+        <Widget type="TextBox" skin="ProgressText" position="52 216 150 22" align="Left Top" name="PasswordLabel">
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="Caption" value="Account password"/>
+        </Widget>
+        <Widget type="EditBox" skin="MW_TextEdit" position="220 210 368 32" align="Left Top" name="EditPassword"/>
+
+        <Widget type="AutoSizedButton" skin="MW_Button" position="220 252 142 26" align="Left Top" name="ButtonRemember">
+            <Property key="Caption" value="[ ] Remember me"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="ProgressText" position="220 286 368 28" align="Left Top" name="AccountNote">
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value="Use the same username each time to load the same server save."/>
+        </Widget>
+
+        <Widget type="TextBox" skin="HeaderText" position="52 318 536 22" align="Left Top" name="ConnectionSectionText">
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="Caption" value="Server access"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="ProgressText" position="52 354 150 22" align="Left Top" name="ServerPasswordLabel">
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="Caption" value="Server join password"/>
+        </Widget>
+        <Widget type="EditBox" skin="MW_TextEdit" position="220 348 368 32" align="Left Top" name="EditServerPassword"/>
+
+        <Widget type="TextBox" skin="ProgressText" position="220 389 368 24" align="Left Top" name="ServerPasswordNote">
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value="Leave blank unless the server requires a join password."/>
+        </Widget>
+
+        <Widget type="TextBox" skin="ProgressText" position="52 421 360 28" align="Left Top" name="ErrorText">
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="1 0.25 0.2"/>
+            <Property key="WordWrap" value="true"/>
+        </Widget>
+
+        <Widget type="AutoSizedButton" skin="MW_Button" position="438 421 74 26" align="Left Top" name="ButtonCancel">
+            <Property key="Caption" value="Cancel"/>
+        </Widget>
+        <Widget type="AutoSizedButton" skin="MW_Button" position="530 421 88 26" align="Left Top" name="ButtonConnect">
+            <Property key="Caption" value="Sign In"/>
+        </Widget>
+    </Widget>
+    <CodeGeneratorSettings/>
+</MyGUI>

@@ -130,6 +130,26 @@ namespace
         EXPECT_EQ(result, "a\xe2");
     }
 
+    TEST(Utf8EncoderTest, getLegacyEncShouldReplaceUnsupportedUtf8Characters)
+    {
+        const std::string input(
+            "Fargoth\xf0\x9f\x91\x8d"
+            " \xe4\xb8\xad");
+        Utf8Encoder encoder(FromType::WINDOWS_1252);
+        const std::string_view result = encoder.getLegacyEnc(input);
+        EXPECT_EQ(result, "Fargoth? ?");
+    }
+
+    TEST(Utf8EncoderTest, getLegacyEncShouldPreserveMalformedUtf8Bytes)
+    {
+        const std::string input(
+            "a\xf0\x9f"
+            "b");
+        Utf8Encoder encoder(FromType::WINDOWS_1252);
+        const std::string_view result = encoder.getLegacyEnc(input);
+        EXPECT_EQ(result, input);
+    }
+
     TEST_P(Utf8EncoderTest, getLegacyEncShouldConvertFromUtf8ToLegacyEncoding)
     {
         const std::string input(readContent(GetParam().mUtf8FileName));

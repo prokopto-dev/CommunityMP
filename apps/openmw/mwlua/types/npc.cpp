@@ -1,13 +1,16 @@
 #include "types.hpp"
 
+#include "../contentbindings.hpp"
 #include "actor.hpp"
 #include "modelproperty.hpp"
 #include "servicesoffered.hpp"
+#include "usertypeutil.hpp"
 
 #include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/lua/luastate.hpp>
 #include <components/lua/util.hpp>
+#include <components/misc/finitevalues.hpp>
 #include <components/misc/resourcehelpers.hpp>
 
 #include "apps/openmw/mwbase/environment.hpp"
@@ -16,6 +19,11 @@
 #include "apps/openmw/mwmechanics/npcstats.hpp"
 #include "apps/openmw/mwworld/class.hpp"
 #include "apps/openmw/mwworld/esmstore.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "apps/openmw/mwmp/LocalPlayer.hpp"
+#include "apps/openmw/mwmp/Main.hpp"
+#endif
 
 #include "../classbindings.hpp"
 #include "../localscripts.hpp"
@@ -46,15 +54,9 @@ namespace
 
         return faction->mRanks.size();
     }
-    ESM::NPC tableToNPC(const sol::table& rec)
+    ESM::NPC tableToNPCImpl(const sol::table& rec)
     {
-        ESM::NPC npc;
-
-        // Start from template if provided
-        if (rec["template"] != sol::nil)
-            npc = LuaUtil::cast<ESM::NPC>(rec["template"]);
-        else
-            npc.blank();
+        auto npc = MWLua::Types::initFromTemplate<ESM::NPC>(rec);
 
         npc.mId = {};
 
@@ -185,6 +187,39 @@ namespace
         return id;
     }
 
+#ifdef BUILD_TES3MP_CLIENT
+    mwmp::LocalPlayer* getLoggedInTes3mpLocalPlayerForPtr(const MWWorld::Ptr& ptr)
+    {
+        if (!mwmp::Main::isInitialized())
+            return nullptr;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->isLoggedIn()
+            || ptr != MWBase::Environment::get().getWorld()->getPlayerPtr())
+            return nullptr;
+
+        return localPlayer;
+    }
+
+    void sendTes3mpLuaFactionRankPacket(const MWWorld::Ptr& ptr, const ESM::RefId& factionId, int rank)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendFactionRank(factionId.serializeText(), rank);
+    }
+
+    void sendTes3mpLuaFactionExpulsionPacket(const MWWorld::Ptr& ptr, const ESM::RefId& factionId, bool isExpelled)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendFactionExpulsionState(factionId.serializeText(), isExpelled);
+    }
+
+    void sendTes3mpLuaFactionReputationPacket(const MWWorld::Ptr& ptr, const ESM::RefId& factionId, int reputation)
+    {
+        if (mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(ptr))
+            localPlayer->sendFactionReputation(factionId.serializeText(), reputation);
+    }
+#endif
+
     void verifyPlayer(const MWLua::Object& o)
     {
         if (o.ptr() != MWBase::Environment::get().getWorld()->getPlayerPtr())
@@ -200,6 +235,76 @@ namespace
 
 namespace MWLua
 {
+    namespace
+    {
+        template <class T>
+        void addGenderProperty(sol::usertype<T>& record)
+        {
+            const auto getter = [](const T& rec) -> bool { return Types::RecordType<T>::asRecord(rec).isMale(); };
+            if constexpr (Types::RecordType<T>::isMutable)
+                record["isMale"] = sol::property(std::move(getter), [](T& rec, bool value) {
+                    rec.find().setIsMale(value);
+                });
+            else
+                record["isMale"] = sol::readonly_property(std::move(getter));
+        }
+
+        template <class T>
+        void addPrimaryFactionRankProperty(sol::usertype<T>& record)
+        {
+            const auto getter = [](const T& rec) -> int64_t {
+                const ESM::NPC& npc = Types::RecordType<T>::asRecord(rec);
+                if (npc.mFaction.empty())
+                    return 0;
+                return LuaUtil::toLuaIndex(npc.mNpdt.mRank);
+            };
+            if constexpr (Types::RecordType<T>::isMutable)
+                record["primaryFactionRank"] = sol::property(std::move(getter), [](T& rec, int value) {
+                    rec.find().mNpdt.mRank = static_cast<unsigned char>(LuaUtil::fromLuaIndex(value));
+                });
+            else
+                record["primaryFactionRank"] = sol::readonly_property(std::move(getter));
+        }
+
+        template <class T>
+        void addUserType(sol::state_view& lua, std::string_view name)
+        {
+            sol::usertype<T> record = lua.new_usertype<T>(name);
+
+            record[sol::meta_function::to_string]
+                = [](const T& rec) { return "ESM3_NPC[" + rec.mId.toDebugString() + "]"; };
+            record["id"] = sol::readonly_property([](const T& rec) -> ESM::RefId { return rec.mId; });
+
+            Types::addProperty(record, "name", &ESM::NPC::mName);
+            Types::addProperty(record, "race", &ESM::NPC::mRace);
+            Types::addProperty(record, "class", &ESM::NPC::mClass);
+            Types::addProperty(record, "mwscript", &ESM::NPC::mScript);
+            Types::addProperty(record, "hair", &ESM::NPC::mHair);
+            Types::addProperty(record, "head", &ESM::NPC::mHead);
+            Types::addProperty(record, "primaryFaction", &ESM::NPC::mFaction);
+            addPrimaryFactionRankProperty(record);
+            Types::addModelProperty(record);
+            Types::addFlagProperty(record, "isEssential", ESM::NPC::Essential, &ESM::NPC::mFlags);
+            Types::addFlagProperty(record, "isAutocalc", ESM::NPC::Autocalc, &ESM::NPC::mFlags);
+            addGenderProperty(record);
+            Types::addFlagProperty(record, "isRespawning", ESM::NPC::Respawn, &ESM::NPC::mFlags);
+            Types::addFlagProperty(record, "isPersistent", ESM::FLAG_Persistent, &ESM::NPC::mRecordFlags);
+            Types::addProperty(record, "baseDisposition", &ESM::NPC::mNpdt, &ESM::NPC::NPDTstruct52::mDisposition);
+            Types::addProperty(record, "baseGold", &ESM::NPC::mNpdt, &ESM::NPC::NPDTstruct52::mGold);
+            Types::addProperty(record, "bloodType", &ESM::NPC::mBloodType);
+        }
+    }
+
+    ESM::NPC tableToNPC(const sol::table& rec)
+    {
+        return tableToNPCImpl(rec);
+    }
+
+    void addMutableNpcType(sol::state_view& lua)
+    {
+        addUserType<MutableRecord<ESM::NPC>>(lua, "ESM3_MutableNPC");
+    }
+
     void addNpcBindings(sol::table npc, const Context& context)
     {
         addNpcStatsBindings(npc, context);
@@ -270,6 +375,23 @@ namespace MWLua
                     MWBase::Environment::get().getMechanicsManager()->setWerewolf(obj.ptr(), werewolf);
                 },
                 "setWerewolfAction");
+        };
+
+        npc["getBreathTimer"] = [](const Object& o) -> float {
+            const MWWorld::Ptr ptr = o.ptr();
+            const MWWorld::Class& cls = ptr.getClass();
+            verifyNpc(cls);
+            return cls.getNpcStats(ptr).getTimeToStartDrowning();
+        };
+
+        npc["setBreathTimer"] = [](Object& o, Misc::FiniteFloat timeLeft) {
+            if (o.isLObject() && !o.isSelfObject())
+                throw std::runtime_error("Local scripts can modify only self");
+
+            const MWWorld::Ptr ptr = o.ptr();
+            const MWWorld::Class& cls = ptr.getClass();
+            verifyNpc(cls);
+            cls.getNpcStats(ptr).setTimeToStartDrowning(timeLeft);
         };
 
         npc["getDisposition"] = [](const Object& o, const Object& player) -> int {
@@ -358,6 +480,9 @@ namespace MWLua
                 throw std::runtime_error("Target actor is not a member of faction " + factionId.toDebugString());
 
             npcStats.setFactionRank(factionId, static_cast<int>(targetRank));
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpLuaFactionRankPacket(ptr, factionId, static_cast<int>(targetRank));
+#endif
         };
 
         npc["modifyFactionRank"] = [](Object& actor, std::string_view faction, int value) {
@@ -383,7 +508,13 @@ namespace MWLua
             {
                 int currentRank = npcStats.getFactionRank(factionId);
                 if (currentRank >= 0)
-                    npcStats.setFactionRank(factionId, std::clamp(currentRank + value, 0, ranksCount - 1));
+                {
+                    int newRank = std::clamp(currentRank + value, 0, ranksCount - 1);
+                    npcStats.setFactionRank(factionId, newRank);
+#ifdef BUILD_TES3MP_CLIENT
+                    sendTes3mpLuaFactionRankPacket(ptr, factionId, newRank);
+#endif
+                }
                 else
                     throw std::runtime_error("Target actor is not a member of faction " + factionId.toDebugString());
 
@@ -418,7 +549,12 @@ namespace MWLua
                 MWMechanics::NpcStats& npcStats = ptr.getClass().getNpcStats(ptr);
                 int currentRank = npcStats.getFactionRank(factionId);
                 if (currentRank < 0)
+                {
                     npcStats.joinFaction(factionId);
+#ifdef BUILD_TES3MP_CLIENT
+                    sendTes3mpLuaFactionRankPacket(ptr, factionId, 0);
+#endif
+                }
                 return;
             }
 
@@ -435,6 +571,9 @@ namespace MWLua
             if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
             {
                 ptr.getClass().getNpcStats(ptr).setFactionRank(factionId, -1);
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpLuaFactionRankPacket(ptr, factionId, -1);
+#endif
                 return;
             }
 
@@ -456,6 +595,9 @@ namespace MWLua
             ESM::RefId factionId = parseFactionId(faction);
 
             ptr.getClass().getNpcStats(ptr).setFactionReputation(factionId, value);
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpLuaFactionReputationPacket(ptr, factionId, value);
+#endif
         };
 
         npc["modifyFactionReputation"] = [](Object& actor, std::string_view faction, int value) {
@@ -467,7 +609,11 @@ namespace MWLua
 
             MWMechanics::NpcStats& npcStats = ptr.getClass().getNpcStats(ptr);
             int existingReputation = npcStats.getFactionReputation(factionId);
-            npcStats.setFactionReputation(factionId, existingReputation + value);
+            int newReputation = existingReputation + value;
+            npcStats.setFactionReputation(factionId, newReputation);
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpLuaFactionReputationPacket(ptr, factionId, newReputation);
+#endif
         };
 
         npc["expel"] = [](Object& actor, std::string_view faction) {
@@ -477,6 +623,9 @@ namespace MWLua
             const MWWorld::Ptr ptr = actor.ptr();
             ESM::RefId factionId = parseFactionId(faction);
             ptr.getClass().getNpcStats(ptr).expell(factionId, false);
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpLuaFactionExpulsionPacket(ptr, factionId, true);
+#endif
         };
         npc["clearExpelled"] = [](Object& actor, std::string_view faction) {
             if (actor.isLObject() && !actor.isSelfObject())
@@ -485,6 +634,9 @@ namespace MWLua
             const MWWorld::Ptr ptr = actor.ptr();
             ESM::RefId factionId = parseFactionId(faction);
             ptr.getClass().getNpcStats(ptr).clearExpelled(factionId);
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpLuaFactionExpulsionPacket(ptr, factionId, false);
+#endif
         };
         npc["isExpelled"] = [](const Object& actor, std::string_view faction) {
             const MWWorld::Ptr ptr = actor.ptr();

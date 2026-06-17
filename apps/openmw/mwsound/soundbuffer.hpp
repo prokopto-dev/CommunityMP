@@ -111,7 +111,7 @@ namespace MWSound
         SoundOutput* mOutput;
         std::deque<SoundBuffer> mSoundBuffers;
         std::unordered_map<ESM::RefId, SoundBuffer*> mBufferNameMap;
-        std::unordered_map<VFS::Path::Normalized, SoundBuffer*, VFS::Path::Hash, std::equal_to<>> mBufferFileNameMap;
+        std::unordered_map<VFS::Path::Normalized, SoundBuffer*> mBufferFileNameMap;
         std::size_t mBufferCacheMax;
         std::size_t mBufferCacheMin;
         std::size_t mBufferCacheSize = 0;

@@ -1,8 +1,12 @@
 #include "scene.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <limits>
+#include <optional>
+#include <string_view>
 
 #include <BulletCollision/CollisionDispatch/btCollisionObject.h>
 
@@ -39,7 +43,7 @@
 #include "../mwphysics/actor.hpp"
 #include "../mwphysics/heightfield.hpp"
 #include "../mwphysics/object.hpp"
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 
 #include "../mwworld/actionteleport.hpp"
 
@@ -58,14 +62,14 @@ namespace
 
     osg::Quat makeActorOsgQuat(const ESM::Position& position)
     {
-        return osg::Quat(position.rot[2], osg::Vec3(0, 0, -1));
+        return osg::Quat(Misc::Convert::makeFiniteRotationAngle(position.rot[2]), osg::Vec3(0, 0, -1));
     }
 
     osg::Quat makeInversedOrderObjectOsgQuat(const ESM::Position& position)
     {
-        const float xr = position.rot[0];
-        const float yr = position.rot[1];
-        const float zr = position.rot[2];
+        const float xr = Misc::Convert::makeFiniteRotationAngle(position.rot[0]);
+        const float yr = Misc::Convert::makeFiniteRotationAngle(position.rot[1]);
+        const float zr = Misc::Convert::makeFiniteRotationAngle(position.rot[2]);
 
         return osg::Quat(xr, osg::Vec3(-1, 0, 0)) * osg::Quat(yr, osg::Vec3(0, -1, 0))
             * osg::Quat(zr, osg::Vec3(0, 0, -1));
@@ -103,12 +107,68 @@ namespace
         return ptr.getClass().getCorrectedModel(ptr);
     }
 
+    struct DynamicObjectProfile
+    {
+        MWPhysics::IPhysicsBackend::DynamicShape mShape;
+        float mMass;
+    };
+
+    std::string lowerAscii(std::string value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return value;
+    }
+
+    bool contains(std::string_view value, std::string_view needle)
+    {
+        return value.find(needle) != std::string_view::npos;
+    }
+
+    std::optional<DynamicObjectProfile> getDynamicObjectProfile(
+        const MWWorld::Ptr& ptr, VFS::Path::NormalizedView model)
+    {
+        if (ptr.isEmpty() || ptr.getClass().isActor() || ptr.getClass().isDoor())
+            return std::nullopt;
+
+        const unsigned int type = ptr.getType();
+        if (type != ESM::Static::sRecordId && type != ESM::Container::sRecordId)
+            return std::nullopt;
+
+        if (ptr.getCellRef().getCount() <= 0 || ptr.getCellRef().isLocked() || !ptr.getCellRef().getTrap().empty())
+            return std::nullopt;
+
+        try
+        {
+            if (!ptr.getClass().getScript(ptr).empty())
+                return std::nullopt;
+        }
+        catch (const std::exception&)
+        {
+            return std::nullopt;
+        }
+
+        const std::string key = lowerAscii(
+            ptr.getCellRef().getRefId().serializeText() + " " + std::string(model.value()));
+        if (contains(key, "barrel") || contains(key, "keg") || contains(key, "cask")
+            || contains(key, "urn"))
+            return DynamicObjectProfile{ MWPhysics::IPhysicsBackend::DynamicShape::Cylinder, 35.0f };
+
+        if (contains(key, "crate") || contains(key, "box"))
+            return DynamicObjectProfile{ MWPhysics::IPhysicsBackend::DynamicShape::Box, 45.0f };
+
+        if (contains(key, "sack") || contains(key, "basket"))
+            return DynamicObjectProfile{ MWPhysics::IPhysicsBackend::DynamicShape::Sphere, 20.0f };
+
+        return std::nullopt;
+    }
+
     // Null node meant to distinguish objects that aren't in the scene from paged objects
     // TODO: find a more clever way to make paging exclusion more reliable?
     static osg::ref_ptr<SceneUtil::PositionAttitudeTransform> pagedNode = new SceneUtil::PositionAttitudeTransform;
 
     void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const std::vector<ESM::RefNum>& pagedRefs,
-        MWPhysics::PhysicsSystem& physics, MWRender::RenderingManager& rendering)
+        MWPhysics::IPhysicsBackend& physics, MWRender::RenderingManager& rendering)
     {
         if (ptr.getRefData().getBaseNode() || physics.getActor(ptr))
         {
@@ -138,10 +198,13 @@ namespace
         if (!model.empty())
             ptr.getClass().insertObject(ptr, model, rotation, physics);
 
+        if (const auto dynamicProfile = getDynamicObjectProfile(ptr, VFS::Path::NormalizedView(model)))
+            physics.promoteToDynamic(ptr, dynamicProfile->mShape, osg::Vec3f(), dynamicProfile->mMass);
+
         MWBase::Environment::get().getLuaManager()->objectAddedToScene(ptr);
     }
 
-    void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const MWPhysics::PhysicsSystem& physics,
+    void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const MWPhysics::IPhysicsBackend& physics,
         float& lowestPoint, bool isInterior, DetourNavigator::Navigator& navigator,
         const DetourNavigator::UpdateGuard* navigatorUpdateGuard = nullptr)
     {
@@ -545,6 +608,12 @@ namespace MWWorld
         mPreloader->clear();
     }
 
+    void Scene::unloadCell(CellStore* cell)
+    {
+        auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
+        unloadCell(cell, navigatorUpdateGuard.get());
+    }
+
     osg::Vec4i Scene::gridCenterToBounds(const osg::Vec2i& centerCell) const
     {
         return osg::Vec4i(centerCell.x() - mHalfGridSize, centerCell.y() - mHalfGridSize,
@@ -882,7 +951,7 @@ namespace MWWorld
         mLastPlayerPos = player.getRefData().getPosition().asVec3();
     }
 
-    Scene::Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::PhysicsSystem* physics,
+    Scene::Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::IPhysicsBackend* physics,
         DetourNavigator::Navigator& navigator)
         : mCurrentCell(nullptr)
         , mCellChanged(false)

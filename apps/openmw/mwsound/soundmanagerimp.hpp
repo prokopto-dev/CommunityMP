@@ -75,6 +75,7 @@ namespace MWSound
         struct SaySound
         {
             const MWWorld::CellStore* mCell;
+            VFS::Path::Normalized mFileName;
             StreamPtr mStream;
         };
 

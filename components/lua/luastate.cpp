@@ -6,6 +6,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 #include <components/debug/debuglog.hpp>
 #include <components/files/conversion.hpp>
@@ -21,6 +24,58 @@
 
 namespace LuaUtil
 {
+    namespace
+    {
+        std::mutex sLuaStateRegistryMutex;
+        std::unordered_map<lua_State*, LuaState*> sLuaStateRegistry;
+
+        void registerLuaState(lua_State* state, LuaState* owner)
+        {
+            std::lock_guard<std::mutex> lock(sLuaStateRegistryMutex);
+            sLuaStateRegistry[state] = owner;
+        }
+
+        void unregisterLuaState(lua_State* state)
+        {
+            std::lock_guard<std::mutex> lock(sLuaStateRegistryMutex);
+            sLuaStateRegistry.erase(state);
+        }
+    }
+
+    std::string getLuaErrorMessage(lua_State* state, int stackIndex)
+    {
+        if (state == nullptr)
+            return "<missing lua state>";
+
+        const int top = lua_gettop(state);
+        int index = stackIndex;
+        if (index < 0)
+            index = top + index + 1;
+
+        if (index <= 0 || index > top)
+            return "<missing lua error object>";
+
+        const int type = lua_type(state, index);
+        switch (type)
+        {
+            case LUA_TSTRING:
+            case LUA_TNUMBER:
+            {
+                size_t length = 0;
+                const char* message = lua_tolstring(state, index, &length);
+                return message != nullptr ? std::string(message, length) : "<unreadable lua error string>";
+            }
+            case LUA_TBOOLEAN:
+                return lua_toboolean(state, index) ? "true" : "false";
+            case LUA_TNIL:
+                return "nil";
+            case LUA_TNONE:
+                return "<missing lua error object>";
+            default:
+                return std::string("<lua error object of type ") + lua_typename(state, type) + ">";
+        }
+    }
+
     static VFS::Path::Normalized packageNameToVfsPath(std::string_view packageName, const VFS::Manager& vfs)
     {
         std::string pathValue(packageName);
@@ -65,11 +120,14 @@ namespace LuaUtil
 
     void LuaState::countHook(lua_State* state, lua_Debug* /*ar*/)
     {
-        LuaState* self;
-        (void)lua_getallocf(state, reinterpret_cast<void**>(&self));
+        LuaState* self = getRegisteredState(state);
+        if (self == nullptr)
+            return;
         if (self->mActiveScriptIdStack.empty())
             return;
         const ScriptId& activeScript = self->mActiveScriptIdStack.back();
+        if (activeScript.mContainer == nullptr || activeScript.mIndex < 0)
+            return;
         activeScript.mContainer->addInstructionCount(activeScript.mIndex, countHookStep);
         self->mWatchdogInstructionCounter += countHookStep;
         if (self->mSettings.mInstructionLimit > 0
@@ -156,6 +214,13 @@ namespace LuaUtil
         return newPtr;
     }
 
+    LuaState* LuaState::getRegisteredState(lua_State* state)
+    {
+        std::lock_guard<std::mutex> lock(sLuaStateRegistryMutex);
+        const auto it = sLuaStateRegistry.find(state);
+        return it != sLuaStateRegistry.end() ? it->second : nullptr;
+    }
+
     LuaStatePtr LuaState::createLuaRuntime(LuaState* luaState)
     {
         if (sProfilerEnabled)
@@ -185,6 +250,8 @@ namespace LuaUtil
         , mConf(conf)
         , mVFS(vfs)
     {
+        registerLuaState(mLuaState.get(), this);
+
         if (sProfilerEnabled)
             lua_sethook(mLuaState.get(), &countHook, LUA_MASKCOUNT, countHookStep);
 
@@ -238,13 +305,14 @@ namespace LuaUtil
 
                 function requireGen(env, loaded, loadFn)
                     return function(packageName)
-                        local p = loaded[packageName]
+                        local packageKey = string.lower(packageName)
+                        local p = loaded[packageKey] or loaded[packageName]
                         if p == nil then
                             local loader = loadFn(packageName)
                             setEnvironment(env, loader)
                             p = loader(packageName)
-                            loaded[packageName] = p
                         end
+                        loaded[packageKey] = p
                         return p
                     end
                 end
@@ -307,6 +375,11 @@ namespace LuaUtil
                     { { "date", sol["os"]["date"] }, { "difftime", sol["os"]["difftime"] },
                         { "time", sol["os"]["time"] } }));
         });
+    }
+
+    LuaState::~LuaState()
+    {
+        unregisterLuaState(mLuaState.get());
     }
 
     sol::table makeReadOnly(const sol::table& table, bool strictIndex)
@@ -396,7 +469,7 @@ namespace LuaUtil
     sol::protected_function_result LuaState::throwIfError(sol::protected_function_result&& res)
     {
         if (!res.valid())
-            throw std::runtime_error(std::string("Lua error: ") += res.get<sol::error>().what());
+            throw std::runtime_error("Lua error: " + getLuaErrorMessage(res.lua_state(), res.stack_index()));
         else
             return std::move(res);
     }
@@ -410,7 +483,7 @@ namespace LuaUtil
             // Unless we have memory corruption issues, the bytecode is valid at this point, but loading might still
             // fail because we've hit our Lua memory cap
             if (!res.valid())
-                throw std::runtime_error("Lua error: " + res.get<std::string>());
+                throw std::runtime_error("Lua error: " + getLuaErrorMessage(res.lua_state(), res.stack_index()));
             return res;
         }
         sol::function res = loadFromVFS(path);
@@ -423,7 +496,7 @@ namespace LuaUtil
         std::string fileContent(std::istreambuf_iterator<char>(*mVFS->get(path)), {});
         sol::load_result res = mSol.load(fileContent, path.value(), sol::load_mode::text);
         if (!res.valid())
-            throw std::runtime_error(std::string("Lua error: ") += res.get<sol::error>().what());
+            throw std::runtime_error("Lua error: " + getLuaErrorMessage(res.lua_state(), res.stack_index()));
         return res;
     }
 
@@ -434,7 +507,7 @@ namespace LuaUtil
         std::string fileContent(std::istreambuf_iterator<char>(stream), {});
         sol::load_result res = mSol.load(fileContent, Files::pathToUnicodeString(path), sol::load_mode::text);
         if (!res.valid())
-            throw std::runtime_error("Lua error: " + res.get<std::string>());
+            throw std::runtime_error("Lua error: " + getLuaErrorMessage(res.lua_state(), res.stack_index()));
         return res;
     }
 

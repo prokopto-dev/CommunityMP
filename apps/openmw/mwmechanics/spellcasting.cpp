@@ -413,6 +413,9 @@ namespace MWMechanics
 
                 if (fail)
                 {
+                    if (mCaster == getPlayer() && spellIncreasesSkill(spell))
+                        mCaster.getClass().skillUsageFailed(mCaster, school, ESM::Skill::Spellcast_Success);
+
                     // Failure sound
                     MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
                     const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().find(school);

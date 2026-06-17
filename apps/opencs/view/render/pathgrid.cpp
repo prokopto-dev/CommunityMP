@@ -419,21 +419,21 @@ namespace CSVRender
                 = mPathgridCollection.searchNestedColumnIndex(parentColumn, CSMWorld::Columns::ColumnId_PathgridEdge1);
 
             QModelIndex parent = model->index(recordIndex, parentColumn);
+            const size_t pointCount = source->mPoints.size();
+            const size_t remainingPointCount = mSelected.size() < pointCount ? pointCount - mSelected.size() : 0;
 
             for (size_t edge = 0; edge < source->mEdges.size(); ++edge)
             {
                 size_t adjustment0 = 0;
                 size_t adjustment1 = 0;
+                bool removeEdge = false;
 
                 // Determine necessary adjustment
                 for (const auto point : mSelected)
                 {
                     if (source->mEdges[edge].mV0 == point || source->mEdges[edge].mV1 == point)
                     {
-                        edgeRowsToRemove.insert(static_cast<int>(edge));
-
-                        adjustment0 = 0; // No need to adjust, its getting removed
-                        adjustment1 = 0;
+                        removeEdge = true;
                         break;
                     }
 
@@ -444,18 +444,27 @@ namespace CSVRender
                         ++adjustment1;
                 }
 
+                const size_t adjustedEdge0 = source->mEdges[edge].mV0 - adjustment0;
+                const size_t adjustedEdge1 = source->mEdges[edge].mV1 - adjustment1;
+
+                if (removeEdge || adjustedEdge0 >= remainingPointCount || adjustedEdge1 >= remainingPointCount)
+                {
+                    edgeRowsToRemove.insert(static_cast<int>(edge));
+                    continue;
+                }
+
                 if (adjustment0 != 0)
                 {
-                    int adjustedEdge = static_cast<int>(source->mEdges[edge].mV0 - adjustment0);
                     commands.push(new CSMWorld::ModifyCommand(
-                        *model, model->index(static_cast<int>(edge), edge0Column, parent), adjustedEdge));
+                        *model, model->index(static_cast<int>(edge), edge0Column, parent),
+                        static_cast<int>(adjustedEdge0)));
                 }
 
                 if (adjustment1 != 0)
                 {
-                    int adjustedEdge = static_cast<int>(source->mEdges[edge].mV1 - adjustment1);
                     commands.push(new CSMWorld::ModifyCommand(
-                        *model, model->index(static_cast<int>(edge), edge1Column, parent), adjustedEdge));
+                        *model, model->index(static_cast<int>(edge), edge1Column, parent),
+                        static_cast<int>(adjustedEdge1)));
                 }
             }
 

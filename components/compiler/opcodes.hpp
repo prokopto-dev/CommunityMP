@@ -128,6 +128,7 @@ namespace Compiler
         const int opcodeEnable = 0x200007e;
         const int opcodeDisable = 0x2000085;
         const int opcodeToggleCollision = 0x2000130;
+        const int opcodeToggleCollisionExplicit = 0x2000327;
         const int opcodeClearForceRun = 0x2000154;
         const int opcodeClearForceRunExplicit = 0x2000155;
         const int opcodeForceRun = 0x2000156;

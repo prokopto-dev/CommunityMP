@@ -22,10 +22,12 @@ varying float linearDepth;
 #define PER_PIXEL_LIGHTING (@normalMap || @specularMap || @forcePPL)
 
 #if !PER_PIXEL_LIGHTING
+centroid varying vec3 shadedLighting;
+centroid varying vec3 shadedSpecular;
 centroid varying vec3 passLighting;
 centroid varying vec3 passSpecular;
-centroid varying vec3 shadowDiffuseLighting;
-centroid varying vec3 shadowSpecularLighting;
+#else
+#include "lib/light/clamp.glsl"
 #endif
 varying vec3 passViewPos;
 varying vec3 passNormal;
@@ -37,7 +39,6 @@ uniform float far;
 
 #include "vertexcolors.glsl"
 #include "shadows_fragment.glsl"
-#include "lib/light/clamp.glsl"
 #include "lib/material/parallax.glsl"
 #include "fog.glsl"
 #include "compatibility/normals.glsl"
@@ -67,16 +68,27 @@ void main()
 #if @reconstructNormalZ
     normal.z = sqrt(1.0 - dot(normal.xy, normal.xy));
 #endif
+    normal.xy *= 4.0;
     vec3 viewNormal = normalToView(normal);
 #else
     vec3 viewNormal = normalize(gl_NormalMatrix * passNormal);
 #endif
 
+    float bumpSelfShadow = 1.0;
+#if @parallax && @normalMap && PARALLAX_SELF_SHADOW_SAMPLES > 0
+    {
+        float receiverHeight = texture2D(normalMap, adjustedUV).a;
+        vec3 sunVS = normalize(lcalcPosition(0));
+        vec3 sunTS = transpose(normalToViewMatrix) * sunVS;
+        bumpSelfShadow = parallaxSelfShadow(normalMap, adjustedUV, sunTS, receiverHeight, linearDepth);
+    }
+#endif
+
     float shadowing = unshadowedLightRatio(linearDepth);
     vec3 lighting, specular;
 #if !PER_PIXEL_LIGHTING
-    lighting = passLighting + shadowDiffuseLighting * shadowing;
-    specular = passSpecular + shadowSpecularLighting * shadowing;
+    lighting = mix(shadedLighting, passLighting, shadowing);
+    specular = mix(shadedSpecular, passSpecular, shadowing);
 #else
 #if @specularMap
     float shininess = 128.0; // TODO: make configurable
@@ -87,11 +99,12 @@ void main()
 #endif
     vec3 diffuseLight, ambientLight, specularLight;
     doLighting(gl_FragCoord.xy, passViewPos, viewNormal, shininess, shadowing, diffuseLight, ambientLight, specularLight);
+    diffuseLight *= bumpSelfShadow;
+    specularLight *= bumpSelfShadow;
     lighting = diffuseColor.xyz * diffuseLight + getAmbientColor().xyz * ambientLight + getEmissionColor().xyz;
     specular = specularColor * specularLight;
-#endif
-
     clampLighting(lighting);
+#endif
     gl_FragData[0].xyz = gl_FragData[0].xyz * lighting + specular;
 
     gl_FragData[0] = applyFogAtDist(gl_FragData[0], euclideanDepth, linearDepth, far);

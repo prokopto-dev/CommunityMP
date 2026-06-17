@@ -67,27 +67,34 @@ namespace LuaUtil::InputAction
         std::optional<std::string> nextKey(std::string_view key) const;
         std::optional<Info> operator[](std::string_view actionKey);
         bool bind(
-            std::string_view key, const LuaUtil::Callback& callback, const std::vector<std::string_view>& dependencies);
+            std::string_view key, const LuaUtil::Callback& callback, const std::vector<std::string_view>& dependencies,
+            bool persistent = false);
         sol::object valueOfType(std::string_view key, Type type);
         void update(double dt);
-        void registerHandler(std::string_view key, const LuaUtil::Callback& handler)
+        void registerHandler(std::string_view key, const LuaUtil::Callback& handler, bool persistent = false)
         {
-            mHandlers[safeIdByKey(key)].push_back(handler);
+            mHandlers[safeIdByKey(key)].push_back(Handler{ handler, persistent });
         }
         void clear(bool force = false);
 
     private:
         using Id = MultiTree::Node;
         Id safeIdByKey(std::string_view key);
+        struct Handler
+        {
+            LuaUtil::Callback mCallback;
+            bool mPersistent = false;
+        };
         struct Binding
         {
             LuaUtil::Callback mCallback;
             std::vector<Id> mDependencies;
+            bool mPersistent = false;
         };
         std::vector<std::string> mKeys;
         std::unordered_map<std::string, Id, Misc::StringUtils::StringHash, std::equal_to<>> mIds;
         std::vector<Info> mInfo;
-        std::vector<std::vector<LuaUtil::Callback>> mHandlers;
+        std::vector<std::vector<Handler>> mHandlers;
         std::vector<std::vector<Binding>> mBindings;
         std::vector<sol::object> mValues;
         MultiTree mBindingTree;
@@ -121,16 +128,21 @@ namespace LuaUtil::InputTrigger
         }
         std::optional<Info> operator[](std::string_view key);
         void insert(const Info& info);
-        void registerHandler(std::string_view key, const LuaUtil::Callback& callback);
+        void registerHandler(std::string_view key, const LuaUtil::Callback& callback, bool persistent = false);
         void activate(std::string_view key);
         void clear(bool force = false);
 
     private:
         using Id = size_t;
         Id safeIdByKey(std::string_view key);
+        struct Handler
+        {
+            LuaUtil::Callback mCallback;
+            bool mPersistent = false;
+        };
         std::unordered_map<std::string, Id, Misc::StringUtils::StringHash, std::equal_to<>> mIds;
         std::vector<Info> mInfo;
-        std::vector<std::vector<LuaUtil::Callback>> mHandlers;
+        std::vector<std::vector<Handler>> mHandlers;
     };
 }
 

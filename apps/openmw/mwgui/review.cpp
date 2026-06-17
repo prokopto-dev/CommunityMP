@@ -1,22 +1,25 @@
 #include "review.hpp"
 
-#include <cmath>
-
+#include <algorithm>
 #include <MyGUI_Button.h>
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_UString.h>
 
+#include <osg/Texture2D>
+
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadrace.hpp>
 #include <components/esm3/loadspel.hpp>
+#include <components/myguiplatform/myguitexture.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwmechanics/autocalcspell.hpp"
+#include "../mwrender/characterpreview.hpp"
 #include "../mwworld/esmstore.hpp"
 
 #include "tooltips.hpp"
@@ -33,7 +36,7 @@ namespace
 
 namespace MWGui
 {
-    ReviewDialog::ReviewDialog()
+    ReviewDialog::ReviewDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : WindowModal("openmw_chargen_review.layout")
         , mUpdateSkillArea(false)
         , mControllerFocus(5)
@@ -84,7 +87,7 @@ namespace MWGui
 
         MyGUI::Widget* attributes = getWidget("Attributes");
         const auto& store = MWBase::Environment::get().getWorld()->getStore().get<ESM::Attribute>();
-        MyGUI::IntCoord coord{ 8, 4, 250, 18 };
+        MyGUI::IntCoord coord{ 8, 4, std::max(0, attributes->getWidth() - 16), 18 };
         for (const ESM::Attribute& attribute : store)
         {
             auto* widget
@@ -103,6 +106,18 @@ namespace MWGui
         // Setup skills
         getWidget(mSkillView, "SkillView");
         mSkillView->eventMouseWheel += MyGUI::newDelegate(this, &ReviewDialog::onMouseWheel);
+
+        getWidget(mAvatarPreviewImage, "AvatarPreviewImage");
+        mAvatarPreview = std::make_unique<MWRender::RaceSelectionPreview>(
+            parent, resourceSystem, MWRender::RaceSelectionPreview::PreviewMode::Body);
+        mAvatarPreview->rebuild();
+        mAvatarPreviewController.bind(mAvatarPreviewImage, mAvatarPreview.get());
+        mAvatarPreviewController.setAngle(0.f);
+        mAvatarPreviewTexture = std::make_unique<MyGUIPlatform::OSGTexture>(
+            mAvatarPreview->getTexture(), mAvatarPreview->getTextureStateSet());
+        mAvatarPreviewImage->setRenderItemTexture(mAvatarPreviewTexture.get());
+        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted.
+        mAvatarPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
 
         for (const ESM::Skill& skill : MWBase::Environment::get().getESMStore()->get<ESM::Skill>())
         {
@@ -131,14 +146,22 @@ namespace MWGui
         }
     }
 
+    ReviewDialog::~ReviewDialog()
+    {
+        if (mAvatarPreviewImage != nullptr)
+            mAvatarPreviewImage->setRenderItemTexture(nullptr);
+    }
+
     void ReviewDialog::onOpen()
     {
         WindowModal::onOpen();
         mUpdateSkillArea = true;
     }
 
-    void ReviewDialog::onFrame(float /*duration*/)
+    void ReviewDialog::onFrame(float duration)
     {
+        mAvatarPreviewController.update(duration);
+
         if (mUpdateSkillArea)
         {
             updateSkillArea();

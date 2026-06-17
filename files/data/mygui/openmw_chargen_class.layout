@@ -1,87 +1,179 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <MyGUI type="Layout">
-    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 491 316" align="Center" name="_Main">
+    <Widget type="Widget" skin="" layer="Modal" position="0 0 1320 760" align="Center" name="_Main">
+        <Property key="Visible" value="false"/>
 
-        <!-- Class list -->
-        <Widget type="ListBox" skin="MW_List" position="8 8 194 138" name="ClassList"/>
-
-        <!-- Class image -->
-        <Widget type="Widget" skin="MW_Box" position="210 8 265 138" align="Left Top">
-            <Widget type="ImageBox" skin="ImageBox" position="2 2 261 134" name="ClassImage" align="Left Top"/>
+        <Widget type="ImageBox" skin="ImageBox" position="0 0 1320 760" align="Stretch" name="Background">
+            <Property key="ImageTexture" value="mygui\characterselect\textures\communitymp_character_select_frame.png"/>
+            <Property key="NeedMouse" value="false"/>
         </Widget>
 
-        <!-- Specialization -->
-        <Widget type="Widget" skin="" position="8 156 484 178" align="Left Top">
+        <Widget type="TextBox" skin="SandText" position="72 44 360 24" name="ClassStageT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="CLASS"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
 
-            <Widget type="TextBox" skin="HeaderText" position="0 0 166 18" name="SpecializationT" align="Left Top">
+        <Widget type="TextBox" skin="SandText" position="486 44 380 24" name="ClassPreviewT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="PREVIEW"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="900 44 348 24" name="ClassBuildT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="BUILD"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="72 86 360 548" name="ClassListPanel" align="Left Top">
+            <Widget type="ListBox" skin="MW_List" position="14 14 332 520" name="ClassList"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="486 86 380 548" name="ClassAvatarPanel" align="Left Top">
+            <Widget type="ImageBox" skin="ImageBox" position="12 10 356 528" name="AvatarPreviewImage" align="Stretch"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="900 86 348 160" name="ClassImagePanel" align="Left Top">
+            <Widget type="ImageBox" skin="ImageBox" position="10 10 328 140" name="ClassImage" align="Stretch"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="900 270 348 150" name="ClassProfilePanel" align="Left Top">
+            <Widget type="TextBox" skin="SandText" position="18 14 300 22" name="SpecializationT" align="Left Top">
+                <Property key="FontName" value="Russo"/>
                 <Property key="Caption" value="#{sChooseClassMenu1}"/>
-                <Property key="TextAlign" value="Left Top"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
                 <UserString key="ToolTipType" value="Layout"/>
                 <UserString key="ToolTipLayout" value="TextToolTip"/>
                 <UserString key="Caption_Text" value="#{sCreateClassMenuHelp1}"/>
             </Widget>
 
-            <Widget type="TextBox" skin="SandText" position="0 18 166 18" name="SpecializationName" align="Left Top">
-                <Property key="TextAlign" value="Left Top"/>
+            <Widget type="TextBox" skin="SandText" position="18 42 300 24" name="SpecializationName" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.93 0.89 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
             </Widget>
 
-            <!-- Favorite Attributes -->
-            <Widget type="VBox" skin="" position="0 39 166 76" align="Stretch">
-                <Property key="Spacing" value="0"/>
-
-                <!-- Favorite Attributes -->
-                <Widget type="AutoSizedEditBox" skin="HeaderText" position="0 0 166 22" name="FavoriteAttributesT" align="Left Top">
-                    <Property key="Caption" value="#{sChooseClassMenu2}"/>
-                    <Property key="TextAlign" value="Left Top"/>
-                    <Property key="Static" value="true"/>
-                    <UserString key="ToolTipType" value="Layout"/>
-                    <UserString key="ToolTipLayout" value="TextToolTip"/>
-                    <UserString key="Caption_Text" value="#{sCreateClassMenuHelp2}"/>
-                    <Property key="MultiLine" value="true"/>
-                    <Property key="WordWrap" value="true"/>
-                </Widget>
-
-                <Widget type="MWAttribute" skin="MW_StatNameButton" position="0 0 166 18" name="FavoriteAttribute0" align="Left Top"/>
-                <Widget type="MWAttribute" skin="MW_StatNameButton" position="0 0 166 18" name="FavoriteAttribute1" align="Left Top"/>
-             </Widget>
-
-            <!-- Major Skills -->
-            <Widget type="TextBox" skin="HeaderText" position="166 0 162 18" name="MajorSkillT" align="Left Top">
-                <Property key="TextAlign" value="Left Top"/>
-                <Property key="Caption" value="#{sChooseClassMenu3}"/>
+            <Widget type="AutoSizedEditBox" skin="SandText" position="18 78 300 24" name="FavoriteAttributesT" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="#{sChooseClassMenu2}"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="Static" value="true"/>
+                <Property key="MultiLine" value="true"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <UserString key="ToolTipType" value="Layout"/>
+                <UserString key="ToolTipLayout" value="TextToolTip"/>
+                <UserString key="Caption_Text" value="#{sCreateClassMenuHelp2}"/>
             </Widget>
 
-            <Widget type="MWSkill" skin="MW_StatName" position="166 18 166 18" name="MajorSkill0" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="166 36 166 18" name="MajorSkill1" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="166 54 166 18" name="MajorSkill2" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="166 72 166 18" name="MajorSkill3" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="166 90 166 18" name="MajorSkill4" align="Left Top"/>
-
-            <!-- Minor Skills -->
-            <Widget type="TextBox" skin="HeaderText" position="332 0 166 18" name="MinorSkillT" align="Left Top">
-                <Property key="Caption" value="#{sChooseClassMenu4}"/>
-                <Property key="TextAlign" value="Left Top"/>
-            </Widget>
-
-            <Widget type="MWSkill" skin="MW_StatName" position="332 18 166 18" name="MinorSkill0" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="332 36 166 18" name="MinorSkill1" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="332 54 166 18" name="MinorSkill2" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="332 72 166 18" name="MinorSkill3" align="Left Top"/>
-            <Widget type="MWSkill" skin="MW_StatName" position="332 90 166 18" name="MinorSkill4" align="Left Top"/>
-
+            <Widget type="MWAttribute" skin="MW_StatNameButton" position="18 112 142 22" name="FavoriteAttribute0" align="Left Top"/>
+            <Widget type="MWAttribute" skin="MW_StatNameButton" position="178 112 142 22" name="FavoriteAttribute1" align="Left Top"/>
         </Widget>
 
-        <!-- Dialog buttons -->
-        <Widget type="HBox" position="0 276 475 28">
-            <Widget type="Spacer"/>
-            <Widget type="AutoSizedButton" skin="MW_Button" name="BackButton">
+        <Widget type="Widget" skin="MW_Box" position="900 444 164 190" name="MajorSkillsPanel" align="Left Top">
+            <Widget type="TextBox" skin="SandText" position="14 12 136 22" name="MajorSkillT" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="#{sSkillClassMajor}"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+            </Widget>
+
+            <Widget type="MWSkill" skin="MW_StatName" position="14 46 136 20" name="MajorSkill0" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 74 136 20" name="MajorSkill1" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 102 136 20" name="MajorSkill2" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 130 136 20" name="MajorSkill3" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 158 136 20" name="MajorSkill4" align="Left Top"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="1084 444 164 190" name="MinorSkillsPanel" align="Left Top">
+            <Widget type="TextBox" skin="SandText" position="14 12 136 22" name="MinorSkillT" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="#{sSkillClassMinor}"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+            </Widget>
+
+            <Widget type="MWSkill" skin="MW_StatName" position="14 46 136 20" name="MinorSkill0" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 74 136 20" name="MinorSkill1" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 102 136 20" name="MinorSkill2" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 130 136 20" name="MinorSkill3" align="Left Top"/>
+            <Widget type="MWSkill" skin="MW_StatName" position="14 158 136 20" name="MinorSkill4" align="Left Top"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="48 668 1224 30" name="CreatorStageRail" align="Left Top">
+            <Widget type="TextBox" skin="ProgressText" position="18 6 224 18" name="CreatorStageIdentity" align="Left Top">
+                <Property key="Caption" value="01 Identity"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="252 6 224 18" name="CreatorStageAppearance" align="Left Top">
+                <Property key="Caption" value="02 Appearance"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="486 6 224 18" name="CreatorStageClass" align="Left Top">
+                <Property key="Caption" value="03 Class"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="720 6 224 18" name="CreatorStageBirthsign" align="Left Top">
+                <Property key="Caption" value="04 Birthsign"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="954 6 224 18" name="CreatorStageReview" align="Left Top">
+                <Property key="Caption" value="05 Review"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="" position="48 708 1224 34" name="FooterActions" align="Left Top">
+            <Widget type="Button" skin="MW_Button" position="1040 4 88 26" name="BackButton">
                 <Property key="Caption" value="#{sBack}"/>
             </Widget>
-            <Widget type="AutoSizedButton" skin="MW_Button" name="OKButton">
+            <Widget type="Button" skin="MW_Button" position="1136 4 88 26" name="OKButton">
                 <Property key="Caption" value="#{Interface:OK}"/>
             </Widget>
         </Widget>
-
     </Widget>
 </MyGUI>

@@ -122,6 +122,10 @@ namespace MWClass
             const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor = 1.f) const override;
         ///< Inform actor \a ptr that a skill use has succeeded.
 
+        void skillUsageFailed(
+            const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor = 1.f) const override;
+        ///< Inform actor \a ptr that a skill use has failed.
+
         bool isEssential(const MWWorld::ConstPtr& ptr) const override;
         ///< Is \a ptr essential? (i.e. may losing \a ptr make the game unwinnable)
 

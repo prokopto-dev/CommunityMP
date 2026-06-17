@@ -102,7 +102,7 @@ QWidget* CSVWorld::IdCompletionDelegate::createEditor(QWidget* parent, const QSt
     {
         editor->setMaxLength(32);
     }
-    else if (display == CSMWorld::ColumnBase::Display_Cell)
+    else if (display == CSMWorld::ColumnBase::Display_Cell || display == CSMWorld::ColumnBase::Display_InteriorCell)
     {
         editor->setMaxLength(64);
     }

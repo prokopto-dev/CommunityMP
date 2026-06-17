@@ -24,6 +24,22 @@
 #include "settingswindow.hpp"
 #include "videowidget.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/Main.hpp"
+#endif
+
+namespace
+{
+    bool isMultiplayerSession()
+    {
+#ifdef BUILD_TES3MP_CLIENT
+        return mwmp::Main::isInitialized();
+#else
+        return false;
+#endif
+    }
+}
+
 namespace MWGui
 {
     void MenuVideo::run()
@@ -295,6 +311,7 @@ namespace MWGui
         int curH = 0;
 
         MWBase::StateManager::State state = MWBase::Environment::get().getStateManager()->getState();
+        const bool multiplayerSession = isMultiplayerSession();
 
         mVersionText->setVisible(state == MWBase::StateManager::State_NoGame);
 
@@ -303,14 +320,15 @@ namespace MWGui
         if (state == MWBase::StateManager::State_Running)
             buttons.emplace_back("return");
 
-        buttons.emplace_back("newgame");
+        if (!multiplayerSession)
+            buttons.emplace_back("newgame");
 
-        if (state == MWBase::StateManager::State_Running
+        if (!multiplayerSession && state == MWBase::StateManager::State_Running
             && MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sCharGenState) == -1
             && MWBase::Environment::get().getWindowManager()->isSavingAllowed())
             buttons.emplace_back("savegame");
 
-        if (MWBase::Environment::get().getStateManager()->characterBegin()
+        if (!multiplayerSession && MWBase::Environment::get().getStateManager()->characterBegin()
             != MWBase::Environment::get().getStateManager()->characterEnd())
             buttons.emplace_back("loadgame");
 

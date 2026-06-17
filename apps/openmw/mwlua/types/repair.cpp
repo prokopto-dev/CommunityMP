@@ -72,6 +72,7 @@ namespace MWLua
     void addRepairBindings(sol::table repair, const Context& context)
     {
         addRecordFunctionBinding<ESM::Repair>(repair, context);
+        repair["createRecordDraft"] = tableToRepair;
 
         sol::state_view lua = context.sol();
         addUserType<ESM::Repair>(lua, "ESM3_Repair");

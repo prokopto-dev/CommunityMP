@@ -15,6 +15,8 @@ namespace SDLUtil
     /** Extended mouse event struct where we treat the wheel like an axis, like everyone expects */
     struct MouseMotionEvent : SDL_MouseMotionEvent
     {
+        float xrelPrecise;
+        float yrelPrecise;
 
         Sint32 zrel;
         Sint32 z;
@@ -94,6 +96,8 @@ namespace SDLUtil
 
         /** @remarks The window's visibility changed */
         virtual void windowVisibilityChange(bool visible) {}
+
+        virtual void windowFocusChange(bool focused) {}
 
         virtual void windowClosed() {}
 

@@ -351,13 +351,10 @@ namespace SceneUtil
         , mPointLightFadeStart(0.f)
     {
         osg::GLExtensions* exts = SceneUtil::glExtensionsReady() ? &SceneUtil::getGLExtensions() : nullptr;
-        // In theory the two extensions should allow us to use SSBO and std430 layout in version 120
-        //  1. GL_ARB_shader_storage_buffer_object
-        //  2. GL_ARB_shading_language_420pack
-        // However, this is not the case in practice and is known to be broken on at least Mesa drivers.
-        bool supportsSSBO = exts && static_cast<int>(exts->glslLanguageVersion * 100) >= 430;
+        bool supportsSSBO = exts && osg::isGLExtensionSupported(exts->contextID, "GL_ARB_shader_storage_buffer_object");
+        bool supportsGPU4 = exts && exts->isGpuShader4Supported;
 
-        mSupportsClustered = supportsSSBO;
+        mSupportsClustered = supportsSSBO && supportsGPU4;
 
         setUpdateCallback(new LightManagerUpdateCallback);
 
@@ -369,7 +366,10 @@ namespace SceneUtil
         if (settings.mClusteredLighting && !hasLoggedWarnings)
         {
             if (!supportsSSBO)
-                Log(Debug::Warning) << "GLSL 430 or higher not supported: disabling clustered lighting";
+                Log(Debug::Warning)
+                    << "GL_ARB_shader_storage_buffer_object not supported: disabling clustered lighting";
+            if (!supportsGPU4)
+                Log(Debug::Warning) << "GL_EXT_gpu_shader4 not supported: disabling clustered lighting";
             hasLoggedWarnings = true;
         }
 

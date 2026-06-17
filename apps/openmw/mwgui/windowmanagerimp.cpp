@@ -3,17 +3,31 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cctype>
+#include <cmath>
+#include <cstddef>
 #include <filesystem>
+#include <iterator>
+#include <string>
+#include <string_view>
+#include <vector>
 #include <thread>
 
 #include <osgViewer/Viewer>
 
 #include <MyGUI_ClipboardManager.h>
+#include <MyGUI_Button.h>
+#include <MyGUI_DataManager.h>
+#include <MyGUI_EditBox.h>
 #include <MyGUI_FactoryManager.h>
+#include <MyGUI_Gui.h>
 #include <MyGUI_InputManager.h>
 #include <MyGUI_LanguageManager.h>
 #include <MyGUI_LayerManager.h>
 #include <MyGUI_PointerManager.h>
+#include <MyGUI_RenderManager.h>
+#include <MyGUI_ResourceManager.h>
+#include <MyGUI_TextBox.h>
 #include <MyGUI_UString.h>
 
 // For BT_NO_PROFILE
@@ -26,6 +40,8 @@
 
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
+
+#include <components/openmw-mp/TimedLog.hpp>
 
 #include <components/fontloader/fontloader.hpp>
 
@@ -76,6 +92,12 @@
 
 #include "../mwrender/postprocessor.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/GUIController.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "alchemywindow.hpp"
 #include "backgroundimage.hpp"
 #include "bookpage.hpp"
@@ -119,16 +141,243 @@
 #include "spellview.hpp"
 #include "spellwindow.hpp"
 #include "statswindow.hpp"
+#include "textinput.hpp"
 #include "tradewindow.hpp"
 #include "trainingwindow.hpp"
 #include "travelwindow.hpp"
 #include "videowidget.hpp"
 #include "waitdialog.hpp"
+#include "backgroundimage.hpp"
 
 namespace MWGui
 {
     namespace
     {
+        constexpr std::size_t maxAccountNameLength = 35;
+        constexpr std::size_t maxCredentialLength = 256;
+        constexpr const char* defaultLoginLayout = "tes3mp_login.layout";
+        constexpr const char* communityLoginLayout = "login/communitymp_login.layout";
+        constexpr const char* communityLoginResources = "login/communitymp_login.xml";
+        constexpr const char* defaultLoginBackgroundTexture = "mygui\\login\\textures\\communitymp-causeway.jpg";
+        constexpr const char* defaultLoginBackgroundSlides
+            = "mygui\\login\\textures\\communitymp-causeway.jpg;"
+              "mygui\\login\\textures\\communitymp-gathering.jpg;"
+              "mygui\\login\\textures\\communitymp-server-hall.jpg;"
+              "mygui\\login\\textures\\communitymp-ashlands-hero.jpg";
+        constexpr const char* defaultLoginAtmosphereOverlayTexture
+            = "mygui\\login\\textures\\communitymp_login_atmosphere.png";
+        constexpr const char* defaultLoginLogoTexture = "mygui\\login\\textures\\communitymp-logo.png";
+        constexpr const char* loginBackgroundLayer = "Scene";
+        constexpr const char* defaultLoginMusicTrack = "music/communitymp/nightinthedesertmix.ogg";
+        constexpr float defaultLoginSlideSeconds = 6.f;
+
+        bool loginResourcesLoaded = false;
+
+        std::string trimLoginField(std::string value)
+        {
+            const auto first = value.find_first_not_of(" \t\r\n");
+            if (first == std::string::npos)
+                return {};
+
+            const auto last = value.find_last_not_of(" \t\r\n");
+            return value.substr(first, last - first + 1);
+        }
+
+        bool guiDataExists(const char* name)
+        {
+            return MyGUI::DataManager::getInstance().isDataExist(name);
+        }
+
+        const char* selectLoginLayout()
+        {
+            if (guiDataExists(communityLoginLayout))
+            {
+                if (!loginResourcesLoaded && guiDataExists(communityLoginResources))
+                {
+                    MyGUI::ResourceManager::getInstance().load(communityLoginResources);
+                    loginResourcesLoaded = true;
+                    LOG_MESSAGE_SIMPLE(
+                        TimedLog::LOG_INFO, "Loaded CommunityMP login resources from %s", communityLoginResources);
+                }
+
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Using CommunityMP login layout %s", communityLoginLayout);
+                return communityLoginLayout;
+            }
+
+            return defaultLoginLayout;
+        }
+
+        std::string getLoginBackgroundTexture()
+        {
+            try
+            {
+                std::string texture = Settings::Manager::getString("loginBackground", "General");
+                if (!texture.empty())
+                    return texture;
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login background setting: %s",
+                    e.what());
+            }
+
+            return defaultLoginBackgroundTexture;
+        }
+
+        std::vector<std::string> parseLoginSlideList(std::string_view value)
+        {
+            std::vector<std::string> slides;
+            std::size_t start = 0;
+            while (start < value.size())
+            {
+                const std::size_t end = value.find_first_of(";,", start);
+                std::string slide = trimLoginField(std::string(value.substr(start,
+                    end == std::string_view::npos ? std::string_view::npos : end - start)));
+                if (!slide.empty())
+                    slides.push_back(slide);
+                if (end == std::string_view::npos)
+                    break;
+                start = end + 1;
+            }
+            return slides;
+        }
+
+        bool shouldUseSingleLoginBackground(std::string value)
+        {
+            value = trimLoginField(std::move(value));
+            std::transform(value.begin(), value.end(), value.begin(),
+                [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+            return value == "single" || value == "static" || value == "off";
+        }
+
+        std::vector<std::string> getLoginBackgroundSlides()
+        {
+            try
+            {
+                const std::string configuredSlides = Settings::Manager::getString("loginBackgroundSlides", "General");
+                if (shouldUseSingleLoginBackground(configuredSlides))
+                    return { getLoginBackgroundTexture() };
+
+                std::vector<std::string> slides = parseLoginSlideList(configuredSlides);
+                if (!slides.empty())
+                    return slides;
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login background slides setting: %s",
+                    e.what());
+            }
+
+            std::vector<std::string> slides = parseLoginSlideList(defaultLoginBackgroundSlides);
+            if (slides.empty())
+                slides.push_back(getLoginBackgroundTexture());
+            return slides;
+        }
+
+        bool getLoginBackgroundEffectsEnabled()
+        {
+            try
+            {
+                return Settings::Manager::getBool("loginBackgroundEffects", "General");
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login background effects setting: %s",
+                    e.what());
+            }
+
+            return true;
+        }
+
+        std::string getLoginAtmosphereOverlayTexture()
+        {
+            try
+            {
+                std::string texture = Settings::Manager::getString("loginAtmosphereOverlay", "General");
+                if (!texture.empty())
+                    return texture;
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login atmosphere setting: %s",
+                    e.what());
+            }
+
+            return defaultLoginAtmosphereOverlayTexture;
+        }
+
+        float getLoginSlideSeconds()
+        {
+            try
+            {
+                return std::clamp(Settings::Manager::getFloat("loginSlideSeconds", "General"), 3.f, 60.f);
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login slide timing setting: %s",
+                    e.what());
+            }
+
+            return defaultLoginSlideSeconds;
+        }
+
+        std::string getLoginLogoTexture()
+        {
+            try
+            {
+                return Settings::Manager::getString("loginLogo", "General");
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login logo setting: %s", e.what());
+            }
+
+            return defaultLoginLogoTexture;
+        }
+
+        std::string getLoginMusicTrack()
+        {
+            try
+            {
+                return Settings::Manager::getString("loginMusic", "General");
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to read CommunityMP login music setting: %s",
+                    e.what());
+            }
+
+            return defaultLoginMusicTrack;
+        }
+
+#ifdef BUILD_TES3MP_CLIENT
+        bool isVanillaStartupTutorialMessage(std::string_view message)
+        {
+            return message == "#{sInventoryMessage1}" || message == "#{sInventoryMessage2}"
+                || message == "#{sInventoryMessage3}" || message == "#{sInventoryMessage4}"
+                || message == "#{sInventoryMessage5}" || message == "#{sCharGenDoorWarning}"
+                || message == "#{sCharGenControlsHelp1}" || message == "#{sCharGenControlsHelp2}"
+                || message == "#{sCharGenControlsHelp3}" || message == "#{sCharGenDialogueMessage}";
+        }
+
+        bool shouldSuppressMultiplayerPreCharacterMessage(std::string_view message)
+        {
+            if (message.empty() || !mwmp::Main::isInitialized())
+                return false;
+
+            const mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer == nullptr || localPlayer->hasLoadedCharacter())
+                return false;
+
+            return isVanillaStartupTutorialMessage(message)
+                || message.find("sInventoryMessage") != std::string_view::npos
+                || message.find("sCharGen") != std::string_view::npos
+                || message.find("CharGen") != std::string_view::npos
+                || message.find("Press Space to talk to the Captain") != std::string_view::npos
+                || message.find("Select topics to ask about them") != std::string_view::npos;
+        }
+#endif
+
         Settings::SettingValue<bool>* findHiddenSetting(GuiWindow window)
         {
             switch (window)
@@ -146,6 +395,458 @@ namespace MWGui
             }
         }
     }
+
+    class Tes3mpLoginDialog final : public WindowModal
+    {
+    public:
+        Tes3mpLoginDialog(std::string_view serverEndpoint, std::string_view initialAccountName,
+            std::string_view initialServerPassword, bool rememberCredentials, bool hasRememberedAccountPasswordHash)
+            : WindowModal(selectLoginLayout())
+            , mRememberedAccountName(trimLoginField(std::string(initialAccountName)))
+            , mRememberCredentials(rememberCredentials)
+            , mUsingRememberedAccountPasswordHash(
+                  hasRememberedAccountPasswordHash && !mRememberedAccountName.empty())
+        {
+            createBackground();
+            createLogo();
+            startLoginMusic();
+            center();
+
+            getWidget(mServerText, "ServerText");
+            getWidget(mAccountNameEdit, "EditLogin");
+            getWidget(mAccountPasswordEdit, "EditPassword");
+            getWidget(mServerPasswordEdit, "EditServerPassword");
+            getWidget(mRememberCredentialsButton, "ButtonRemember");
+            getWidget(mErrorText, "ErrorText");
+
+            MyGUI::Button* connectButton;
+            getWidget(connectButton, "ButtonConnect");
+
+            MyGUI::Button* cancelButton;
+            getWidget(cancelButton, "ButtonCancel");
+
+            mServerText->setCaption(MyGUI::UString(std::string(serverEndpoint)));
+            mAccountNameEdit->setCaption(MyGUI::UString(std::string(initialAccountName)));
+            if (mUsingRememberedAccountPasswordHash)
+                mAccountPasswordEdit->setCaption(MyGUI::UString(std::string(rememberedPasswordMask)));
+            mServerPasswordEdit->setCaption(MyGUI::UString(std::string(initialServerPassword)));
+            mAccountNameEdit->setMaxTextLength(maxAccountNameLength);
+            mAccountPasswordEdit->setMaxTextLength(maxCredentialLength);
+            mServerPasswordEdit->setMaxTextLength(maxCredentialLength);
+            mAccountPasswordEdit->setEditPassword(true);
+            mServerPasswordEdit->setEditPassword(true);
+            mErrorText->setCaption("");
+            updateRememberCredentialsButton();
+
+            mAccountNameEdit->eventEditSelectAccept += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onNameAccepted);
+            mAccountNameEdit->eventEditTextChange += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onCredentialChanged);
+            mAccountPasswordEdit->eventEditSelectAccept += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onPasswordAccepted);
+            mAccountPasswordEdit->eventEditTextChange
+                += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onCredentialChanged);
+            mServerPasswordEdit->eventEditSelectAccept
+                += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onServerPasswordAccepted);
+            mServerPasswordEdit->eventEditTextChange
+                += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onCredentialChanged);
+            mRememberCredentialsButton->eventMouseButtonClick
+                += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onRememberCredentialsClicked);
+            connectButton->eventMouseButtonClick += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onConnectClicked);
+            cancelButton->eventMouseButtonClick += MyGUI::newDelegate(this, &Tes3mpLoginDialog::onCancelClicked);
+
+            focusInitialField();
+        }
+
+        ~Tes3mpLoginDialog()
+        {
+            if (!mAccepted)
+                stopLoginMusic();
+
+            if (mBackground != nullptr)
+            {
+                MyGUI::Gui::getInstance().destroyWidget(mBackground);
+                mBackground = nullptr;
+            }
+
+            if (mBackgroundNext != nullptr)
+            {
+                MyGUI::Gui::getInstance().destroyWidget(mBackgroundNext);
+                mBackgroundNext = nullptr;
+            }
+
+            if (mAtmosphereOverlay != nullptr)
+            {
+                MyGUI::Gui::getInstance().destroyWidget(mAtmosphereOverlay);
+                mAtmosphereOverlay = nullptr;
+            }
+
+            if (mLogo != nullptr)
+            {
+                MyGUI::Gui::getInstance().destroyWidget(mLogo);
+                mLogo = nullptr;
+            }
+        }
+
+        EventHandle_WindowBase eventDone;
+
+        void setVisible(bool visible) override
+        {
+            WindowModal::setVisible(visible);
+            if (mBackground != nullptr)
+                mBackground->setVisible(visible);
+            if (mBackgroundNext != nullptr)
+                mBackgroundNext->setVisible(visible && mBackgroundSlides.size() > 1 && mBackgroundEffects);
+            if (mAtmosphereOverlay != nullptr)
+                mAtmosphereOverlay->setVisible(visible && mBackgroundEffects);
+            if (mLogo != nullptr)
+                mLogo->setVisible(visible);
+        }
+
+        bool isAccepted() const { return mAccepted; }
+
+        MWBase::LoginCredentials getCredentials() const
+        {
+            return {
+                trimLoginField(mAccountNameEdit->getCaption()),
+                mUsingRememberedAccountPasswordHash ? std::string() : std::string(mAccountPasswordEdit->getCaption()),
+                std::string(mServerPasswordEdit->getCaption()),
+                mRememberCredentials,
+                mUsingRememberedAccountPasswordHash,
+            };
+        }
+
+        MyGUI::Widget* getDefaultKeyFocus() override
+        {
+            if (trimLoginField(mAccountNameEdit->getCaption()).empty())
+                return mAccountNameEdit;
+            if (mUsingRememberedAccountPasswordHash)
+                return mServerPasswordEdit;
+            return mAccountPasswordEdit;
+        }
+
+        void onOpen() override
+        {
+            WindowModal::onOpen();
+            focusInitialField();
+        }
+
+        void onFrame(float duration) override
+        {
+            updateBackgroundAnimation(duration);
+        }
+
+        bool exit() override
+        {
+            finish(false);
+            return false;
+        }
+
+    private:
+        void onNameAccepted(MyGUI::EditBox* /*sender*/)
+        {
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAccountPasswordEdit);
+        }
+
+        void onPasswordAccepted(MyGUI::EditBox* sender)
+        {
+            onConnectClicked(sender);
+        }
+
+        void onServerPasswordAccepted(MyGUI::EditBox* sender)
+        {
+            onConnectClicked(sender);
+        }
+
+        void onCredentialChanged(MyGUI::EditBox* /*sender*/)
+        {
+            if (mUsingRememberedAccountPasswordHash)
+            {
+                const bool sameAccount = trimLoginField(mAccountNameEdit->getCaption()) == mRememberedAccountName;
+                const bool samePasswordMask
+                    = std::string(mAccountPasswordEdit->getCaption()) == std::string(rememberedPasswordMask);
+                if (!sameAccount)
+                {
+                    mUsingRememberedAccountPasswordHash = false;
+                    mAccountPasswordEdit->setCaption("");
+                    MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAccountPasswordEdit);
+                }
+                else if (!samePasswordMask)
+                    mUsingRememberedAccountPasswordHash = false;
+            }
+
+            mErrorText->setCaption("");
+        }
+
+        void onRememberCredentialsClicked(MyGUI::Widget* /*sender*/)
+        {
+            mRememberCredentials = !mRememberCredentials;
+            updateRememberCredentialsButton();
+            mErrorText->setCaption("");
+        }
+
+        void onConnectClicked(MyGUI::Widget* /*sender*/)
+        {
+            const MWBase::LoginCredentials credentials = getCredentials();
+            if (credentials.accountName.empty())
+            {
+                mErrorText->setCaption("Enter the server account username.");
+                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAccountNameEdit);
+                return;
+            }
+
+            if (!credentials.useRememberedAccountPasswordHash && credentials.accountPassword.empty())
+            {
+                mErrorText->setCaption("Enter the account password.");
+                MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mAccountPasswordEdit);
+                return;
+            }
+
+            finish(true);
+        }
+
+        void onCancelClicked(MyGUI::Widget* /*sender*/)
+        {
+            finish(false);
+        }
+
+        void finish(bool accepted)
+        {
+            mAccepted = accepted;
+            eventDone(this);
+        }
+
+        void focusInitialField()
+        {
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(getDefaultKeyFocus());
+        }
+
+        void createBackground()
+        {
+            mBackgroundSlides = getLoginBackgroundSlides();
+            mBackgroundEffects = getLoginBackgroundEffectsEnabled();
+            mSlideDuration = getLoginSlideSeconds();
+
+            if (mBackgroundSlides.empty())
+                return;
+
+            try
+            {
+                mBackground = MyGUI::Gui::getInstance().createWidgetReal<BackgroundImage>(
+                    "ImageBox", 0, 0, 1, 1, MyGUI::Align::Default, loginBackgroundLayer);
+                mBackground->setProperty("NeedMouse", "false");
+                mBackground->setBackgroundImage(mBackgroundSlides.front(), false, true);
+
+                if (mBackgroundEffects && mBackgroundSlides.size() > 1)
+                {
+                    mBackgroundNext = MyGUI::Gui::getInstance().createWidgetReal<BackgroundImage>(
+                        "ImageBox", 0, 0, 1, 1, MyGUI::Align::Default, loginBackgroundLayer);
+                    mBackgroundNext->setProperty("NeedMouse", "false");
+                    mBackgroundNext->setBackgroundImage(mBackgroundSlides[1], false, true);
+                    mBackgroundNext->setAlpha(0.f);
+                }
+
+                const std::string atmosphereTexture = getLoginAtmosphereOverlayTexture();
+                if (mBackgroundEffects && !atmosphereTexture.empty())
+                {
+                    mAtmosphereOverlay = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>(
+                        "ImageBox", 0, 0, 1, 1, MyGUI::Align::Stretch, loginBackgroundLayer);
+                    mAtmosphereOverlay->setProperty("NeedMouse", "false");
+                    mAtmosphereOverlay->setImageTexture(atmosphereTexture);
+                    mAtmosphereOverlay->setAlpha(0.34f);
+                }
+
+                updateBackgroundAnimation(0.f);
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to create CommunityMP login background: %s", e.what());
+                if (mBackground != nullptr)
+                {
+                    MyGUI::Gui::getInstance().destroyWidget(mBackground);
+                    mBackground = nullptr;
+                }
+                if (mBackgroundNext != nullptr)
+                {
+                    MyGUI::Gui::getInstance().destroyWidget(mBackgroundNext);
+                    mBackgroundNext = nullptr;
+                }
+                if (mAtmosphereOverlay != nullptr)
+                {
+                    MyGUI::Gui::getInstance().destroyWidget(mAtmosphereOverlay);
+                    mAtmosphereOverlay = nullptr;
+                }
+            }
+        }
+
+        void updateBackgroundAnimation(float duration)
+        {
+            if (mBackground == nullptr || mBackgroundSlides.empty())
+                return;
+
+            const MyGUI::IntSize viewSize = MyGUI::RenderManager::getInstance().getViewSize();
+            if (viewSize.width <= 0 || viewSize.height <= 0)
+                return;
+
+            if (!mBackgroundEffects)
+            {
+                mBackground->setCoord(MyGUI::IntCoord(0, 0, viewSize.width, viewSize.height));
+                return;
+            }
+
+            mBackgroundTime += std::max(0.f, duration);
+            if (mBackgroundSlides.size() > 1)
+            {
+                while (mBackgroundTime >= mSlideDuration)
+                {
+                    mBackgroundTime -= mSlideDuration;
+                    mCurrentBackgroundSlide = (mCurrentBackgroundSlide + 1) % mBackgroundSlides.size();
+                    mBackground->setBackgroundImage(mBackgroundSlides[mCurrentBackgroundSlide], false, true);
+                    if (mBackgroundNext != nullptr)
+                    {
+                        const std::size_t nextSlide = (mCurrentBackgroundSlide + 1) % mBackgroundSlides.size();
+                        mBackgroundNext->setBackgroundImage(mBackgroundSlides[nextSlide], false, true);
+                    }
+                }
+            }
+
+            const float phase = mSlideDuration > 0.f ? std::clamp(mBackgroundTime / mSlideDuration, 0.f, 1.f) : 0.f;
+            const float crossFadeSeconds = std::min(2.75f, mSlideDuration * 0.42f);
+            const float fade = mBackgroundSlides.size() > 1 && mBackgroundNext != nullptr
+                ? std::clamp((mBackgroundTime - (mSlideDuration - crossFadeSeconds)) / crossFadeSeconds, 0.f, 1.f)
+                : 0.f;
+
+            setAnimatedBackgroundCoord(mBackground, mCurrentBackgroundSlide, phase, viewSize, 0.f);
+            mBackground->setAlpha(1.f - fade * 0.92f);
+
+            if (mBackgroundNext != nullptr)
+            {
+                const std::size_t nextSlide = (mCurrentBackgroundSlide + 1) % mBackgroundSlides.size();
+                setAnimatedBackgroundCoord(mBackgroundNext, nextSlide, fade * 0.22f, viewSize, 0.012f);
+                mBackgroundNext->setAlpha(fade);
+            }
+
+            if (mAtmosphereOverlay != nullptr)
+            {
+                mAtmosphereOverlay->setCoord(0, 0, viewSize.width, viewSize.height);
+                const float shimmer = 0.5f + 0.5f * std::sin(mBackgroundTime * 0.55f);
+                mAtmosphereOverlay->setAlpha(0.24f + shimmer * 0.10f);
+            }
+        }
+
+        void setAnimatedBackgroundCoord(
+            MyGUI::Widget* widget, std::size_t slideIndex, float phase, const MyGUI::IntSize& viewSize, float extraZoom)
+        {
+            if (widget == nullptr)
+                return;
+
+            phase = std::clamp(phase, 0.f, 1.f);
+            const float eased = phase * phase * (3.f - 2.f * phase);
+            const float zoom = 1.12f + eased * 0.08f + extraZoom;
+            const int width = static_cast<int>(std::ceil(viewSize.width * zoom));
+            const int height = static_cast<int>(std::ceil(viewSize.height * zoom));
+            const int overflowX = std::max(0, width - viewSize.width);
+            const int overflowY = std::max(0, height - viewSize.height);
+
+            constexpr float xStart[] = { 0.06f, 0.88f, 0.34f, 0.78f };
+            constexpr float xEnd[] = { 0.80f, 0.14f, 0.72f, 0.20f };
+            constexpr float yStart[] = { 0.18f, 0.08f, 0.70f, 0.34f };
+            constexpr float yEnd[] = { 0.54f, 0.58f, 0.20f, 0.66f };
+            const std::size_t motion = slideIndex % std::size(xStart);
+            const float x = xStart[motion] + (xEnd[motion] - xStart[motion]) * eased;
+            const float y = yStart[motion] + (yEnd[motion] - yStart[motion]) * eased;
+
+            widget->setCoord(-static_cast<int>(overflowX * x), -static_cast<int>(overflowY * y), width, height);
+        }
+
+        void createLogo()
+        {
+            const std::string texture = getLoginLogoTexture();
+            if (texture.empty())
+                return;
+
+            try
+            {
+                mLogo = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>(
+                    "ImageBox", 0.21f, 0.035f, 0.58f, 0.11f, MyGUI::Align::Default, "Windows");
+                mLogo->setProperty("NeedMouse", "false");
+                mLogo->setImageTexture(texture);
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to create CommunityMP login logo %s: %s",
+                    texture.c_str(), e.what());
+                if (mLogo != nullptr)
+                {
+                    MyGUI::Gui::getInstance().destroyWidget(mLogo);
+                    mLogo = nullptr;
+                }
+            }
+        }
+
+        void startLoginMusic()
+        {
+            const std::string music = getLoginMusicTrack();
+            if (music.empty())
+                return;
+
+            try
+            {
+                auto soundManager = MWBase::Environment::get().getSoundManager();
+                soundManager->stopMusic();
+                soundManager->streamMusic(VFS::Path::Normalized(music), MWSound::MusicType::Normal, 0.f);
+                mLoginMusicStarted = true;
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(
+                    TimedLog::LOG_WARN, "Failed to start CommunityMP login music %s: %s", music.c_str(), e.what());
+            }
+        }
+
+        void stopLoginMusic()
+        {
+            if (!mLoginMusicStarted)
+                return;
+
+            try
+            {
+                MWBase::Environment::get().getSoundManager()->stopMusic();
+            }
+            catch (const std::exception& e)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Failed to stop CommunityMP login music: %s", e.what());
+            }
+
+            mLoginMusicStarted = false;
+        }
+
+        void updateRememberCredentialsButton()
+        {
+            mRememberCredentialsButton->setStateSelected(mRememberCredentials);
+            mRememberCredentialsButton->setCaption(mRememberCredentials ? "[x] Remember me" : "[ ] Remember me");
+        }
+
+        static constexpr std::string_view rememberedPasswordMask = "********";
+
+        MyGUI::TextBox* mServerText = nullptr;
+        MyGUI::EditBox* mAccountNameEdit = nullptr;
+        MyGUI::EditBox* mAccountPasswordEdit = nullptr;
+        MyGUI::EditBox* mServerPasswordEdit = nullptr;
+        MyGUI::Button* mRememberCredentialsButton = nullptr;
+        MyGUI::TextBox* mErrorText = nullptr;
+        BackgroundImage* mBackground = nullptr;
+        BackgroundImage* mBackgroundNext = nullptr;
+        MyGUI::ImageBox* mAtmosphereOverlay = nullptr;
+        MyGUI::ImageBox* mLogo = nullptr;
+        std::vector<std::string> mBackgroundSlides;
+        std::string mRememberedAccountName;
+        std::size_t mCurrentBackgroundSlide = 0;
+        float mBackgroundTime = 0.f;
+        float mSlideDuration = defaultLoginSlideSeconds;
+        bool mRememberCredentials = false;
+        bool mUsingRememberedAccountPasswordHash = false;
+        bool mBackgroundEffects = true;
+        bool mLoginMusicStarted = false;
+        bool mAccepted = false;
+    };
 
     WindowManager::WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
         Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue, const std::filesystem::path& logpath,
@@ -190,6 +891,7 @@ namespace MWGui
         , mTranslationDataStorage(translationDataStorage)
         , mInputBlocker(nullptr)
         , mHudEnabled(true)
+        , mItemDragDropEnabled(true)
         , mCursorVisible(true)
         , mCursorActive(true)
         , mPlayerBounty(-1)
@@ -202,6 +904,7 @@ namespace MWGui
         , mEncoding(encoding)
         , mVersionDescription(versionDescription)
         , mWindowVisible(true)
+        , mWindowFocused(true)
         , mCfgMgr(cfgMgr)
     {
         int w, h;
@@ -451,7 +1154,7 @@ namespace MWGui
         mWindows.push_back(std::move(enchantingDialog));
 
         auto trainingWindow = std::make_unique<TrainingWindow>();
-        mGuiModeStates[GM_Training] = GuiModeState({ trainingWindow->getProgressBar(), trainingWindow.get() });
+        mGuiModeStates[GM_Training] = GuiModeState(trainingWindow.get());
         mWindows.push_back(std::move(trainingWindow));
 
         auto merchantRepair = std::make_unique<MerchantRepair>();
@@ -781,6 +1484,11 @@ namespace MWGui
     void WindowManager::interactiveMessageBox(
         std::string_view message, const std::vector<std::string>& buttons, bool block, int defaultFocus)
     {
+#ifdef BUILD_TES3MP_CLIENT
+        if (shouldSuppressMultiplayerPreCharacterMessage(message))
+            return;
+#endif
+
         mMessageBoxManager->createInteractiveMessageBox(message, buttons, block, defaultFocus);
         updateVisible();
 
@@ -819,8 +1527,128 @@ namespace MWGui
         }
     }
 
+    std::optional<std::string> WindowManager::promptTextInput(
+        std::string_view label, std::string_view note, const std::string& initialText, bool password)
+    {
+        if (mPromptTextDialog)
+            removeDialog(std::move(mPromptTextDialog));
+
+        mPromptTextResult.reset();
+        mPromptTextDone = false;
+
+        mPromptTextDialog = std::make_unique<TextInputDialog>();
+        mPromptTextDialog->setEditPassword(password);
+        mPromptTextDialog->setTextLabel(label);
+        mPromptTextDialog->setTextNote(note);
+        mPromptTextDialog->setTextInput(initialText);
+        mPromptTextDialog->eventDone += MyGUI::newDelegate(this, &WindowManager::onPromptTextDone);
+        mPromptTextDialog->setVisible(true);
+        updateVisible();
+
+        Misc::FrameRateLimiter frameRateLimiter
+            = Misc::makeFrameRateLimiter(MWBase::Environment::get().getFrameRateLimit());
+        while (!mPromptTextDone && !MWBase::Environment::get().getStateManager()->hasQuitRequest())
+        {
+            const float dt = std::chrono::duration_cast<std::chrono::duration<float>>(
+                frameRateLimiter.getLastFrameDuration()).count();
+
+            mKeyboardNavigation->onFrame();
+            mMessageBoxManager->onFrame(dt);
+            MWBase::Environment::get().getInputManager()->update(dt, true, false);
+
+            if (!mWindowVisible)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            else
+            {
+                mViewer->eventTraversal();
+                mViewer->updateTraversal();
+                mViewer->renderingTraversals();
+            }
+
+            if (mViewer->getFrameStamp() != nullptr)
+                mViewer->advance(mViewer->getFrameStamp()->getSimulationTime());
+            else
+                mViewer->advance();
+            frameRateLimiter.limit();
+        }
+
+        removeDialog(std::move(mPromptTextDialog));
+        return mPromptTextResult;
+    }
+
+    std::optional<MWBase::LoginCredentials> WindowManager::promptLoginCredentials(std::string_view serverEndpoint,
+        const std::string& initialAccountName, const std::string& initialServerPassword, bool rememberCredentials,
+        bool hasRememberedAccountPasswordHash)
+    {
+        if (mPromptLoginDialog)
+            removeDialog(std::move(mPromptLoginDialog));
+
+        mPromptLoginResult.reset();
+        mPromptLoginDone = false;
+
+        const bool restoreHudVisibility = isHudVisible();
+        setHudVisibility(false);
+
+        mPromptLoginDialog = std::make_unique<Tes3mpLoginDialog>(serverEndpoint, initialAccountName,
+            initialServerPassword, rememberCredentials, hasRememberedAccountPasswordHash);
+        mPromptLoginDialog->eventDone += MyGUI::newDelegate(this, &WindowManager::onPromptLoginDone);
+        mPromptLoginDialog->setVisible(true);
+        updateVisible();
+
+        Misc::FrameRateLimiter frameRateLimiter
+            = Misc::makeFrameRateLimiter(MWBase::Environment::get().getFrameRateLimit());
+        while (!mPromptLoginDone && !MWBase::Environment::get().getStateManager()->hasQuitRequest())
+        {
+            const float dt = std::chrono::duration_cast<std::chrono::duration<float>>(
+                frameRateLimiter.getLastFrameDuration()).count();
+
+            mKeyboardNavigation->onFrame();
+            mMessageBoxManager->onFrame(dt);
+            mPromptLoginDialog->onFrame(dt);
+            MWBase::Environment::get().getInputManager()->update(dt, true, false);
+
+            if (!mWindowVisible)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            else
+            {
+                mViewer->eventTraversal();
+                mViewer->updateTraversal();
+                mViewer->renderingTraversals();
+            }
+
+            if (mViewer->getFrameStamp() != nullptr)
+                mViewer->advance(mViewer->getFrameStamp()->getSimulationTime());
+            else
+                mViewer->advance();
+            frameRateLimiter.limit();
+        }
+
+        removeDialog(std::move(mPromptLoginDialog));
+        setHudVisibility(restoreHudVisibility);
+        return mPromptLoginResult;
+    }
+
+    void WindowManager::onPromptTextDone(WindowBase* /*window*/)
+    {
+        if (mPromptTextDialog)
+            mPromptTextResult = mPromptTextDialog->getTextInput();
+        mPromptTextDone = true;
+    }
+
+    void WindowManager::onPromptLoginDone(WindowBase* /*window*/)
+    {
+        if (mPromptLoginDialog && mPromptLoginDialog->isAccepted())
+            mPromptLoginResult = mPromptLoginDialog->getCredentials();
+        mPromptLoginDone = true;
+    }
+
     void WindowManager::messageBox(std::string_view message, enum MWGui::ShowInDialogueMode showInDialogueMode)
     {
+#ifdef BUILD_TES3MP_CLIENT
+        if (shouldSuppressMultiplayerPreCharacterMessage(message))
+            return;
+#endif
+
         if (getMode() == GM_Dialogue && showInDialogueMode != MWGui::ShowInDialogueMode_Never)
         {
             MyGUI::UString text = MyGUI::LanguageManager::getInstance().replaceTags(MyGUI::UString(message));
@@ -834,11 +1662,21 @@ namespace MWGui
 
     void WindowManager::scheduleMessageBox(std::string message, enum MWGui::ShowInDialogueMode showInDialogueMode)
     {
+#ifdef BUILD_TES3MP_CLIENT
+        if (shouldSuppressMultiplayerPreCharacterMessage(message))
+            return;
+#endif
+
         mScheduledMessageBoxes.lock()->emplace_back(std::move(message), showInDialogueMode);
     }
 
     void WindowManager::staticMessageBox(std::string_view message)
     {
+#ifdef BUILD_TES3MP_CLIENT
+        if (shouldSuppressMultiplayerPreCharacterMessage(message))
+            return;
+#endif
+
         mMessageBoxManager->createMessageBox(message, true);
     }
 
@@ -1218,6 +2056,23 @@ namespace MWGui
         MWBase::Environment::get().getInputManager()->setDragDrop(dragDrop);
     }
 
+    bool WindowManager::isDragDropActive() const
+    {
+        return mDragAndDrop && mDragAndDrop->mIsOnDragAndDrop;
+    }
+
+    void WindowManager::setItemDragDropEnabled(bool enabled)
+    {
+        mItemDragDropEnabled = enabled;
+        if (!mItemDragDropEnabled && mDragAndDrop && mDragAndDrop->mIsOnDragAndDrop)
+            mDragAndDrop->finish();
+    }
+
+    bool WindowManager::isItemDragDropEnabled() const
+    {
+        return mItemDragDropEnabled;
+    }
+
     void WindowManager::setCursorVisible(bool visible)
     {
         mCursorVisible = visible;
@@ -1367,9 +2222,24 @@ namespace MWGui
         return mWindowVisible;
     }
 
+    bool WindowManager::isWindowFocused() const
+    {
+        return mWindowFocused;
+    }
+
     void WindowManager::windowVisibilityChange(bool visible)
     {
         mWindowVisible = visible;
+    }
+
+    void WindowManager::windowFocusChange(bool focused)
+    {
+        mWindowFocused = focused;
+
+        if (focused)
+            onKeyFocusChanged(MyGUI::InputManager::getInstance().getKeyFocusWidget());
+        else if (SDL_IsTextInputActive() == SDL_TRUE)
+            SDL_StopTextInput();
     }
 
     void WindowManager::windowClosed()
@@ -1734,7 +2604,18 @@ namespace MWGui
 
     bool WindowManager::isGuiMode() const
     {
-        return !mGuiModes.empty() || isConsoleMode() || isPostProcessorHudVisible() || isInteractiveMessageBoxActive();
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::isInitialized())
+        {
+            if (mwmp::GUIController* guiController = mwmp::Main::get().getGUIController())
+            {
+                if (guiController->getChatEditState())
+                    return true;
+            }
+        }
+#endif
+        return !mGuiModes.empty() || !mCurrentModals.empty() || isConsoleMode() || isPostProcessorHudVisible()
+            || isInteractiveMessageBoxActive();
     }
 
     bool WindowManager::isConsoleMode() const
@@ -1834,6 +2715,11 @@ namespace MWGui
     void WindowManager::addVisitedLocation(const std::string& name, int x, int y)
     {
         mMap->addVisitedLocation(name, x, y);
+    }
+
+    void WindowManager::setGlobalMapImage(int x, int y, const std::vector<char>& imageData)
+    {
+        mMap->setGlobalMapImage(x, y, imageData);
     }
 
     const Translation::Storage& WindowManager::getTranslationDataStorage() const
@@ -2181,6 +3067,14 @@ namespace MWGui
         mKeyboardNavigation->setDefaultFocus(input->mMainWidget, input->getDefaultKeyFocus());
 
         updateControllerButtonsOverlay();
+
+        if (mGuiModes.empty())
+        {
+            MWBase::Environment::get().getInputManager()->changeInputMode(true);
+            if (mInputBlocker)
+                mInputBlocker->setVisible(false);
+            setCursorVisible(true);
+        }
     }
 
     void WindowManager::removeCurrentModal(WindowModal* input)
@@ -2208,6 +3102,17 @@ namespace MWGui
         }
         else
             mKeyboardNavigation->setModalWindow(mCurrentModals.back()->mMainWidget);
+
+        if (mGuiModes.empty())
+        {
+            const bool guiMode = isGuiMode();
+            MWBase::Environment::get().getInputManager()->changeInputMode(guiMode);
+            if (mInputBlocker)
+                mInputBlocker->setVisible(!guiMode);
+            setCursorVisible(guiMode);
+            if (!guiMode)
+                setKeyFocusWidget(nullptr);
+        }
     }
 
     void WindowManager::onVideoKeyPressed(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char value)
@@ -2630,6 +3535,23 @@ namespace MWGui
         if (it == mLuaIdToWindow.end())
             throw std::logic_error("Invalid window name: " + std::string(windowId));
         return it->second->isVisible();
+    }
+
+    std::optional<std::string> WindowManager::getWindowLayer(std::string_view windowId) const
+    {
+        auto it = mLuaIdToWindow.find(windowId);
+        if (it == mLuaIdToWindow.end())
+            throw std::logic_error("Invalid window name: " + std::string(windowId));
+
+        MyGUI::Widget* widget = it->second->mMainWidget;
+        if (widget == nullptr)
+            return std::nullopt;
+
+        MyGUI::ILayer* layer = widget->getLayer();
+        if (layer == nullptr)
+            return std::nullopt;
+
+        return layer->getName();
     }
 
     std::vector<std::string_view> WindowManager::getAllWindowIds() const

@@ -29,6 +29,11 @@ option(DEPLOY_QT_TRANSLATIONS "Deploy standard Qt translations to resources fold
 
 # Apps and tools
 option(BUILD_OPENMW             "Build OpenMW" ON)
+option(BUILD_TES3MP_CLIENT      "Build TES3MP client layer" ON)
+option(BUILD_TES3MP_SERVER      "Build TES3MP dedicated server" ON)
+option(BUILD_COMMUNITYMP_LAUNCHER "Build CommunityMP unified mode launcher" ON)
+option(BUILD_COMMUNITYMP_HUB "Build CommunityMP Hub desktop app" ON)
+option(BUILD_TES3MP_MASTER      "Build TES3MP master server" OFF)
 option(BUILD_LAUNCHER           "Build Launcher" ON)
 option(BUILD_WIZARD             "Build Installation Wizard" ON)
 option(BUILD_MWINIIMPORTER      "Build MWiniImporter" ON)
@@ -46,6 +51,18 @@ option(BUILD_BULLETOBJECTTOOL   "Build Bullet object tool" ON)
 option(BUILD_OPENCS_TESTS       "Build OpenMW Construction Set tests" OFF)
 option(BUILD_OPENMW_TESTS       "Build OpenMW tests" OFF)
 option(PRECOMPILE_HEADERS_WITH_MSVC "Precompile most common used headers with MSVC (alternative to ccache)" ON)
+
+set(OPENMW_PHYSICS_BACKEND "bullet" CACHE STRING "Physics simulation backend (bullet|jolt)")
+set_property(CACHE OPENMW_PHYSICS_BACKEND PROPERTY STRINGS bullet jolt)
+if(NOT OPENMW_PHYSICS_BACKEND MATCHES "^(bullet|jolt)$")
+    message(FATAL_ERROR "OPENMW_PHYSICS_BACKEND must be 'bullet' or 'jolt' (got '${OPENMW_PHYSICS_BACKEND}')")
+endif()
+message(STATUS "Physics backend: ${OPENMW_PHYSICS_BACKEND}")
+
+set(BUILD_TES3MP_TARGETS OFF)
+if (BUILD_TES3MP_CLIENT OR BUILD_TES3MP_SERVER OR BUILD_TES3MP_MASTER)
+    set(BUILD_TES3MP_TARGETS ON)
+endif()
 
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
 
@@ -82,7 +99,7 @@ message(STATUS "Configuring OpenMW...")
 set(OPENMW_VERSION_MAJOR 0)
 set(OPENMW_VERSION_MINOR 52)
 set(OPENMW_VERSION_RELEASE 0)
-set(OPENMW_LUA_API_REVISION 134)
+set(OPENMW_LUA_API_REVISION 143)
 set(OPENMW_POSTPROCESSING_API_REVISION 5)
 
 set(OPENMW_VERSION_COMMITHASH "")
@@ -279,6 +296,86 @@ if (USE_QT)
     message(STATUS "Using Qt${QT_VERSION}")
 endif()
 
+if (BUILD_TES3MP_TARGETS)
+    find_package(GameNetworkingSockets CONFIG REQUIRED)
+endif()
+
+if(WIN32 AND BUILD_TES3MP_TARGETS)
+    get_filename_component(TES3MP_GNS_PREFIX "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
+    set(TES3MP_GNS_RUNTIME_DIR "${TES3MP_GNS_PREFIX}/bin")
+
+    if(NOT EXISTS "${TES3MP_GNS_RUNTIME_DIR}")
+        message(FATAL_ERROR "Could not find GameNetworkingSockets runtime directory: ${TES3MP_GNS_RUNTIME_DIR}")
+    endif()
+
+    file(GLOB TES3MP_GNS_RUNTIME_DLLS CONFIGURE_DEPENDS "${TES3MP_GNS_RUNTIME_DIR}/*.dll")
+
+    if(NOT TES3MP_GNS_RUNTIME_DLLS)
+        message(FATAL_ERROR "Could not find GameNetworkingSockets runtime DLLs in: ${TES3MP_GNS_RUNTIME_DIR}")
+    endif()
+endif()
+
+function(tes3mp_copy_runtime_dlls target)
+    if(WIN32 AND BUILD_TES3MP_TARGETS)
+        set(runtime_dlls ${TES3MP_GNS_RUNTIME_DLLS})
+
+        if(NOT MYGUI_STATIC AND MyGUI_LIBRARY)
+            get_filename_component(_mygui_lib_dir "${MyGUI_LIBRARY}" DIRECTORY)
+            get_filename_component(_mygui_prefix "${_mygui_lib_dir}/.." ABSOLUTE)
+
+            file(GLOB _vcpkg_runtime_dlls CONFIGURE_DEPENDS
+                "${_mygui_prefix}/bin/*.dll"
+                "${_mygui_prefix}/bin/Release/*.dll")
+            list(APPEND runtime_dlls ${_vcpkg_runtime_dlls})
+
+            foreach(_dll
+                    "${_mygui_prefix}/bin/Release/MyGUIEngine.dll"
+                    "${_mygui_prefix}/debug/bin/Debug/MyGUIEngine_d.dll"
+                    "${_mygui_prefix}/bin/freetype.dll")
+                if(EXISTS "${_dll}")
+                    list(APPEND runtime_dlls "${_dll}")
+                endif()
+            endforeach()
+        endif()
+
+        if(TARGET yaml-cpp AND NOT YAML_CPP_STATIC)
+            list(APPEND runtime_dlls "$<TARGET_FILE:yaml-cpp>")
+        endif()
+
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${runtime_dlls}
+                $<TARGET_FILE_DIR:${target}>
+            COMMAND_EXPAND_LISTS
+        )
+
+        if(OPENSCENEGRAPH_VERSION)
+            set(_osg_plugin_dir "")
+            foreach(_osg_lib ${OSGDB_LIBRARY_RELEASE} ${OSGDB_LIBRARY} ${OSG_LIBRARY_RELEASE} ${OSG_LIBRARY})
+                if(EXISTS "${_osg_lib}")
+                    get_filename_component(_osg_lib_dir "${_osg_lib}" DIRECTORY)
+                    get_filename_component(_osg_prefix "${_osg_lib_dir}/.." ABSOLUTE)
+                    if(EXISTS "${_osg_prefix}/bin/osgPlugins-${OPENSCENEGRAPH_VERSION}")
+                        set(_osg_plugin_dir "${_osg_prefix}/bin/osgPlugins-${OPENSCENEGRAPH_VERSION}")
+                        break()
+                    elseif(EXISTS "${_osg_lib_dir}/osgPlugins-${OPENSCENEGRAPH_VERSION}")
+                        set(_osg_plugin_dir "${_osg_lib_dir}/osgPlugins-${OPENSCENEGRAPH_VERSION}")
+                        break()
+                    endif()
+                endif()
+            endforeach()
+
+            if(_osg_plugin_dir)
+                add_custom_command(TARGET ${target} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_directory
+                        "${_osg_plugin_dir}"
+                        "$<TARGET_FILE_DIR:${target}>/osgPlugins-${OPENSCENEGRAPH_VERSION}"
+                )
+            endif()
+        endif()
+    endif()
+endfunction()
+
 set(USED_OSG_COMPONENTS
     osgAnimation
     osgDB
@@ -430,6 +527,35 @@ if(OPENMW_USE_SYSTEM_BULLET)
     endif()
 endif()
 
+if(OPENMW_PHYSICS_BACKEND STREQUAL "jolt")
+    include(FetchContent)
+    set(DOUBLE_PRECISION ON CACHE BOOL "" FORCE)
+    set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "" FORCE)
+    set(CROSS_PLATFORM_DETERMINISTIC OFF CACHE BOOL "" FORCE)
+    set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+    set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
+    set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+    set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+    set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(joltphysics
+        GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+        GIT_TAG 04587a3e8cefe227760b8feae569073ef134db01
+        SOURCE_DIR fetched/joltphysics
+    )
+    FetchContent_GetProperties(joltphysics)
+    if(NOT joltphysics_POPULATED)
+        FetchContent_Populate(joltphysics)
+        add_subdirectory(${joltphysics_SOURCE_DIR}/Build ${joltphysics_BINARY_DIR} EXCLUDE_FROM_ALL)
+    endif()
+    set(JOLT_INCLUDE_DIR "${joltphysics_SOURCE_DIR}")
+    add_compile_definitions(OPENMW_PHYSICS_BACKEND_JOLT=1)
+else()
+    add_compile_definitions(OPENMW_PHYSICS_BACKEND_BULLET=1)
+endif()
+
 if (NOT WIN32 AND BUILD_WIZARD) # windows users can just run the morrowind installer
     find_package(LIBUNSHIELD REQUIRED) # required only for non win32 when building openmw-wizard
     set(OPENMW_USE_UNSHIELD TRUE)
@@ -479,7 +605,7 @@ if(HAVE_MULTIVIEW)
     add_compile_definitions(OSG_HAS_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
-set(BOOST_COMPONENTS iostreams program_options)
+set(BOOST_COMPONENTS iostreams program_options filesystem)
 
 find_package(Boost 1.70.0 CONFIG REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
 
@@ -558,18 +684,27 @@ pack_resource_file(${OpenMW_SOURCE_DIR}/files/settings-default.cfg
 configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.appdata.xml
     "${OpenMW_BINARY_DIR}" "openmw.appdata.xml")
 
+set(OPENMW_INSTALL_CONFIG_FILE ${OpenMW_SOURCE_DIR}/files/openmw.cfg)
+if (WIN32)
+    set(OPENMW_INSTALL_CONFIG_FILE ${OpenMW_SOURCE_DIR}/files/openmw.cfg.local)
+endif()
+
+if (BUILD_TES3MP_CLIENT OR BUILD_TES3MP_SERVER)
+    set(OPENMW_INSTALL_CONFIG_FILE ${OpenMW_SOURCE_DIR}/files/openmw.cfg.communitymp-portable)
+endif()
+
 if (APPLE)
     configure_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg
         "${OpenMW_BINARY_DIR}/openmw.cfg")
 elseif (WIN32)
     configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg.local
         "${OpenMW_BINARY_DIR}" "openmw.cfg")
-    configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg.local
+    configure_resource_file(${OPENMW_INSTALL_CONFIG_FILE}
         "${OpenMW_BINARY_DIR}" "openmw.cfg.install")
 else ()
     configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg.local
         "${OpenMW_BINARY_DIR}" "openmw.cfg")
-    configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg
+    configure_resource_file(${OPENMW_INSTALL_CONFIG_FILE}
         "${OpenMW_BINARY_DIR}" "openmw.cfg.install")
 endif ()
 
@@ -582,6 +717,25 @@ copy_resource_file(${OpenMW_SOURCE_DIR}/files/opencs/defaultfilters
 
 configure_resource_file(${OpenMW_SOURCE_DIR}/files/gamecontrollerdb.txt
     "${OpenMW_BINARY_DIR}" "gamecontrollerdb.txt")
+
+if (BUILD_TES3MP_CLIENT OR BUILD_TES3MP_SERVER)
+    configure_resource_file(${OpenMW_SOURCE_DIR}/files/communitymp/communitymp-client-default.cfg
+        "${OpenMW_BINARY_DIR}" "communitymp-client-default.cfg")
+    configure_resource_file(${OpenMW_SOURCE_DIR}/files/communitymp/communitymp-server-default.cfg
+        "${OpenMW_BINARY_DIR}" "communitymp-server-default.cfg")
+    configure_resource_file(${OpenMW_SOURCE_DIR}/files/tes3mp/tes3mp-client-default.cfg
+        "${OpenMW_BINARY_DIR}" "tes3mp-client-default.cfg")
+    configure_resource_file(${OpenMW_SOURCE_DIR}/files/tes3mp/tes3mp-server-default.cfg
+        "${OpenMW_BINARY_DIR}" "tes3mp-server-default.cfg")
+endif()
+
+if (BUILD_TES3MP_SERVER)
+    file(GLOB_RECURSE TES3MP_SERVER_FILES CONFIGURE_DEPENDS LIST_DIRECTORIES false
+        RELATIVE "${OpenMW_SOURCE_DIR}/files/tes3mp/server"
+        "${OpenMW_SOURCE_DIR}/files/tes3mp/server/*")
+    copy_all_resource_files("${OpenMW_SOURCE_DIR}/files/tes3mp/server"
+        "${OpenMW_BINARY_DIR}" "server" "${TES3MP_SERVER_FILES}")
+endif()
 
 if (NOT WIN32 AND NOT APPLE)
     configure_file(${OpenMW_SOURCE_DIR}/files/org.openmw.launcher.desktop
@@ -672,6 +826,22 @@ add_subdirectory (components)
 # Apps and tools
 if (BUILD_OPENMW OR BUILD_OPENMW_TESTS)
     add_subdirectory( apps/openmw )
+endif()
+
+if (BUILD_TES3MP_SERVER)
+    add_subdirectory(apps/openmw-mp)
+endif()
+
+if (BUILD_COMMUNITYMP_LAUNCHER)
+    add_subdirectory(apps/communitymp)
+endif()
+
+if (BUILD_COMMUNITYMP_HUB)
+    add_subdirectory(apps/browser)
+endif()
+
+if (BUILD_TES3MP_MASTER)
+    add_subdirectory(apps/master)
 endif()
 
 if (BUILD_BSATOOL)
@@ -981,8 +1151,47 @@ elseif(NOT APPLE)
 
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/resources" DESTINATION ".")
 
+        if(BUILD_TES3MP_CLIENT OR BUILD_TES3MP_SERVER)
+            INSTALL(FILES "${INSTALL_SOURCE}/communitymp-client-default.cfg" DESTINATION ".")
+            INSTALL(FILES "${INSTALL_SOURCE}/tes3mp-client-default.cfg" DESTINATION ".")
+        endif()
+
+        if(BUILD_TES3MP_SERVER)
+            INSTALL(FILES "${INSTALL_SOURCE}/communitymp-server-default.cfg" DESTINATION ".")
+            INSTALL(FILES "${INSTALL_SOURCE}/tes3mp-server-default.cfg" DESTINATION ".")
+            INSTALL(DIRECTORY "${INSTALL_SOURCE}/server" DESTINATION "."
+                    PATTERN "*.db" EXCLUDE
+                    PATTERN "*.json" EXCLUDE
+                    PATTERN "*.txt" EXCLUDE
+                    PATTERN "*.bak" EXCLUDE
+                    PATTERN "*.tmp" EXCLUDE
+                    PATTERN "data/*.db" EXCLUDE
+                    PATTERN "data/*.json" EXCLUDE
+                    PATTERN "data/*.txt" EXCLUDE
+                    PATTERN "data/*.bak" EXCLUDE
+                    PATTERN "data/*.tmp" EXCLUDE
+                    PATTERN "data/_backup*" EXCLUDE
+                    PATTERN "data/saves" EXCLUDE
+                    PATTERN "data/saves/*" EXCLUDE
+                    PATTERN "data/cell/*.json" EXCLUDE
+                    PATTERN "data/custom/*.json" EXCLUDE
+                    PATTERN "data/map/*.json" EXCLUDE
+                    PATTERN "data/player/*.json" EXCLUDE
+                    PATTERN "data/recordstore/*.json" EXCLUDE
+                    PATTERN "data/world/*.json" EXCLUDE
+                    REGEX ".*/data/_backup.*" EXCLUDE
+                    REGEX ".*/data[\\/]saves([\\/].*)?$" EXCLUDE)
+            INSTALL(CODE [[
+                file(REMOVE_RECURSE "${CMAKE_INSTALL_PREFIX}/server/data/saves")
+            ]])
+            INSTALL(FILES "${INSTALL_SOURCE}/server/data/saves/server/security/banlist.xml"
+                    DESTINATION "server/data/saves/server/security")
+            INSTALL(FILES "${INSTALL_SOURCE}/server/data/saves/server/config/data-files.xml"
+                    DESTINATION "server/data/saves/server/config")
+        endif()
+
         SET(CPACK_GENERATOR "NSIS")
-        SET(CPACK_PACKAGE_EXECUTABLES "openmw;OpenMW")
+        SET(CPACK_PACKAGE_EXECUTABLES "communitymp-client;CommunityMP Client")
         IF(BUILD_LAUNCHER)
             SET(CPACK_PACKAGE_EXECUTABLES "${CPACK_PACKAGE_EXECUTABLES};openmw-launcher;OpenMW Launcher")
         ENDIF(BUILD_LAUNCHER)

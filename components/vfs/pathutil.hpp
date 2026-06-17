@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -457,6 +458,18 @@ namespace VFS::Path
         }
     };
 
+    struct Equal
+    {
+        using is_transparent = void;
+
+        template <class Lhs, class Rhs>
+        [[nodiscard]] constexpr auto operator()(const Lhs& lhs, const Rhs& rhs) const
+            noexcept(noexcept(lhs == rhs)) -> decltype(lhs == rhs)
+        {
+            return lhs == rhs;
+        }
+    };
+
     // A special function to be removed once conversion to VFS::Path::Normalized* is complete
     template <class T>
     Normalized toNormalized(T&& value)
@@ -504,5 +517,25 @@ namespace VFS::Path
         return result;
     }
 }
+
+template <>
+struct std::hash<VFS::Path::Normalized> : VFS::Path::Hash
+{
+};
+
+template <>
+struct std::hash<VFS::Path::NormalizedView> : VFS::Path::Hash
+{
+};
+
+template <>
+struct std::equal_to<VFS::Path::Normalized> : VFS::Path::Equal
+{
+};
+
+template <>
+struct std::equal_to<VFS::Path::NormalizedView> : VFS::Path::Equal
+{
+};
 
 #endif

@@ -7,6 +7,7 @@
 #include "windowbase.hpp"
 
 #include "bookpage.hpp"
+#include "mode.hpp"
 
 #include "../mwbase/dialoguemanager.hpp"
 #include "../mwdialogue/keywordsearch.hpp"
@@ -143,6 +144,11 @@ namespace MWGui
         void onTradeComplete();
 
         bool exit() override;
+
+        void activateTopic(std::string_view topic);
+        void showPersuasionDialog();
+        void openCompanionShare();
+        void openService(MWBase::DialogueManager::ServiceType service, GuiMode mode);
 
         void notifyLinkClicked(TypesetBook::InteractiveId link);
 

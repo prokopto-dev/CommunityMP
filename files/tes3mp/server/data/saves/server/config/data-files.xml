@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<save domain="server-config" format="CommunityMP XML Save" kind="server-data-files" saveSchemaVersion="1" savedAt="0" schemaVersion="1">
+    <node key="data" keyType="string" type="table">
+        <node key="1" keyType="number" type="table">
+            <node key="Morrowind.esm" keyType="string" type="table">
+                <node key="1" keyType="number" type="string">0x7B6AF5B9</node>
+                <node key="2" keyType="number" type="string">0x34282D67</node>
+            </node>
+        </node>
+        <node key="2" keyType="number" type="table">
+            <node key="Tribunal.esm" keyType="string" type="table">
+                <node key="1" keyType="number" type="string">0xF481F334</node>
+                <node key="2" keyType="number" type="string">0x211329EF</node>
+            </node>
+        </node>
+        <node key="3" keyType="number" type="table">
+            <node key="Bloodmoon.esm" keyType="string" type="table">
+                <node key="1" keyType="number" type="string">0x43DD2132</node>
+                <node key="2" keyType="number" type="string">0x9EB62F26</node>
+            </node>
+        </node>
+    </node>
+</save>

@@ -422,7 +422,7 @@ namespace LuaUtil
             sol::state_view thisState(s);
             sol::load_result res = thisState.load(code, "", sol::load_mode::text);
             if (!res.valid())
-                throw std::runtime_error("Lua error: " + res.get<std::string>());
+                throw std::runtime_error("Lua error: " + getLuaErrorMessage(res.lua_state(), res.stack_index()));
             sol::function fn = res;
             sol::environment newEnv(thisState, sol::create, env);
             newEnv[sol::metatable_key][sol::meta_function::new_index] = env;

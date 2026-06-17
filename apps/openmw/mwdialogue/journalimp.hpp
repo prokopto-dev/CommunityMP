@@ -30,7 +30,7 @@ namespace MWDialogue
         Quest& getOrStartQuest(const ESM::RefId& id) override;
         ///< Gets the quest requested. Attempts to create it and inserts it in quests if it is not yet started.
 
-        void addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor) override;
+        void addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor, bool showMessage = true) override;
         ///< Add a journal entry.
         /// @param actor Used as context for replacing of escape sequences (%name, etc).
 

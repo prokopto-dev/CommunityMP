@@ -220,6 +220,7 @@ namespace
         { CSMWorld::UniversalId::Type_Birthsign, CSMWorld::ColumnBase::Display_Birthsign },
         { CSMWorld::UniversalId::Type_Spell, CSMWorld::ColumnBase::Display_Spell },
         { CSMWorld::UniversalId::Type_Cell, CSMWorld::ColumnBase::Display_Cell },
+        { CSMWorld::UniversalId::Type_Cell, CSMWorld::ColumnBase::Display_InteriorCell },
         { CSMWorld::UniversalId::Type_Referenceable, CSMWorld::ColumnBase::Display_Referenceable },
         { CSMWorld::UniversalId::Type_Activator, CSMWorld::ColumnBase::Display_Activator },
         { CSMWorld::UniversalId::Type_Potion, CSMWorld::ColumnBase::Display_Potion },

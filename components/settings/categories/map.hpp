@@ -21,6 +21,8 @@ namespace Settings
 
         SettingValue<int> mGlobalMapCellSize{ mIndex, "Map", "global map cell size", makeClampSanitizerInt(1, 50) };
         SettingValue<bool> mLocalMapHudFogOfWar{ mIndex, "Map", "local map hud fog of war" };
+        SettingValue<float> mLocalMapHudZoom{ mIndex, "Map", "local map hud zoom",
+            makeClampSanitizerFloat(0.1f, 4.f) };
         SettingValue<int> mLocalMapResolution{ mIndex, "Map", "local map resolution", makeMaxSanitizerInt(1) };
         SettingValue<int> mLocalMapWidgetSize{ mIndex, "Map", "local map widget size", makeMaxSanitizerInt(1) };
         SettingValue<bool> mGlobal{ mIndex, "Map", "global" };

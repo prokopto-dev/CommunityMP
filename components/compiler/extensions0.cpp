@@ -131,8 +131,8 @@ namespace Compiler
                     std::string("get") + controls[i] + std::string("disabled"), 'l', "", opcodeGetDisabled + i);
             }
 
-            extensions.registerInstruction("togglecollision", "", opcodeToggleCollision);
-            extensions.registerInstruction("tcl", "", opcodeToggleCollision);
+            extensions.registerInstruction("togglecollision", "", opcodeToggleCollision, opcodeToggleCollisionExplicit);
+            extensions.registerInstruction("tcl", "", opcodeToggleCollision, opcodeToggleCollisionExplicit);
 
             extensions.registerInstruction("clearforcerun", "", opcodeClearForceRun, opcodeClearForceRunExplicit);
             extensions.registerInstruction("forcerun", "", opcodeForceRun, opcodeForceRunExplicit);

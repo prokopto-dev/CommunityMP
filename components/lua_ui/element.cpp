@@ -295,6 +295,7 @@ namespace LuaUi
     {
         if (mState == Update)
         {
+            WidgetExtension::DeferredFocusEventScope deferFocusEvents;
             assert(mRoot);
             if (mRoot->widget()->getTypeName() != widgetType(layout()))
             {

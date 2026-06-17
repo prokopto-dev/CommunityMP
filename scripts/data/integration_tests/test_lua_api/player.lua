@@ -6,6 +6,7 @@ local input = require('openmw.input')
 local types = require('openmw.types')
 local nearby = require('openmw.nearby')
 local camera = require('openmw.camera')
+local I = require('openmw.interfaces')
 local matchers = require('matchers')
 
 types.Player.setControlSwitch(self, types.Player.CONTROL_SWITCH.Controls, false)
@@ -15,6 +16,47 @@ types.Player.setControlSwitch(self, types.Player.CONTROL_SWITCH.Looking, false)
 types.Player.setControlSwitch(self, types.Player.CONTROL_SWITCH.Magic, false)
 types.Player.setControlSwitch(self, types.Player.CONTROL_SWITCH.VanityMode, false)
 types.Player.setControlSwitch(self, types.Player.CONTROL_SWITCH.ViewMode, false)
+
+testing.registerLocalTest('window layers are exposed',
+    function()
+        testing.expectEqual(I.UI.version, 4, 'I.UI version')
+        testing.expectEqual(I.UI.getLayerForWindow(I.UI.WINDOW.Map), 'Windows', 'Map window layer')
+        testing.expectEqual(I.UI.getLayerForWindow(I.UI.WINDOW.Inventory), 'Windows', 'Inventory window layer')
+
+        local ok = pcall(function()
+            I.UI.getLayerForWindow('NotAWindow')
+        end)
+        testing.expectEqual(ok, false, 'Unknown window should fail')
+    end)
+
+testing.registerLocalTest('ui drag and drop state is exposed',
+    function()
+        local ui = require('openmw.ui')
+        testing.expectEqual(type(ui.isDragDropActive), 'function')
+        testing.expectEqual(type(ui.setNativeItemDragDropEnabled), 'function')
+        testing.expectEqual(type(ui.isNativeItemDragDropEnabled), 'function')
+        testing.expectEqual(ui.isDragDropActive(), false)
+        testing.expectEqual(ui.isNativeItemDragDropEnabled(), true)
+
+        local element = ui.create({
+            type = ui.TYPE.Widget,
+            layer = 'HUD',
+            props = {
+                size = util.vector2(4, 4),
+                interactive = false,
+            },
+        })
+        coroutine.yield()
+        element:destroy()
+        coroutine.yield()
+
+        ui.setNativeItemDragDropEnabled(false)
+        coroutine.yield()
+        testing.expectEqual(ui.isNativeItemDragDropEnabled(), false)
+        ui.setNativeItemDragDropEnabled(true)
+        coroutine.yield()
+        testing.expectEqual(ui.isNativeItemDragDropEnabled(), true)
+    end)
 
 local function rotate(object, targetPitch, targetYaw)
     local endTime = core.getSimulationTime() + 1
@@ -264,6 +306,49 @@ testing.registerLocalTest('player memory limit',
         end)
         testing.expectEqual(ok, false, 'Script reaching memory limit should fail')
         testing.expectEqual(err, 'not enough memory')
+    end)
+
+testing.registerLocalTest('queued UI mode is reflected immediately',
+    function()
+        I.UI.setMode()
+
+        local ok, err = pcall(function()
+            I.UI.setMode(I.UI.MODE.Interface)
+            testing.expectEqual(I.UI.getMode(), I.UI.MODE.Interface, 'Queued mode should be visible via getMode')
+            testing.expectEqual(
+                I.UI.modes[#I.UI.modes], I.UI.MODE.Interface, 'Queued mode should be visible via modes')
+
+            I.UI.setMode()
+            testing.expectEqual(I.UI.getMode(), nil, 'Cleared queued mode should be visible via getMode')
+            testing.expectEqual(#I.UI.modes, 0, 'Cleared queued mode should be visible via modes')
+        end)
+
+        I.UI.setMode()
+        if not ok then
+            error(err, 0)
+        end
+    end)
+
+testing.registerLocalTest('skill use failure handlers are exposed',
+    function()
+        testing.expectEqual(I.SkillProgression.version, 3, 'Unexpected SkillProgression interface version')
+        testing.expectEqual(type(I.SkillProgression.addSkillUsedFailedHandler), 'function')
+        testing.expectEqual(type(I.SkillProgression.skillUsedFailed), 'function')
+
+        local receivedSkill = nil
+        local receivedOptions = nil
+        I.SkillProgression.addSkillUsedFailedHandler(function(skillid, options)
+            receivedSkill = skillid
+            receivedOptions = options
+        end)
+
+        local useType = I.SkillProgression.SKILL_USE_TYPES.Sneak_PickPocket
+        I.SkillProgression.skillUsedFailed('sneak', { useType = useType, scale = 0.5 })
+
+        testing.expectEqual(receivedSkill, 'sneak')
+        testing.expectEqual(receivedOptions.useType, useType)
+        testing.expectEqualWithDelta(
+            receivedOptions.skillGain, core.stats.Skill.record('sneak').skillGain[useType + 1] * 0.5, 0.001)
     end)
 
 testing.registerLocalTest('player weapon attack',

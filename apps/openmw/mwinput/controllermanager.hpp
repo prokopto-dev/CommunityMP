@@ -41,6 +41,7 @@ namespace MWInput
 
         void setGamepadGuiCursorEnabled(bool enabled) { mGamepadGuiCursorEnabled = enabled; }
         bool gamepadGuiCursorEnabled() const { return mGamepadGuiCursorEnabled; }
+        void setCapturingGuiControllerButtons(bool enabled) { mCapturingGuiControllerButtons = enabled; }
 
         float getAxisValue(SDL_GameControllerAxis axis) const; // returns value in range [-1, 1]
         bool isButtonPressed(SDL_GameControllerButton button) const;
@@ -55,6 +56,8 @@ namespace MWInput
         // Return true if GUI consumes input.
         bool gamepadToGuiControl(const SDL_ControllerButtonEvent& arg);
         bool gamepadToGuiControl(const SDL_ControllerAxisEvent& arg);
+        bool captureGuiControllerButtonPress(const SDL_ControllerButtonEvent& arg);
+        bool captureGuiControllerButtonRelease(const SDL_ControllerButtonEvent& arg);
 
         void enableGyroSensor();
 
@@ -70,6 +73,8 @@ namespace MWInput
         bool mGamepadMousePressed;
         bool mLeftTriggerGuiPressed;
         bool mRightTriggerGuiPressed;
+        bool mCapturingGuiControllerButtons;
+        std::array<bool, SDL_CONTROLLER_BUTTON_MAX> mCapturedGuiControllerButtons;
     };
 }
 #endif

@@ -4,7 +4,7 @@
 #include <components/esm4/loadstat.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/ptr.hpp"
 
@@ -32,13 +32,13 @@ namespace MWClass
     }
 
     void Static::insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         insertObjectPhysics(ptr, model, rotation, physics);
     }
 
     void Static::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::CollisionType_World);
     }

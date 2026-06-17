@@ -2,7 +2,9 @@
 #define COMPONENTS_LUA_LUASTATE_H
 
 #include <filesystem>
+#include <exception>
 #include <map>
+#include <string>
 #include <typeinfo>
 
 #include <sol/sol.hpp>
@@ -21,6 +23,7 @@ namespace LuaUtil
 {
 
     std::string getLuaVersion();
+    std::string getLuaErrorMessage(lua_State* state, int stackIndex);
 
     class ScriptsContainer;
     struct ScriptId
@@ -77,9 +80,22 @@ namespace LuaUtil
             return LUA_ERRMEM;
         lua_pushcfunction(luaState, [](lua_State* state) {
             void* f = lua_touserdata(state, 1);
-            LuaView view(state);
-            (*static_cast<Function*>(f))(view);
-            return 0;
+            try
+            {
+                LuaView view(state);
+                (*static_cast<Function*>(f))(view);
+                return 0;
+            }
+            catch (const std::exception& e)
+            {
+                lua_pushstring(state, e.what());
+                return lua_error(state);
+            }
+            catch (...)
+            {
+                lua_pushliteral(state, "Unknown C++ exception");
+                return lua_error(state);
+            }
         });
         lua_pushlightuserdata(luaState, &function);
         return lua_pcall(luaState, 1, 0, 0);
@@ -97,11 +113,8 @@ namespace LuaUtil
                 throw std::runtime_error("Lua error: out of memory");
             case LUA_ERRRUN:
             {
-                sol::optional<std::string> error = sol::stack::check_get<std::string>(luaState);
-                if (error)
-                    throw std::runtime_error(*error);
+                throw std::runtime_error("Lua error: " + getLuaErrorMessage(luaState, -1));
             }
-                [[fallthrough]];
             default:
                 throw std::runtime_error("Lua error: " + std::to_string(result));
         }
@@ -124,6 +137,7 @@ namespace LuaUtil
     public:
         explicit LuaState(const VFS::Manager* vfs, const ScriptsConfiguration* conf,
             const LuaStateSettings& settings = LuaStateSettings{});
+        ~LuaState();
         LuaState(const LuaState&) = delete;
         LuaState(LuaState&&) = delete;
 
@@ -195,6 +209,7 @@ namespace LuaUtil
         sol::function loadScriptAndCache(const VFS::Path::Normalized& path);
         static void countHook(lua_State* state, lua_Debug* ar);
         static void* trackingAllocator(void* ud, void* ptr, size_t osize, size_t nsize);
+        static LuaState* getRegisteredState(lua_State* state);
 
         static LuaStatePtr createLuaRuntime(LuaState* luaState);
 
@@ -258,9 +273,12 @@ namespace LuaUtil
         LuaState* luaState = nullptr;
         if (LuaState::sProfilerEnabled && scriptId.mContainer)
         {
-            (void)lua_getallocf(fn.lua_state(), reinterpret_cast<void**>(&luaState));
-            luaState->mActiveScriptIdStack.push_back(scriptId);
-            luaState->mWatchdogInstructionCounter = 0;
+            luaState = LuaState::getRegisteredState(fn.lua_state());
+            if (luaState)
+            {
+                luaState->mActiveScriptIdStack.push_back(scriptId);
+                luaState->mWatchdogInstructionCounter = 0;
+            }
         }
         try
         {
@@ -296,7 +314,7 @@ namespace LuaUtil
             if (result.valid())
                 return result.get<sol::object>();
             else
-                throw result.get<sol::error>();
+                throw std::runtime_error("Lua error: " + getLuaErrorMessage(result.lua_state(), result.stack_index()));
         }
         else
             return table.raw_get<sol::object>(key);

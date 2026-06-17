@@ -12,6 +12,10 @@
 #include "engine.hpp"
 #include "options.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "mwmp/Main.hpp"
+#endif
+
 #include <boost/program_options/variables_map.hpp>
 
 #if defined(_WIN32)
@@ -69,6 +73,10 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
     Log(Debug::Info) << Version::getOpenmwVersionDescription();
 
     Settings::Manager::load(cfgMgr);
+
+#ifdef BUILD_TES3MP_CLIENT
+    mwmp::Main::configure(variables, cfgMgr);
+#endif
 
     MWGui::DebugWindow::startLogRecording();
 

@@ -51,6 +51,9 @@ set(BUILTIN_DATA_FILES
     fonts/MysticCards.omwfont
     fonts/MysticCardsFontLicense.txt
 
+    music/communitymp/nightinthedesertmix.CREDITS.txt
+    music/communitymp/nightinthedesertmix.ogg
+
     # Default animation blending config
     animations/animation-config.yaml
 
@@ -177,10 +180,13 @@ set(BUILTIN_DATA_FILES
     mygui/openmw_box.skin.xml
     mygui/openmw_button.skin.xml
     mygui/openmw_chargen_birth.layout
+    mygui/openmw_chargen_class_choice.layout
     mygui/openmw_chargen_class_description.layout
     mygui/openmw_chargen_class.layout
     mygui/openmw_chargen_create_class.layout
     mygui/openmw_chargen_generate_class_result.layout
+    mygui/openmw_chargen_generate_class_question.layout
+    mygui/openmw_chargen_name.layout
     mygui/openmw_chargen_race.layout
     mygui/openmw_chargen_review.layout
     mygui/openmw_chargen_select_attribute.layout

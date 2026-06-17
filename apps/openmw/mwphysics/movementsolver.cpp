@@ -23,6 +23,7 @@
 #include "trace.h"
 
 #include <cmath>
+#include <limits>
 
 namespace MWPhysics
 {
@@ -146,7 +147,9 @@ namespace MWPhysics
         // physicActor->getScaledMeshTranslation()
         actor.mPosition.z() += actor.mHalfExtentsZ; // vanilla-accurate
 
-        float swimlevel = actor.mSwimLevel + actor.mHalfExtentsZ;
+        const bool flying = actor.mFlying && !actor.mForceFalling;
+        const float swimlevel = actor.mForceFalling ? -std::numeric_limits<float>::max()
+                                                    : actor.mSwimLevel + actor.mHalfExtentsZ;
 
         ActorTracer tracer;
 
@@ -158,7 +161,7 @@ namespace MWPhysics
         {
             velocity = osg::Vec3f(0, 0, 1) * 25;
         }
-        else if (actor.mPosition.z() < swimlevel || actor.mFlying)
+        else if (actor.mPosition.z() < swimlevel || flying)
         {
             velocity = (osg::Quat(actor.mRotation.x(), osg::Vec3f(-1, 0, 0))
                            * osg::Quat(actor.mRotation.y(), osg::Vec3f(0, 0, -1)))
@@ -205,7 +208,7 @@ namespace MWPhysics
             bool underwater = newPosition.z() < swimlevel;
 
             // If not able to fly, don't allow to swim up into the air
-            if (!actor.mFlying && nextpos.z() > swimlevel && underwater)
+            if (!flying && nextpos.z() > swimlevel && underwater)
             {
                 const osg::Vec3f down(0, 0, -1);
                 velocity = reject(velocity, down);
@@ -237,7 +240,7 @@ namespace MWPhysics
                 break;
             }
 
-            bool seenGround = !actor.mFlying && !underwater
+            bool seenGround = !flying && !underwater
                 && ((actor.mIsOnGround && !actor.mIsOnSlope) || isWalkableSlope(tracer.mPlaneNormal));
 
             // We hit something. Check if we can step up.
@@ -263,7 +266,7 @@ namespace MWPhysics
             {
                 if (actor.mIsAquatic && newPosition.z() + actor.mHalfExtentsZ > actor.mWaterlevel)
                     newPosition = oldPosition;
-                else if (!actor.mFlying && actor.mPosition.z() >= swimlevel)
+                else if (!flying && actor.mPosition.z() >= swimlevel)
                     forceGroundTest = true;
             }
             else
@@ -365,7 +368,7 @@ namespace MWPhysics
                 // usedSeamLogic) and doing so would actually break air control in some situations where vanilla allows
                 // air control. Vanilla actually allows you to slide up slopes as long as you're in the "walking"
                 // animation, which can be true even in the air, so allowing this for seams isn't a compatibility break.
-                if (newPosition.z() >= swimlevel && !actor.mFlying && !isWalkableSlope(planeNormal) && !usedSeamLogic)
+                if (newPosition.z() >= swimlevel && !flying && !isWalkableSlope(planeNormal) && !usedSeamLogic)
                     newVelocity.z() = std::min(newVelocity.z(), velocity.z());
 
                 numTimesSlid += 1;
@@ -373,6 +376,19 @@ namespace MWPhysics
                 lastSlideNormal = origPlaneNormal;
                 velocity = newVelocity;
             }
+        }
+
+        const bool preserveStationaryGroundedActor = !actor.mIsPlayer && !flying && !actor.mWaterCollision
+            && actor.mIsOnGround && !actor.mIsOnSlope && actor.mMovement.length2() == 0.f
+            && actor.mInertia.length2() == 0.f && !forceGroundTest && newPosition.z() >= swimlevel;
+        if (preserveStationaryGroundedActor)
+        {
+            actor.mIsOnGround = true;
+            actor.mIsOnSlope = false;
+            actor.mInertia = osg::Vec3f();
+            actor.mPosition = newPosition;
+            actor.mPosition.z() -= actor.mHalfExtentsZ;
+            return;
         }
 
         bool isOnGround = false;
@@ -393,7 +409,7 @@ namespace MWPhysics
 
                     if (actor.mStandingOn->getBroadphaseHandle()->m_collisionFilterGroup == CollisionType_Water)
                         actor.mWalkingOnWater = true;
-                    if (!actor.mFlying && !isOnSlope)
+                    if (!flying && !isOnSlope)
                     {
                         if (tracer.mFraction * dropDistance > sGroundOffset)
                             newPosition.z() = tracer.mEndPos.z() + sGroundOffset;
@@ -409,7 +425,7 @@ namespace MWPhysics
                 else
                 {
                     // Vanilla allows actors to float on top of other actors. Do not push them off.
-                    if (!actor.mFlying && isWalkableSlope(tracer.mPlaneNormal)
+                    if (!flying && isWalkableSlope(tracer.mPlaneNormal)
                         && tracer.mEndPos.z() + sGroundOffset <= newPosition.z())
                         newPosition.z() = tracer.mEndPos.z() + sGroundOffset;
 
@@ -425,7 +441,7 @@ namespace MWPhysics
             }
         }
 
-        if ((isOnGround && !isOnSlope) || newPosition.z() < swimlevel || actor.mFlying)
+        if ((isOnGround && !isOnSlope) || newPosition.z() < swimlevel || flying)
             actor.mInertia = osg::Vec3f(0.f, 0.f, 0.f);
         else
         {

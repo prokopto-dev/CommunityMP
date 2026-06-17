@@ -1,6 +1,8 @@
 #include "types.hpp"
 
+#include "../contentbindings.hpp"
 #include "modelproperty.hpp"
+#include "usertypeutil.hpp"
 
 #include <components/esm3/loadclot.hpp>
 #include <components/lua/luastate.hpp>
@@ -18,16 +20,47 @@ namespace sol
     {
     };
 }
-namespace
+namespace MWLua
 {
-    // Populates a clothing struct from a Lua table.
+    namespace
+    {
+        template <class T>
+        void addUserType(sol::state_view& lua, std::string_view name)
+        {
+            sol::usertype<T> record = lua.new_usertype<T>(name);
+
+            record[sol::meta_function::to_string]
+                = [](const T& rec) -> std::string { return "ESM3_Clothing[" + rec.mId.toDebugString() + "]"; };
+            record["id"] = sol::readonly_property([](const T& rec) -> ESM::RefId { return rec.mId; });
+
+            Types::addProperty(record, "name", &ESM::Clothing::mName);
+            Types::addModelProperty(record);
+            Types::addIconProperty(record);
+            Types::addProperty(record, "enchant", &ESM::Clothing::mEnchant);
+            Types::addProperty(record, "mwscript", &ESM::Clothing::mScript);
+            Types::addProperty(record, "weight", &ESM::Clothing::mData, &ESM::Clothing::CTDTstruct::mWeight);
+            Types::addProperty(record, "value", &ESM::Clothing::mData, &ESM::Clothing::CTDTstruct::mValue);
+            Types::addProperty(record, "type", &ESM::Clothing::mData, &ESM::Clothing::CTDTstruct::mType);
+
+            const auto getEnchant = [](const T& rec) -> float {
+                return Types::RecordType<T>::asRecord(rec).mData.mEnchant * 0.1f;
+            };
+            if constexpr (Types::RecordType<T>::isMutable)
+            {
+                record["enchantCapacity"] = sol::property(std::move(getEnchant), [](T& rec, Misc::FiniteFloat value) {
+                    rec.find().mData.mEnchant = static_cast<uint16_t>(std::round(value.mValue * 10));
+                });
+            }
+            else
+            {
+                record["enchantCapacity"] = sol::readonly_property(std::move(getEnchant));
+            }
+        }
+    }
+
     ESM::Clothing tableToClothing(const sol::table& rec)
     {
-        ESM::Clothing clothing;
-        if (rec["template"] != sol::nil)
-            clothing = LuaUtil::cast<ESM::Clothing>(rec["template"]);
-        else
-            clothing.blank();
+        auto clothing = Types::initFromTemplate<ESM::Clothing>(rec);
 
         if (rec["name"] != sol::nil)
             clothing.mName = rec["name"];
@@ -62,9 +95,12 @@ namespace
         }
         return clothing;
     }
-}
-namespace MWLua
-{
+
+    void addMutableClothingType(sol::state_view& lua)
+    {
+        addUserType<MutableRecord<ESM::Clothing>>(lua, "ESM3_MutableClothing");
+    }
+
     void addClothingBindings(sol::table clothing, const Context& context)
     {
         clothing["createRecordDraft"] = tableToClothing;

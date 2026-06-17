@@ -76,7 +76,12 @@ namespace MWGui
         virtual void onInventoryUpdate(const MWWorld::Ptr& ptr) {}
 
         virtual std::string_view getWindowIdForLua() const { return {}; }
-        void setDisabledByLua(bool disabled) { mDisabledByLua = disabled; }
+        virtual void setDisabledByLua(bool disabled)
+        {
+            mDisabledByLua = disabled;
+            if (disabled)
+                setVisible(false);
+        }
 
         static void clampWindowCoordinates(MyGUI::Window* window);
 

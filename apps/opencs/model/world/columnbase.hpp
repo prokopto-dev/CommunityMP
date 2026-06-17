@@ -53,6 +53,7 @@ namespace CSMWorld
             Display_Birthsign,
             Display_Spell,
             Display_Cell,
+            Display_InteriorCell,
             Display_Referenceable,
             Display_Activator,
             Display_Potion,

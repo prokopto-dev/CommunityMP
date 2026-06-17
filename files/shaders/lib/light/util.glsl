@@ -42,6 +42,36 @@ float specularIntensity(vec3 viewNormal, vec3 viewDir, float shininess, vec3 lig
     return 0.0;
 }
 
+#if @pbrSpecular
+float ggxSpecularIntensity(vec3 viewNormal, vec3 viewDir, float shininess, vec3 lightDir)
+{
+    float NdotL = dot(viewNormal, lightDir);
+    if (NdotL <= 0.0)
+        return 0.0;
+
+    vec3 halfVec = normalize(lightDir - viewDir);
+    float NdotH = max(dot(viewNormal, halfVec), 0.0);
+    float NdotV = max(dot(viewNormal, -viewDir), 1e-4);
+    float VdotH = max(dot(-viewDir, halfVec), 0.0);
+    float roughness = clamp(1.0 - log2(max(shininess, 1.0)) / 8.0, 0.25, 1.0);
+    float alpha = max(roughness * roughness, 0.0025);
+    float alpha2 = alpha * alpha;
+    float denom = (NdotH * NdotH) * (alpha2 - 1.0) + 1.0;
+    float distribution = alpha2 / (3.14159265 * denom * denom);
+    float k = (roughness + 1.0);
+    k = (k * k) * 0.125;
+    float geometryView = NdotV / (NdotV * (1.0 - k) + k);
+    float geometryLight = NdotL / (NdotL * (1.0 - k) + k);
+    float fresnel = 0.04 + (1.0 - 0.04) * pow(1.0 - VdotH, 5.0);
+
+    return clamp((distribution * geometryView * geometryLight * fresnel) / (4.0 * NdotV * NdotL + 1e-4), 0.0, 2.0);
+}
+
+#define SPECULAR_INTENSITY(n, v, s, l) ggxSpecularIntensity(n, v, s, l)
+#else
+#define SPECULAR_INTENSITY(n, v, s, l) specularIntensity(n, v, s, l)
+#endif
+
 float calcAttenuation(PointLight light, float dist) {
     float attenuation = 1.0 / (light.constant + light.linear * dist + light.quadratic * dist * dist);
     #if !@classicFalloff || @lightingMethodClustered
@@ -64,7 +94,7 @@ void calcDirectionalLighting(DirectionalLight light, vec3 viewDir, vec3 viewNorm
     vec3 dir = normalize(light.position.xyz);
     ambientLight += light.ambient.xyz;
     diffuseLight += light.diffuse.xyz * lambert(viewNormal, dir, viewDir);
-    specularLight += light.specular.xyz * specularIntensity(viewNormal, viewDir, shininess, dir);
+    specularLight += light.specular.xyz * SPECULAR_INTENSITY(viewNormal, viewDir, shininess, dir);
 }
 
 // Ensure lights with bounds crossing the far cluster plane fade out.
@@ -93,7 +123,7 @@ void calcPointLighting(PointLight light, vec3 viewDir, vec3 viewPos, vec3 viewNo
 
     diffuseLight += light.diffuse.xyz * lambert(viewNormal, lightDir, viewDir) * attenuation;
     ambientLight += light.ambient.xyz * attenuation;
-    specularLight += light.specular.xyz * specularIntensity(viewNormal, viewDir, shininess, lightDir) * attenuation;
+    specularLight += light.specular.xyz * SPECULAR_INTENSITY(viewNormal, viewDir, shininess, lightDir) * attenuation;
 }
 
 #endif

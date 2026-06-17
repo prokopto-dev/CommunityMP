@@ -78,7 +78,7 @@ namespace MWDialogue
         mTopics.clear();
     }
 
-    void Journal::addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor)
+    void Journal::addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor, bool showMessage)
     {
         // bail out if we already have heard this...
         const ESM::RefId& infoId = JournalEntry::idFromIndex(id, index);
@@ -88,7 +88,8 @@ namespace MWDialogue
                 if (getJournalIndex(id) < index)
                 {
                     setJournalIndex(id, index);
-                    MWBase::Environment::get().getWindowManager()->messageBox("#{sJournalEntry}");
+                    if (showMessage)
+                        MWBase::Environment::get().getWindowManager()->messageBox("#{sJournalEntry}");
                 }
                 return;
             }
@@ -111,7 +112,8 @@ namespace MWDialogue
         if (!entry.getText().empty())
         {
             mJournal.push_back(std::move(entry));
-            MWBase::Environment::get().getWindowManager()->messageBox("#{sJournalEntry}");
+            if (showMessage)
+                MWBase::Environment::get().getWindowManager()->messageBox("#{sJournalEntry}");
         }
     }
 

@@ -9,6 +9,11 @@ namespace Resource
     class ImageManager;
 }
 
+namespace Material
+{
+    class Registry;
+}
+
 namespace Shader
 {
 
@@ -20,6 +25,8 @@ namespace Shader
     public:
         ShaderVisitor(
             ShaderManager& shaderManager, Resource::ImageManager& imageManager, const std::string& defaultShaderPrefix);
+
+        void setMaterialRegistry(const Material::Registry* registry) { mMaterialRegistry = registry; }
 
         void setProgramTemplate(const osg::Program* programTemplate) { mProgramTemplate = programTemplate; }
 
@@ -106,12 +113,17 @@ namespace Shader
 
             bool mSoftParticles;
 
+            float mParallaxScaleOverride;
+
+            std::string mDiffuseFilename;
+
             // the Node that requested these requirements
             osg::Node* mNode;
         };
         std::vector<ShaderRequirements> mRequirements;
 
         std::string mDefaultShaderPrefix;
+        const Material::Registry* mMaterialRegistry = nullptr;
 
         void createProgram(const ShaderRequirements& reqs);
         bool adjustGeometry(osg::Geometry& sourceGeometry, const ShaderRequirements& reqs);

@@ -1,5 +1,6 @@
 #include "tradeitemmodel.hpp"
 
+#include <components/debug/debuglog.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/settings/values.hpp>
 
@@ -184,11 +185,20 @@ namespace MWGui
                 if (base.getCellRef().getRefId() == MWWorld::ContainerStore::sGoldId)
                     continue;
 
-                if (!base.getClass().showsInInventory(base))
-                    return;
+                try
+                {
+                    if (!base.getClass().showsInInventory(base))
+                        continue;
 
-                if (!base.getClass().canSell(base, services))
+                    if (!base.getClass().canSell(base, services))
+                        continue;
+                }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << "Skipping invalid barter item "
+                                        << base.getCellRef().getRefId().serializeText() << ": " << e.what();
                     continue;
+                }
 
                 // Bound items may not be bought
                 if (item.mFlags & ItemStack::Flag_Bound)

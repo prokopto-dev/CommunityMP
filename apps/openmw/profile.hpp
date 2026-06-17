@@ -38,6 +38,7 @@ namespace OMW
         World,
         Gui,
         Focus,
+        LuaGc,
         Lua,
         Number,
     };
@@ -74,6 +75,9 @@ namespace OMW
 
     template <>
     inline const UserStats UserStatsValue<UserStatsType::Gui>::sValue{ "GUI", "gui" };
+
+    template <>
+    inline const UserStats UserStatsValue<UserStatsType::LuaGc>::sValue{ "LuaGC", "luagc" };
 
     template <>
     inline const UserStats UserStatsValue<UserStatsType::Lua>::sValue{ "Lua", "lua" };

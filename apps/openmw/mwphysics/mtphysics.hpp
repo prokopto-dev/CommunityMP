@@ -52,6 +52,7 @@ namespace MWPhysics
             unsigned int frameNumber, osg::Stats& stats);
 
         void resetSimulation(const ActorMap& actors);
+        void setPhysicsDt(float physicsDt);
 
         // Thread safe wrappers
         void rayTest(const btVector3& rayFromWorld, const btVector3& rayToWorld,

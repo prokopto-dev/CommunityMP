@@ -1,0 +1,182 @@
+name: Sync with OpenMW
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to update
+        required: true
+        default: openmw-master
+      sync_branch:
+        description: Optional review branch for the OpenMW merge
+        required: false
+        default: ""
+      push_changes:
+        description: Push the merged branch after a successful build
+        required: true
+        type: boolean
+        default: true
+      open_pull_request:
+        description: Open or update a pull request for the sync branch
+        required: true
+        type: boolean
+        default: false
+      run_build:
+        description: Build GNS targets, run TES3MP packet tests, and smoke-test the install tree
+        required: true
+        type: boolean
+        default: true
+  schedule:
+    - cron: "37 8 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: openmw-sync-${{ github.event.inputs.target_branch || 'openmw-master' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: windows-2022
+    env:
+      BUILD_TYPE: RelWithDebInfo
+      MSVC_VERSION: "2022"
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'openmw-master' }}
+      SYNC_BRANCH: ${{ github.event.inputs.sync_branch || '' }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ env.TARGET_BRANCH }}
+
+    - name: Configure git
+      run: |
+        git config user.name "tes3mp-maintainer"
+        git config user.email "tes3mp-maintainer@users.noreply.github.com"
+
+    - name: Add dependency versions to environment
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+      shell: bash
+      run: |
+        sed '/^\s*#/d; /^\s*$/d' "${{ github.workspace }}/CI/deps_versions.msvc.sh" >> $GITHUB_ENV
+
+    - name: Create dependency directories
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+      run: |
+        mkdir -p ${{ github.workspace }}/deps
+        mkdir -p ${{ github.workspace }}/deps/Qt
+
+    - name: Download prebuilt OpenMW vcpkg packages
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+      working-directory: ${{ github.workspace }}/deps
+      run: |
+        $MANIFEST = "vcpkg-x64-windows-$env:MSVC_VERSION-$env:VCPKG_TAG-manifest.txt"
+        curl --fail --retry 3 -L -o "$MANIFEST" "https://gitlab.com/OpenMW/openmw-deps/-/raw/main/windows/$MANIFEST"
+        $lines = Get-Content "$MANIFEST"
+        $URL = $lines[0]
+        $split = -split $lines[1]
+        $HASH = $split[0]
+        $FILE = $split[1]
+        curl --fail --retry 3 -L -o "$FILE" "$URL"
+        $filehash = Get-FileHash "$FILE" -Algorithm SHA512
+        if ($filehash.hash -ne "$HASH") {
+          exit 1
+        }
+        echo "archive=$FILE" >> $env:GITHUB_ENV
+
+    - name: Extract prebuilt OpenMW vcpkg packages
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+      working-directory: ${{ github.workspace }}/deps
+      run: 7z x -y -ovcpkg-x64-windows-$env:MSVC_VERSION-$env:VCPKG_TAG $env:archive
+
+    - name: Cache Qt
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+      id: qt-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/deps/Qt/${{ env.QT_VER }}/msvc2019_64
+        key: qt-cache-${{ env.QT_VER }}-msvc2019_64-v1
+
+    - name: Download aqt
+      if: ${{ (github.event_name == 'schedule' || github.event.inputs.run_build != 'false') && steps.qt-cache.outputs.cache-hit != 'true' }}
+      working-directory: ${{ github.workspace }}/deps/Qt
+      run: >
+        curl --fail --retry 3 -L
+        -o aqt_x64.exe
+        https://github.com/miurahr/aqtinstall/releases/download/v3.1.15/aqt_x64.exe
+
+    - name: Install Qt
+      if: ${{ (github.event_name == 'schedule' || github.event.inputs.run_build != 'false') && steps.qt-cache.outputs.cache-hit != 'true' }}
+      working-directory: ${{ github.workspace }}/deps/Qt
+      run: .\aqt_x64.exe install-qt windows desktop $env:QT_VER win64_msvc2019_64
+
+    - uses: ilammy/msvc-dev-cmd@v1
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+
+    - uses: seanmiddleditch/gha-setup-ninja@master
+      if: ${{ github.event_name == 'schedule' || github.event.inputs.run_build != 'false' }}
+
+    - name: Merge OpenMW master
+      shell: pwsh
+      run: |
+        $pushChanges = "${{ github.event_name }}" -eq "schedule" -or "${{ github.event.inputs.push_changes }}" -eq "true"
+        $runBuild = "${{ github.event_name }}" -eq "schedule" -or "${{ github.event.inputs.run_build }}" -ne "false"
+
+        $updateArgs = @(
+          "-TargetBranch", $env:TARGET_BRANCH,
+          "-PushRemote", "origin",
+          "-BuildDir", "${{ github.workspace }}\build\openmw-sync",
+          "-Configuration", $env:BUILD_TYPE,
+          "-Generator", "Ninja",
+          "-CMakeToolchainFile", "${{ github.workspace }}\deps\vcpkg-x64-windows-$env:MSVC_VERSION-$env:VCPKG_TAG\scripts\buildsystems\vcpkg.cmake",
+          "-CMakePrefixPath", "${{ github.workspace }}\deps\Qt\$env:QT_VER\msvc2019_64",
+          "-InstallGnsDependencies",
+          "-GnsVcpkgDir", "${{ github.workspace }}\deps\vcpkg-gns",
+          "-PacketTestFilter", "GnsTransportTest.*:MpBasePacketTest.*",
+          "-RunPacketTests",
+          "-RunInstallSmoke"
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($env:SYNC_BRANCH)) {
+          $updateArgs += "-SyncBranch"
+          $updateArgs += $env:SYNC_BRANCH
+        }
+
+        if (-not $runBuild) {
+          $updateArgs += "-NoBuild"
+        }
+
+        if ($pushChanges) {
+          $updateArgs += "-Push"
+          if (-not [string]::IsNullOrWhiteSpace($env:SYNC_BRANCH)) {
+            $updateArgs += "-ForcePush"
+          }
+        }
+
+        .\scripts\update-openmw.ps1 @updateArgs
+
+    - name: Open pull request
+      if: ${{ env.SYNC_BRANCH != '' && (github.event_name == 'schedule' || github.event.inputs.push_changes == 'true') && (github.event_name == 'schedule' || github.event.inputs.open_pull_request == 'true') }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: pwsh
+      run: |
+        $existing = gh pr list `
+          --head "$env:SYNC_BRANCH" `
+          --base "$env:TARGET_BRANCH" `
+          --state open `
+          --json number `
+          --jq ".[0].number"
+
+        if ([string]::IsNullOrWhiteSpace($existing)) {
+          gh pr create `
+            --base "$env:TARGET_BRANCH" `
+            --head "$env:SYNC_BRANCH" `
+            --title "Sync OpenMW master into $env:TARGET_BRANCH" `
+            --body "Merges the latest OpenMW master into $env:TARGET_BRANCH and verifies the TES3MP GNS build targets."
+        } else {
+          Write-Host "Open pull request #$existing already exists."
+        }

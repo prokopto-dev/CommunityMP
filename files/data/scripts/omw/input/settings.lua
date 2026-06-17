@@ -44,6 +44,11 @@ local bindingSection = storage.playerSection('OMWInputBindings')
 
 local recording = nil
 
+local function setRecording(value)
+    recording = value
+    input._setCapturingControllerButtons(recording ~= nil)
+end
+
 local mouseButtonNames = {
     [1] = 'Left',
     [2] = 'Middle',
@@ -130,7 +135,7 @@ I.Settings.registerRenderer('inputBinding', function(id, set, arg)
             mouseClick = async:callback(function()
                 if recording ~= nil then return end
                 if binding ~= nil then bindingSection:set(id, nil) end
-                recording = {
+                setRecording {
                     id = id,
                     arg = arg,
                     refresh = function() set(id) end,
@@ -172,7 +177,7 @@ local function bindButton(device, button)
     }
     bindingSection:set(recording.id, binding)
     local refresh = recording.refresh
-    recording = nil
+    setRecording(nil)
     refresh()
 end
 

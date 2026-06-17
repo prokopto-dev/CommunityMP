@@ -4,6 +4,14 @@
 #include <components/files/configurationmanager.hpp>
 #include <components/misc/rng.hpp>
 
+#include <string>
+
+#ifdef BUILD_TES3MP_CLIENT
+#include <components/openmw-mp/Branding.hpp>
+
+#include "mwmp/Main.hpp"
+#endif
+
 namespace
 {
     namespace bpo = boost::program_options;
@@ -14,7 +22,13 @@ namespace OpenMW
 {
     bpo::options_description makeOptionsDescription()
     {
-        bpo::options_description desc("Syntax: openmw <options>\nAllowed options");
+        bpo::options_description desc(
+#ifdef BUILD_TES3MP_CLIENT
+            std::string("Syntax: ") + mwmp::Branding::executableName + " <options>\nAllowed options"
+#else
+            "Syntax: openmw <options>\nAllowed options"
+#endif
+        );
         Files::ConfigurationManager::addCommonOptions(desc);
 
         auto addOption = desc.add_options();
@@ -94,6 +108,10 @@ namespace OpenMW
 
         addOption("random-seed", bpo::value<unsigned int>()->default_value(Misc::Rng::generateDefaultSeed()),
             "seed value for random number generator");
+
+#ifdef BUILD_TES3MP_CLIENT
+        mwmp::Main::optionsDesc(&desc);
+#endif
 
         return desc;
     }

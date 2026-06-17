@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 
+#undef DrawState
 #undef far
 #undef near
 

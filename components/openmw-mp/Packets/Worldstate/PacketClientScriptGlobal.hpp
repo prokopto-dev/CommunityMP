@@ -1,0 +1,18 @@
+#ifndef OPENMW_PACKETCLIENTSCRIPTGLOBAL_HPP
+#define OPENMW_PACKETCLIENTSCRIPTGLOBAL_HPP
+
+#include <components/openmw-mp/Packets/Worldstate/WorldstatePacket.hpp>
+#include <components/openmw-mp/NetworkMessages.hpp>
+
+namespace mwmp
+{
+    class PacketClientScriptGlobal: public WorldstatePacket
+    {
+    public:
+        PacketClientScriptGlobal();
+
+        virtual void Packet(PacketStream *newBitstream, bool send);
+    };
+}
+
+#endif //OPENMW_PACKETCLIENTSCRIPTGLOBAL_HPP

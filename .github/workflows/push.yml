@@ -12,13 +12,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
 
     - name: Add OpenMW PPA Dependencies
       run: sudo add-apt-repository ppa:openmw/openmw; sudo apt-get update
 
     - name: Install Building Dependencies
       run: sudo CI/install_debian_deps.sh gcc openmw-deps openmw-deps-dynamic
+
+    - name: Prepare TES3MP GNS dependencies
+      run: |
+        git clone --depth 1 https://github.com/microsoft/vcpkg.git deps/vcpkg-gns
+        ./deps/vcpkg-gns/bootstrap-vcpkg.sh -disableMetrics
+        ./deps/vcpkg-gns/vcpkg install gamenetworkingsockets boost-asio boost-iostreams --triplet x64-linux
 
     - name: Prime ccache
       uses: hendrikmuhs/ccache-action@v1
@@ -35,6 +41,11 @@ jobs:
         -D BUILD_COMPONENTS_TESTS=ON
         -D BUILD_OPENMW_TESTS=ON
         -D BUILD_OPENCS_TESTS=ON
+        -D BUILD_TES3MP_CLIENT=ON
+        -D BUILD_TES3MP_SERVER=ON
+        -D BUILD_TES3MP_BROWSER=ON
+        -D BUILD_TES3MP_MASTER=ON
+        -D CMAKE_PREFIX_PATH=${{ github.workspace }}/deps/vcpkg-gns/installed/x64-linux
         -D CMAKE_INSTALL_PREFIX=install
 
     - name: Build

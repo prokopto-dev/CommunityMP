@@ -14,9 +14,16 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwdialogue/journalentry.hpp"
+
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
 
 #include "ref.hpp"
 
@@ -24,6 +31,65 @@ namespace MWScript
 {
     namespace Dialogue
     {
+#ifdef BUILD_TES3MP_CLIENT
+        mwmp::LocalPlayer* getLoggedInTes3mpLocalPlayer()
+        {
+            if (!mwmp::Main::isInitialized())
+                return nullptr;
+
+            mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer == nullptr || !localPlayer->canSendJournalChanges())
+                return nullptr;
+
+            return localPlayer;
+        }
+
+        bool hasTes3mpJournalEntry(const ESM::RefId& quest, int index)
+        {
+            const ESM::RefId& infoId = MWDialogue::JournalEntry::idFromIndex(quest, index);
+
+            for (const MWDialogue::StampedJournalEntry& entry
+                : MWBase::Environment::get().getJournal()->getEntries())
+            {
+                if (entry.mTopic == quest && entry.mInfoId == infoId)
+                    return true;
+            }
+
+            return false;
+        }
+
+        bool sendTes3mpJournalEntry(const ESM::RefId& quest, int index, const MWWorld::Ptr& actor)
+        {
+            mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayer();
+            if (localPlayer == nullptr)
+                return false;
+
+            try
+            {
+                if (!hasTes3mpJournalEntry(quest, index))
+                    localPlayer->sendJournalEntry(quest.serializeText(), index, actor);
+            }
+            catch (...)
+            {
+                if (MWBase::Environment::get().getJournal()->getJournalIndex(quest) < index)
+                    localPlayer->sendJournalIndex(quest.serializeText(), index);
+            }
+
+            return true;
+        }
+
+        bool sendTes3mpJournalIndex(const ESM::RefId& quest, int index)
+        {
+            mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayer();
+            if (localPlayer == nullptr)
+                return false;
+
+            localPlayer->sendJournalIndex(quest.serializeText(), index);
+            return true;
+        }
+
+#endif
+
         template <class R>
         class OpJournal : public Interpreter::Opcode0
         {
@@ -39,6 +105,11 @@ namespace MWScript
 
                 Interpreter::Type_Integer index = runtime[0].mInteger;
                 runtime.pop();
+
+#ifdef BUILD_TES3MP_CLIENT
+                if (sendTes3mpJournalEntry(quest, index, ptr))
+                    return;
+#endif
 
                 // Invoking Journal with a non-existing index is allowed, and triggers no errors. Seriously? :(
                 try
@@ -63,6 +134,11 @@ namespace MWScript
 
                 Interpreter::Type_Integer index = runtime[0].mInteger;
                 runtime.pop();
+
+#ifdef BUILD_TES3MP_CLIENT
+                if (sendTes3mpJournalIndex(quest, index))
+                    return;
+#endif
 
                 MWBase::Environment::get().getJournal()->setJournalIndex(quest, index);
             }
@@ -100,7 +176,12 @@ namespace MWScript
                         for (const auto& journalInfo : dialogue.mInfoOrder.getOrderedInfo())
                         {
                             if (journalInfo.mQuestStatus != ESM::DialInfo::QS_Name)
+                            {
+#ifdef BUILD_TES3MP_CLIENT
+                                sendTes3mpJournalEntry(dialogue.mId, journalInfo.mData.mJournalIndex, playerPtr);
+#endif
                                 journal->addEntry(dialogue.mId, journalInfo.mData.mJournalIndex, playerPtr);
+                            }
                         }
                     }
                     else if (dialogue.mType == ESM::Dialogue::Type::Topic)

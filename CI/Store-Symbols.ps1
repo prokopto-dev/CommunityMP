@@ -67,7 +67,9 @@ if (-not (Test-Path symstore-venv\Scripts\symstore.exe) -or -not ((symstore-venv
     }
 }
 
-$artifacts = $artifacts | Where-Object { Test-Path $_ }
+$artifacts = $artifacts |
+    Where-Object { Test-Path $_ -PathType Leaf } |
+    Where-Object { $_ -match '\.(exe|dll|pdb)$' }
 
 Write-Output "Storing symbols..."
 

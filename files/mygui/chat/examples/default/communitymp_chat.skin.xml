@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Resource" version="1.1">
+    <Resource type="ResourceSkin" name="CommunityMP_ChatTab" size="64 18" texture="mygui\chat\textures\communitymp_chat_tab_atlas.png">
+        <Property key="FontName" value="Russo"/>
+        <Property key="TextAlign" value="Center"/>
+        <Property key="TextShadow" value="true"/>
+        <Property key="TextShadowColour" value="0 0 0"/>
+        <Property key="NeedKey" value="true"/>
+        <BasisSkin type="MainSkin" offset="0 0 64 18" align="Stretch">
+            <State name="disabled" offset="0 0 64 18"/>
+            <State name="normal" offset="0 18 64 18"/>
+            <State name="highlighted" offset="0 36 64 18"/>
+            <State name="pushed" offset="0 54 64 18"/>
+            <State name="disabled_checked" offset="0 72 64 18"/>
+            <State name="normal_checked" offset="0 90 64 18"/>
+            <State name="highlighted_checked" offset="0 108 64 18"/>
+            <State name="pushed_checked" offset="0 126 64 18"/>
+        </BasisSkin>
+        <BasisSkin type="SimpleText" offset="0 1 64 16" align="Stretch">
+            <State name="disabled" colour="0.35 0.33 0.30" shift="0"/>
+            <State name="normal" colour="0.78 0.72 0.60" shift="0"/>
+            <State name="highlighted" colour="1 0.90 0.58" shift="0"/>
+            <State name="pushed" colour="1 0.72 0.25" shift="0"/>
+            <State name="disabled_checked" colour="0.35 0.33 0.30" shift="0"/>
+            <State name="normal_checked" colour="1 0.86 0.42" shift="0"/>
+            <State name="highlighted_checked" colour="1 0.95 0.68" shift="0"/>
+            <State name="pushed_checked" colour="1 0.72 0.25" shift="0"/>
+        </BasisSkin>
+    </Resource>
+
+    <Resource type="ResourceSkin" name="CommunityMP_ChatInputText" size="10 10">
+        <Property key="FontName" value="Russo"/>
+        <Property key="TextAlign" value="Left VCenter"/>
+        <Property key="TextColour" value="1 0.93 0.78"/>
+        <Property key="TextShadow" value="true"/>
+        <Property key="TextShadowColour" value="0 0 0"/>
+        <BasisSkin type="EditText" offset="0 0 10 10" align="Stretch"/>
+    </Resource>
+
+    <Resource type="ResourceSkin" name="CommunityMP_ChatInput" size="29 22">
+        <Child type="TextBox" skin="CommunityMP_ChatInputText" offset="6 0 17 21" align="Stretch" name="Client"/>
+    </Resource>
+</MyGUI>

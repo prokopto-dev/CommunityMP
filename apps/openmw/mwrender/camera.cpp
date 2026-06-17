@@ -6,6 +6,8 @@
 #include <components/sceneutil/nodecallback.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 
+#include <utility>
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -155,6 +157,82 @@ namespace MWRender
         res.y() += horizontalOffset.y();
         res.z() += mFirstPersonOffset.z();
         return res;
+    }
+
+    float Camera::getAdditiveAngleSum(const std::unordered_map<std::string, float>& addends) const
+    {
+        float sum = 0.f;
+        for (const auto& [_, value] : addends)
+            sum += value;
+        return sum;
+    }
+
+    osg::Vec3f Camera::getAdditiveFirstPersonOffsetSum() const
+    {
+        osg::Vec3f sum(0, 0, 0);
+        for (const auto& [_, value] : mAdditiveFirstPersonOffset)
+            sum += value;
+        return sum;
+    }
+
+    void Camera::updateExtraAngles()
+    {
+        mExtraPitch = mExtraPitchBase + getAdditiveAngleSum(mAdditiveExtraPitch);
+        mExtraYaw = mExtraYawBase + getAdditiveAngleSum(mAdditiveExtraYaw);
+        mExtraRoll = mExtraRollBase + getAdditiveAngleSum(mAdditiveExtraRoll);
+    }
+
+    void Camera::updateFirstPersonOffset()
+    {
+        mFirstPersonOffset = mFirstPersonOffsetBase + getAdditiveFirstPersonOffsetSum();
+    }
+
+    void Camera::setExtraPitch(float angle)
+    {
+        mExtraPitchBase = angle - getAdditiveAngleSum(mAdditiveExtraPitch);
+        updateExtraAngles();
+    }
+
+    void Camera::setExtraYaw(float angle)
+    {
+        mExtraYawBase = angle - getAdditiveAngleSum(mAdditiveExtraYaw);
+        updateExtraAngles();
+    }
+
+    void Camera::setExtraRoll(float angle)
+    {
+        mExtraRollBase = angle - getAdditiveAngleSum(mAdditiveExtraRoll);
+        updateExtraAngles();
+    }
+
+    void Camera::setAdditiveExtraPitch(float angle, std::string identifier)
+    {
+        mAdditiveExtraPitch[std::move(identifier)] = angle;
+        updateExtraAngles();
+    }
+
+    void Camera::setAdditiveExtraYaw(float angle, std::string identifier)
+    {
+        mAdditiveExtraYaw[std::move(identifier)] = angle;
+        updateExtraAngles();
+    }
+
+    void Camera::setAdditiveExtraRoll(float angle, std::string identifier)
+    {
+        mAdditiveExtraRoll[std::move(identifier)] = angle;
+        updateExtraAngles();
+    }
+
+    void Camera::setFirstPersonOffset(const osg::Vec3f& v)
+    {
+        mFirstPersonOffsetBase = v - getAdditiveFirstPersonOffsetSum();
+        updateFirstPersonOffset();
+    }
+
+    void Camera::setAdditiveFirstPersonOffset(const osg::Vec3f& v, std::string identifier)
+    {
+        mAdditiveFirstPersonOffset[std::move(identifier)] = v;
+        updateFirstPersonOffset();
     }
 
     void Camera::updatePosition()

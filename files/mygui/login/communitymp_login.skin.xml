@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Resource" version="1.1">
+    <Resource type="ResourceSkin" name="CommunityMP_LoginButton" size="256 32" texture="mygui\login\textures\communitymp_login_button_atlas.png">
+        <Property key="FontName" value="Russo"/>
+        <Property key="TextAlign" value="Center"/>
+        <Property key="TextShadow" value="true"/>
+        <Property key="TextShadowColour" value="0 0 0"/>
+        <Property key="NeedKey" value="true"/>
+        <BasisSkin type="MainSkin" offset="0 0 256 32" align="Stretch">
+            <State name="normal" offset="0 0 256 32"/>
+            <State name="highlighted" offset="0 32 256 32"/>
+            <State name="pushed" offset="0 64 256 32"/>
+            <State name="disabled" offset="0 96 256 32"/>
+            <State name="normal_checked" offset="0 64 256 32"/>
+            <State name="highlighted_checked" offset="0 64 256 32"/>
+            <State name="pushed_checked" offset="0 64 256 32"/>
+            <State name="disabled_checked" offset="0 96 256 32"/>
+        </BasisSkin>
+        <BasisSkin type="SimpleText" offset="0 1 256 30" align="Stretch">
+            <State name="normal" colour="0.86 0.78 0.58" shift="0"/>
+            <State name="highlighted" colour="1 0.90 0.58" shift="0"/>
+            <State name="pushed" colour="1 0.72 0.28" shift="0"/>
+            <State name="disabled" colour="0.35 0.33 0.30" shift="0"/>
+            <State name="normal_checked" colour="1 0.84 0.40" shift="0"/>
+            <State name="highlighted_checked" colour="1 0.94 0.64" shift="0"/>
+            <State name="pushed_checked" colour="1 0.72 0.28" shift="0"/>
+            <State name="disabled_checked" colour="0.35 0.33 0.30" shift="0"/>
+        </BasisSkin>
+    </Resource>
+
+    <Resource type="ResourceSkin" name="CommunityMP_LoginToggle" size="256 32" texture="mygui\login\textures\communitymp_login_button_atlas.png">
+        <Property key="FontName" value="Russo"/>
+        <Property key="TextAlign" value="Left VCenter"/>
+        <Property key="TextShadow" value="true"/>
+        <Property key="TextShadowColour" value="0 0 0"/>
+        <Property key="NeedKey" value="true"/>
+        <BasisSkin type="MainSkin" offset="0 0 256 32" align="Stretch">
+            <State name="normal" offset="0 0 256 32"/>
+            <State name="highlighted" offset="0 32 256 32"/>
+            <State name="pushed" offset="0 64 256 32"/>
+            <State name="disabled" offset="0 96 256 32"/>
+            <State name="normal_checked" offset="0 64 256 32"/>
+            <State name="highlighted_checked" offset="0 64 256 32"/>
+            <State name="pushed_checked" offset="0 64 256 32"/>
+            <State name="disabled_checked" offset="0 96 256 32"/>
+        </BasisSkin>
+        <BasisSkin type="SimpleText" offset="14 1 228 30" align="Stretch">
+            <State name="normal" colour="0.82 0.77 0.66" shift="0"/>
+            <State name="highlighted" colour="1 0.91 0.60" shift="0"/>
+            <State name="pushed" colour="1 0.73 0.30" shift="0"/>
+            <State name="disabled" colour="0.35 0.33 0.30" shift="0"/>
+            <State name="normal_checked" colour="1 0.84 0.40" shift="0"/>
+            <State name="highlighted_checked" colour="1 0.94 0.64" shift="0"/>
+            <State name="pushed_checked" colour="1 0.72 0.28" shift="0"/>
+            <State name="disabled_checked" colour="0.35 0.33 0.30" shift="0"/>
+        </BasisSkin>
+    </Resource>
+</MyGUI>

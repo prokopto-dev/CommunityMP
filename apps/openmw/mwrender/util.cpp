@@ -2,6 +2,7 @@
 
 #include <osg/Node>
 #include <osg/ValueObject>
+#include <osgParticle/ParticleSystem>
 
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/imagemanager.hpp>
@@ -38,6 +39,21 @@ namespace MWRender
             VFS::Path::NormalizedView mTexture;
             Resource::ResourceSystem* mResourcesystem;
         };
+
+        struct ParticleScaleReferenceFrameVisitor : osg::NodeVisitor
+        {
+            ParticleScaleReferenceFrameVisitor()
+                : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            {
+            }
+
+            void apply(osg::Drawable& drw) override
+            {
+                osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(&drw);
+                if (partsys)
+                    partsys->setParticleScaleReferenceFrame(osgParticle::ParticleSystem::WORLD_COORDINATES);
+            }
+        };
     }
 
     void overrideFirstRootTexture(
@@ -70,6 +86,12 @@ namespace MWRender
         stateset->setTextureAttribute(0, new SceneUtil::TextureType("diffuseMap"), osg::StateAttribute::OVERRIDE);
 
         node.setStateSet(stateset);
+    }
+
+    void useWorldspaceParticleSize(osg::Node& node)
+    {
+        ParticleScaleReferenceFrameVisitor visitor;
+        node.accept(visitor);
     }
 
     bool shouldAddMSAAIntermediateTarget()

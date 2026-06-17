@@ -8,6 +8,11 @@
             <Property key="TextAlign" value="Left Top"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit" position="6 28 300 30" name="TextEdit" align="Left Top"/>
+        <Widget type="TextBox" skin="HeaderText" position="6 64 300 86" name="TextNote" align="Left Top">
+            <Property key="TextAlign" value="Center"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Visible" value="false"/>
+        </Widget>
 
         <!-- Dialog buttons -->
         <Widget type="AutoSizedButton" skin="MW_Button" position="264 60 42 23" name="OKButton">

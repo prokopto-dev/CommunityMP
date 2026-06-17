@@ -12,7 +12,7 @@
 #include "../mwmechanics/magiceffects.hpp"
 #include "../mwmechanics/movement.hpp"
 
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 
 #include "../mwworld/inventorystore.hpp"
 #include "../mwworld/worldmodel.hpp"
@@ -25,7 +25,7 @@ namespace MWClass
     }
 
     void Actor::insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         physics.addActor(ptr, VFS::Path::toNormalized(model));
         if (getCreatureStats(ptr).isDead() && getCreatureStats(ptr).isDeathAnimationFinished())

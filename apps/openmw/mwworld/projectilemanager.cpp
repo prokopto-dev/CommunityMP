@@ -57,7 +57,7 @@
 
 #include "../mwsound/sound.hpp"
 
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 #include "../mwphysics/projectile.hpp"
 
 namespace
@@ -180,7 +180,7 @@ namespace MWWorld
 {
 
     ProjectileManager::ProjectileManager(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
-        MWRender::RenderingManager* rendering, MWPhysics::PhysicsSystem* physics)
+        MWRender::RenderingManager* rendering, MWPhysics::IPhysicsBackend* physics)
         : mParent(parent)
         , mResourceSystem(resourceSystem)
         , mRendering(rendering)

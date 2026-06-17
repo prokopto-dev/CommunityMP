@@ -1,6 +1,7 @@
 #include "cellref.hpp"
 
 #include <cassert>
+#include <cmath>
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
@@ -12,6 +13,14 @@
 #include "apps/openmw/mwbase/world.hpp"
 #include "apps/openmw/mwmechanics/spellutil.hpp"
 #include "apps/openmw/mwworld/esmstore.hpp"
+
+namespace
+{
+    float sanitizeScale(float scale)
+    {
+        return std::isfinite(scale) ? scale : 1.f;
+    }
+}
 
 namespace MWWorld
 {
@@ -118,8 +127,49 @@ namespace MWWorld
         return std::visit(ESM::VisitOverload{ esm3Visit, esm4Visit, actorDestCell }, mCellRef.mVariant);
     }
 
+    void CellRef::setDoorDest(const ESM::Position& position)
+    {
+        std::visit(ESM::VisitOverload{
+                       [&](ESM::CellRef& ref) {
+                           ref.mDoorDest = position;
+                           ref.mTeleport = true;
+                       },
+                       [&](ESM4::Reference&) { throw std::logic_error("Not applicable"); },
+                       [&](ESM4::ActorCharacter&) { throw std::logic_error("Not applicable"); },
+                   },
+            mCellRef.mVariant);
+
+        mChanged = true;
+    }
+
+    void CellRef::setDestCell(const ESM::RefId& cell)
+    {
+        std::visit(ESM::VisitOverload{
+                       [&](ESM::CellRef& ref) { ref.mDestCell = cell.serializeText(); },
+                       [&](ESM4::Reference&) { throw std::logic_error("Not applicable"); },
+                       [&](ESM4::ActorCharacter&) { throw std::logic_error("Not applicable"); },
+                   },
+            mCellRef.mVariant);
+
+        mChanged = true;
+    }
+
+    void CellRef::setTeleport(bool teleport)
+    {
+        std::visit(ESM::VisitOverload{
+                       [&](ESM::CellRef& ref) { ref.mTeleport = teleport; },
+                       [&](ESM4::Reference&) { throw std::logic_error("Not applicable"); },
+                       [&](ESM4::ActorCharacter&) { throw std::logic_error("Not applicable"); },
+                   },
+            mCellRef.mVariant);
+
+        mChanged = true;
+    }
+
     void CellRef::setScale(float scale)
     {
+        scale = sanitizeScale(scale);
+
         if (scale != getScale())
         {
             mChanged = true;

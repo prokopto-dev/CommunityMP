@@ -1,0 +1,5 @@
+/.gitattributes text eol=lf
+files/communitymp/*.cmd text eol=crlf
+files/communitymp/*.command text eol=lf
+files/communitymp/*.desktop text eol=lf
+files/communitymp/*.sh text eol=lf

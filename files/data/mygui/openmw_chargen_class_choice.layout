@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<MyGUI type="Layout">
+    <Widget type="Widget" skin="" layer="Modal" position="0 0 1320 760" align="Center" name="_Main">
+        <Property key="Visible" value="false"/>
+
+        <Widget type="ImageBox" skin="ImageBox" position="0 0 1320 760" align="Stretch" name="Background">
+            <Property key="ImageTexture" value="mygui\characterselect\textures\communitymp_character_select_frame.png"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="72 44 360 24" name="ClassRouteTitle" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="CLASS"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="486 44 380 24" name="ClassRouteAvatarT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="PREVIEW"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="900 44 348 24" name="ClassRouteBriefT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="DETAILS"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="72 86 360 154" name="GenerateRouteCard" align="Left Top">
+            <Widget type="Button" skin="SandTextButton" position="18 18 324 70" name="GenerateButton" align="Left Top">
+                <Property key="TextAlign" value="Center"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="18 102 324 34" name="GenerateRouteHint" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Suggested from answers."/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="72 266 360 154" name="PickRouteCard" align="Left Top">
+            <Widget type="Button" skin="SandTextButton" position="18 18 324 70" name="PickButton" align="Left Top">
+                <Property key="TextAlign" value="Center"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="18 102 324 34" name="PickRouteHint" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Standard class list."/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="72 446 360 188" name="CreateRouteCard" align="Left Top">
+            <Widget type="Button" skin="SandTextButton" position="18 18 324 70" name="CreateButton" align="Left Top">
+                <Property key="TextAlign" value="Center"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="18 106 324 54" name="CreateRouteHint" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Choose attributes and skills."/>
+                <Property key="TextAlign" value="Left Top"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="486 86 380 548" name="ClassRouteAvatarPanel" align="Left Top">
+            <Widget type="ImageBox" skin="ImageBox" position="12 10 356 528" name="AvatarPreviewImage" align="Stretch"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="900 86 348 548" name="ClassRouteBriefPanel" align="Left Top">
+            <Widget type="TextBox" skin="SandText" position="18 24 312 36" name="ClassRouteBriefText" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Pick a class route."/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.93 0.89 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="18 88 312 36" name="ClassRouteSessionText" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Classes affect major skills."/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.76 0.82 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="18 152 312 36" name="ClassRouteSkillsText" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Custom classes are editable."/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.76 0.82 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="18 454 312 40" name="ClassRouteNextText" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Next: Birthsign"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.47 0.72 0.86"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="48 668 1224 30" name="CreatorStageRail" align="Left Top">
+            <Widget type="TextBox" skin="ProgressText" position="18 6 224 18" name="CreatorStageIdentity" align="Left Top">
+                <Property key="Caption" value="01 Identity"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="252 6 224 18" name="CreatorStageAppearance" align="Left Top">
+                <Property key="Caption" value="02 Appearance"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="486 6 224 18" name="CreatorStageClass" align="Left Top">
+                <Property key="Caption" value="03 Class"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="720 6 224 18" name="CreatorStageBirthsign" align="Left Top">
+                <Property key="Caption" value="04 Birthsign"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="954 6 224 18" name="CreatorStageReview" align="Left Top">
+                <Property key="Caption" value="05 Review"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="" position="48 708 1224 34" name="FooterActions" align="Left Top">
+            <Widget type="Button" skin="MW_Button" position="1136 4 88 26" name="BackButton">
+                <Property key="Caption" value="#{sBack}"/>
+            </Widget>
+        </Widget>
+    </Widget>
+</MyGUI>

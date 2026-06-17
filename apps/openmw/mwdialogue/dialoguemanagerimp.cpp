@@ -41,6 +41,12 @@
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#include "../mwmp/ScriptController.hpp"
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "../mwscript/compilercontext.hpp"
 #include "../mwscript/extensions.hpp"
 #include "../mwscript/interpretercontext.hpp"
@@ -83,7 +89,19 @@ namespace MWDialogue
 
     void DialogueManager::addTopic(const ESM::RefId& topic)
     {
-        mKnownTopics.insert(topic);
+        const bool inserted = mKnownTopics.insert(topic).second;
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (inserted && mwmp::Main::isInitialized())
+        {
+            mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+            if (localPlayer != nullptr && !localPlayer->isApplyingServerTopicChanges()
+                && localPlayer->canSendJournalChanges())
+            {
+                localPlayer->sendTopic(topic.serializeText());
+            }
+        }
+#endif
     }
 
     const MWDialogue::KeywordSearch& DialogueManager::getKeywordSearch() const
@@ -257,6 +275,7 @@ namespace MWDialogue
             try
             {
                 MWScript::InterpreterContext interpreterContext(&actor.getRefData().getLocals(), actor);
+                interpreterContext.trackContextType(ScriptController::Dialogue);
                 Interpreter::Interpreter interpreter;
                 MWScript::installOpcodes(interpreter);
                 interpreter.run(*program, interpreterContext);
@@ -637,16 +656,16 @@ namespace MWDialogue
             return false;
         }
 
-        if (actor.getClass().getCreatureStats(actor).getKnockedDown())
+        const MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
+        if (creatureStats.getKnockedDown() || creatureStats.isParalyzed())
         {
-            // Unconscious actors can not speak
+            // Unconscious and paralyzed actors can not speak
             return false;
         }
 
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Dialogue* dial = store.get<ESM::Dialogue>().find(topic);
 
-        const MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
         Filter filter(actor, 0, creatureStats.hasTalkedToPlayer());
         const ESM::DialInfo* info = filter.search(*dial, false).second;
         if (info != nullptr)

@@ -132,6 +132,10 @@ add_component_dir (resource
     resourcemanager stats animation foreachbulletobject errormarker selectionmarker cachestats bgsmfilemanager
     )
 
+add_component_dir (material
+    materialapplier materialregistry
+    )
+
 add_component_dir (shader
     shadermanager shadervisitor removedalphafunc
     )
@@ -320,7 +324,7 @@ ENDIF()
 add_component_dir (files
     linuxpath androidpath windowspath macospath fixedpath multidircollection collections configurationmanager
     constrainedfilestream memorystream hash configfileparser openfile constrainedfilestreambuf conversion
-    istreamptr streamwithbuffer utils
+    istreamptr streamwithbuffer utils escape
     )
 
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -378,6 +382,162 @@ add_component_dir (sdlutil
 
 add_component_dir (version
     version
+    )
+
+add_component_dir (openmw-mp
+    ClientSettings
+    Endpoint
+    ServerPassword
+    TimedLog
+    Utils
+    )
+
+add_component_dir (openmw-mp/Controllers
+    ActorPacketController
+    ObjectPacketController
+    PlayerPacketController
+    SystemPacketController
+    WorldstatePacketController
+    )
+
+add_component_dir (openmw-mp/Master
+    PacketMasterAnnounce
+    PacketMasterQuery
+    PacketMasterUpdate
+    )
+
+add_component_dir (openmw-mp/Packets
+    BasePacket
+    PacketPreInit
+    )
+
+add_component_dir (openmw-mp/Transport
+    PacketDelivery
+    PacketDestination
+    PacketId
+    PacketIdentity
+    PacketStream
+    PacketTransport
+    ReceivedPacket
+    )
+
+if(BUILD_TES3MP_TARGETS)
+    add_component_dir (openmw-mp/Transport
+        GnsTransport
+        )
+endif()
+
+add_component_dir (openmw-mp/Packets/Actor
+    ActorPacket
+    PacketActorAI
+    PacketActorAnimFlags
+    PacketActorAnimPlay
+    PacketActorAttack
+    PacketActorAuthority
+    PacketActorCast
+    PacketActorCellChange
+    PacketActorDeath
+    PacketActorEquipment
+    PacketActorList
+    PacketActorPosition
+    PacketActorSpeech
+    PacketActorSpellsActive
+    PacketActorStatsDynamic
+    PacketActorTest
+    )
+
+add_component_dir (openmw-mp/Packets/Object
+    ObjectPacket
+    PacketClientScriptLocal
+    PacketConsoleCommand
+    PacketContainer
+    PacketDoorDestination
+    PacketDoorState
+    PacketMusicPlay
+    PacketObjectActivate
+    PacketObjectAnimPlay
+    PacketObjectAttach
+    PacketObjectDelete
+    PacketObjectDialogueChoice
+    PacketObjectHit
+    PacketObjectLock
+    PacketObjectMiscellaneous
+    PacketObjectMove
+    PacketObjectPlace
+    PacketObjectRestock
+    PacketObjectRotate
+    PacketObjectScale
+    PacketObjectSound
+    PacketObjectSpawn
+    PacketObjectState
+    PacketObjectTrap
+    PacketScriptMemberShort
+    PacketVideoPlay
+    )
+
+add_component_dir (openmw-mp/Packets/Player
+    PacketChatMessage
+    PacketGameSettings
+    PacketGUIBoxes
+    PacketPlayerAlly
+    PacketPlayerAnimFlags
+    PacketPlayerAnimPlay
+    PacketPlayerAttack
+    PacketPlayerAttribute
+    PacketPlayerBaseInfo
+    PacketPlayerBehavior
+    PacketPlayerBook
+    PacketPlayerBounty
+    PacketPlayerCast
+    PacketPlayerCellChange
+    PacketPlayerCellState
+    PacketPlayerCharGen
+    PacketPlayerClass
+    PacketPlayerCooldowns
+    PacketPlayerDeath
+    PacketPlayerEquipment
+    PacketPlayerFaction
+    PacketPlayerInput
+    PacketPlayerInventory
+    PacketPlayerItemUse
+    PacketPlayerJail
+    PacketPlayerJournal
+    PacketPlayerLevel
+    PacketPlayerMiscellaneous
+    PacketPlayerMomentum
+    PacketPlayerPosition
+    PacketPlayerQuickKeys
+    PacketPlayerReputation
+    PacketPlayerRest
+    PacketPlayerResurrect
+    PacketPlayerShapeshift
+    PacketPlayerSkill
+    PacketPlayerSpeech
+    PacketPlayerSpellbook
+    PacketPlayerSpellsActive
+    PacketPlayerStatsDynamic
+    PacketPlayerTopic
+    PlayerPacket
+    )
+
+add_component_dir (openmw-mp/Packets/System
+    PacketSystemHandshake
+    SystemPacket
+    )
+
+add_component_dir (openmw-mp/Packets/Worldstate
+    PacketCellReset
+    PacketClientScriptGlobal
+    PacketClientScriptSettings
+    PacketRecordDynamic
+    PacketWorldCollisionOverride
+    PacketWorldDestinationOverride
+    PacketWorldKillCount
+    PacketWorldMap
+    PacketWorldRegionAuthority
+    PacketWorldTime
+    PacketWorldWeather
+    WorldstatePacket
     )
 
 add_component_dir (fallback
@@ -637,6 +797,10 @@ else()
 endif()
 
 target_link_libraries(components ${BULLET_LIBRARIES})
+
+if (BUILD_TES3MP_TARGETS)
+    target_link_libraries(components GameNetworkingSockets::GameNetworkingSockets)
+endif()
 
 if (USE_QT)
     add_library(components_qt STATIC ${COMPONENT_QT_FILES})

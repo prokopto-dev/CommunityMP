@@ -29,11 +29,22 @@ namespace MWLua
 
         void finishUpdate(osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats);
 
+        void gc(osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats);
+
+        void finishGc(osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats);
+
         void join();
 
     private:
-        struct UpdateRequest
+        enum class Operation
         {
+            Gc,
+            Update,
+        };
+
+        struct Request
+        {
+            Operation mOperation;
             osg::Timer_t mFrameStart;
             unsigned mFrameNumber;
             osg::ref_ptr<osg::Stats> mStats;
@@ -41,12 +52,17 @@ namespace MWLua
 
         void update(osg::Timer_t frameStart, unsigned frameNumber, osg::Stats& stats);
 
+        void collectGarbage(osg::Timer_t frameStart, unsigned frameNumber, osg::Stats& stats, bool untilStopped);
+
+        bool isGcStopRequested() const;
+
         void run() noexcept;
 
         LuaManager& mManager;
         std::mutex mMutex;
         std::condition_variable mCV;
-        std::optional<UpdateRequest> mUpdateRequest;
+        std::optional<Request> mRequest;
+        bool mGcStopRequest = false;
         bool mJoinRequest = false;
         std::optional<std::thread> mThread;
     };

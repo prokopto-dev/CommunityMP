@@ -672,3 +672,178 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/philosophy/why-not-lgpl.html>.
+
+
+ADDITIONAL TERMS NOTICE FOR TES3MP-ORIGIN GPL SOURCE CODE
+
+This repository contains GPL-covered source code derived from TES3MP 0.8.1.
+TES3MP 0.8.1 published its GPL source code with the following GPLv3 section 7
+additional terms. They are preserved below for TES3MP-origin GPL source code to
+the extent applicable and valid under GPLv3 section 7. This notice does not add
+those terms to independent OpenMW-origin code or to third-party components
+distributed under their own license notices.
+
+The text below is quoted as TES3MP's upstream section 7 notice. It should not be
+read as modifying the GNU GPLv3 license document itself; rather, it records the
+additional terms TES3MP's copyright holders attached to their GPL-covered
+material.
+
+If any part of the quoted TES3MP notice is determined not to be a valid GPLv3
+section 7 additional term, this repository does not assert that part beyond
+what GPLv3 permits.
+
+ADDITIONAL TERMS APPLICABLE TO THE TES3MP GPL Source Code.
+
+  The following additional terms ("Additional Terms") supplement and modify
+the GNU General Public License, Version 3 ("GPL") applicable to the TES3MP
+GPL Source Code ("TES3MP Source Code").  In addition to the terms and conditions
+of the GPL, the TES3MP Source Code is subject to the further restrictions below.
+
+1. Replacement of Section 15.  Section 15 of the GPL shall be deleted in its
+entirety and replaced with the following:
+
+"15. Disclaimer of Warranty.
+
+THE PROGRAM IS PROVIDED WITHOUT ANY WARRANTIES, WHETHER EXPRESSED OR IMPLIED,
+INCLUDING, WITHOUT LIMITATION, IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR
+PURPOSE, NON-INFRINGEMENT, TITLE AND MERCHANTABILITY.  THE PROGRAM IS BEING
+DELIVERED OR MADE AVAILABLE "AS IS", "WITH ALL FAULTS" AND WITHOUT WARRANTY OR
+REPRESENTATION.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE
+PROGRAM IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST
+OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION."
+
+2. Replacement of Section 16.  Section 16 of the GPL shall be deleted in its
+entirety and replaced with the following:
+
+"16.  LIMITATION OF LIABILITY.
+
+UNDER NO CIRCUMSTANCES SHALL ANY COPYRIGHT HOLDER OR ITS AFFILIATES, OR ANY
+OTHER PARTY WHO MODIFIES AND/OR CONVEYS THE PROGRAM AS PERMITTED ABOVE, BE
+LIABLE TO YOU, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, FOR ANY
+DAMAGES OR OTHER LIABILITY, INCLUDING ANY GENERAL, DIRECT, INDIRECT, SPECIAL,
+INCIDENTAL, CONSEQUENTIAL OR PUNITIVE DAMAGES ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE USE OR INABILITY TO USE THE PROGRAM OR OTHER DEALINGS WITH
+THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING RENDERED
+INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A FAILURE OF THE
+PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS), WHETHER OR NOT ANY COPYRIGHT
+HOLDER OR SUCH OTHER PARTY RECEIVES NOTICE OF ANY SUCH DAMAGES AND WHETHER
+OR NOT SUCH DAMAGES COULD HAVE BEEN FORESEEN."
+
+3. LEGAL NOTICES; NO TRADEMARK LICENSE; ORIGIN.  You must reproduce faithfully
+all trademark, copyright and other proprietary and legal notices on any copies
+of the Program or any other required author attributions.  This license does
+not grant you rights to use any copyright holder or any other party's name,
+logo, or trademarks.  Neither the name of the copyright holder or its
+affiliates, or any other party who modifies and/or conveys the Program may be
+used to endorse or promote products derived from this software without
+specific prior written permission.  The origin of the Program must not be
+misrepresented; you must not claim that you wrote the original Program.
+
+Altered source versions must be plainly marked as such, and must not be
+misrepresented as being the original Program.
+
+4. INDEMNIFICATION.  IF YOU CONVEY A COVERED WORK AND AGREE WITH ANY RECIPIENT
+OF THAT COVERED WORK THAT YOU WILL ASSUME ANY LIABILITY FOR THAT COVERED WORK,
+YOU HEREBY AGREE TO INDEMNIFY, DEFEND AND HOLD HARMLESS THE OTHER LICENSORS
+AND AUTHORS OF THAT COVERED WORK FOR ANY DAMAEGS, DEMANDS, CLAIMS, LOSSES,
+CAUSES OF ACTION, LAWSUITS, JUDGMENTS EXPENSES (INCLUDING WITHOUT LIMITATION
+REASONABLE ATTORNEYS' FEES AND EXPENSES) OR ANY OTHER LIABLITY ARISING FROM,
+RELATED TO OR IN CONNECTION WITH YOUR ASSUMPTIONS OF LIABILITY.
+
+
+COMMUNITYMP ORIGINAL CODE NOTICE
+
+This repository is a combined work containing material from multiple copyright
+origins:
+
+* OpenMW-origin material remains copyrighted by the OpenMW authors and
+  contributors and remains licensed under the GNU General Public License,
+  version 3 or later, as published by the Free Software Foundation, unless a
+  more specific file-level notice says otherwise.
+* TES3MP-origin material remains copyrighted by the TES3MP authors and
+  contributors and remains licensed under the GNU General Public License,
+  version 3, with the preserved TES3MP GPLv3 section 7 additional terms above,
+  to the extent those terms are applicable and valid. See
+  UPSTREAM_NOTICES.md for preserved TES3MP copyright and contributor notices.
+* CommunityMP original material, including new compatibility, networking,
+  serializer, GameNetworkingSockets transport, deployment, documentation, and
+  test code added by this fork, is Copyright (c) 2026 Alex Cooper and
+  OpenACAI Inc. for material authored by or assigned to them. Other
+  CommunityMP contributors retain copyright in their copyrightable
+  contributions unless a file-level notice or written assignment says
+  otherwise.
+
+CommunityMP original material is licensed under the GNU Affero General
+Public License, version 3 or any later version published by the Free Software
+Foundation. A copy of the GNU Affero General Public License version 3 is
+provided in LICENSES/AGPL-3.0.txt.
+
+The resulting combined work may be conveyed under GPLv3 section 13 together
+with AGPLv3-covered CommunityMP material. The GPLv3 terms continue to apply
+to GPL-covered OpenMW-origin and TES3MP-origin material. The AGPLv3 terms,
+including the network interaction source-code obligation in AGPLv3 section 13,
+apply to CommunityMP original material and to the combined work to the extent
+required by GPLv3 section 13 and AGPLv3.
+
+ADDITIONAL PERMISSION FOR INDEPENDENT SERVER LUA CODE
+
+The CommunityMP contributors grant the following additional permission for
+CommunityMP original material. Independently authored Lua scripts, server
+configuration files, gameplay rules, quests, moderation tools, economy scripts,
+administration scripts, and similar server-side content that merely use the
+documented TES3MP/OpenMW-MP server scripting interfaces, are loaded at runtime
+by an unmodified or modified CommunityMP server, or communicate with the
+server through those scripting interfaces are not, for that reason alone,
+treated as part of CommunityMP original material or as Corresponding Source
+that must be disclosed under the AGPLv3 network interaction requirement.
+
+This permission does not apply to Lua code or other server-side material to the
+extent it copies, modifies, translates, embeds, or is otherwise a derivative of
+OpenMW-origin, TES3MP-origin, CommunityMP original, or third-party covered
+source code. Such material remains subject to the license terms that apply to
+the code from which it is derived.
+
+ADDITIONAL TERMS FOR COMMUNITYMP ORIGINAL MATERIAL
+
+For CommunityMP original material, the CommunityMP contributors supplement
+the AGPLv3 and, where applicable through GPLv3 section 13, the GPLv3 under
+section 7 with the following additional terms. These terms apply only to
+material for which the CommunityMP contributors own copyright or are
+authorized to license, and they do not alter independent OpenMW-origin,
+TES3MP-origin, or third-party material.
+
+1. Legal notices and attribution. You must preserve reasonable copyright,
+license, source-origin, and contributor attribution notices for CommunityMP
+original material. When distributing modified versions or operating a modified
+network service based on this material, you must not remove notices identifying
+CommunityMP as an unofficial derivative of OpenMW and TES3MP.
+
+2. Modified-version marking. Modified versions of CommunityMP original
+material must be clearly marked as modified and must not be represented as the
+original CommunityMP version, the official TES3MP project, or the official
+OpenMW project.
+
+3. No endorsement or publicity use. The names "CommunityMP", "TES3MP",
+"OpenMW", "Bethesda", "ZeniMax", and the names of project contributors may not
+be used to endorse or promote a derived product, hosted service, server network,
+or distribution without prior written permission from the relevant rights holder
+or contributor.
+
+4. No trademark license. No trademark, service mark, trade name, logo, project
+branding, or domain-name rights are granted by this license notice.
+
+5. Warranty and liability. CommunityMP original material is provided "as is",
+without warranty of any kind, to the maximum extent permitted by applicable law.
+No CommunityMP contributor is liable for damages arising from use, operation,
+modification, hosting, or distribution of the material, except to the extent
+such exclusion is prohibited by applicable law.
+
+6. Contractual assumption of liability. If you convey, host, or provide a
+service based on CommunityMP original material and separately agree with a
+recipient, user, customer, or third party to assume liability for that material
+or service, you agree to indemnify the CommunityMP contributors for liability
+directly imposed on them by that contractual assumption.
+
+If any term in this CommunityMP section is determined not to be a valid
+GPLv3 or AGPLv3 section 7 additional term, this repository does not assert that
+term beyond what GPLv3 or AGPLv3 permits.

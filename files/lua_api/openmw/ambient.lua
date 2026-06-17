@@ -67,6 +67,7 @@
 
 ---
 -- Check if a sound file is playing
+-- Also returns true for active `ambient.say` voiceover streams with the same file name.
 -- @function [parent=#ambient] isSoundFilePlaying
 -- @param #string fileName Path to a sound file in VFS
 -- @return #boolean

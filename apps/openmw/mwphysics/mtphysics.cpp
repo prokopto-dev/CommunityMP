@@ -290,6 +290,8 @@ namespace
                     actor->setOnSlope(frameData.mIsOnSlope);
                     actor->setWalkingOnWater(frameData.mWalkingOnWater);
                     actor->setInertialForce(frameData.mInertia);
+                    if (frameData.mForceFalling && frameData.mIsOnGround)
+                        actor->clearForceFall();
                 }
             }
             void operator()(MWPhysics::ProjectileSimulation& sim) const
@@ -590,6 +592,16 @@ namespace MWPhysics
             actor->updatePosition();
             actor->updateCollisionObjectPosition();
         }
+    }
+
+    void PhysicsTaskScheduler::setPhysicsDt(float physicsDt)
+    {
+        waitForWorkers();
+        MaybeExclusiveLock lock(mSimulationMutex, mLockingPolicy);
+        mDefaultPhysicsDt = physicsDt;
+        mPhysicsDt = physicsDt;
+        mBudget.reset(physicsDt);
+        mAsyncBudget.reset(0.0f);
     }
 
     void PhysicsTaskScheduler::rayTest(const btVector3& rayFromWorld, const btVector3& rayToWorld,

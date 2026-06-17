@@ -330,7 +330,7 @@ namespace MWSound
         if (!sound)
             return;
 
-        mSaySoundsQueue.emplace(ptr.mRef, SaySound{ ptr.mCell, std::move(sound) });
+        mSaySoundsQueue.emplace(ptr.mRef, SaySound{ ptr.mCell, VFS::Path::Normalized(filename), std::move(sound) });
     }
 
     float SoundManager::getSaySoundLoudness(const MWWorld::ConstPtr& ptr) const
@@ -359,7 +359,7 @@ namespace MWSound
         if (!sound)
             return;
 
-        mActiveSaySounds.emplace(nullptr, SaySound{ nullptr, std::move(sound) });
+        mActiveSaySounds.emplace(nullptr, SaySound{ nullptr, VFS::Path::Normalized(filename), std::move(sound) });
     }
 
     bool SoundManager::sayDone(const MWWorld::ConstPtr& ptr) const
@@ -736,6 +736,15 @@ namespace MWSound
 
     bool SoundManager::getSoundPlaying(const MWWorld::ConstPtr& ptr, VFS::Path::NormalizedView fileName) const
     {
+        const auto isPlayingSaySound = [this, fileName](const SaySoundMap& sounds, const MWWorld::ConstPtr& ptr) {
+            const SaySoundMap::const_iterator snditer = sounds.find(ptr.mRef);
+            return snditer != sounds.end() && snditer->second.mFileName == fileName
+                && mOutput->isStreamPlaying(snditer->second.mStream.get());
+        };
+
+        if (isPlayingSaySound(mSaySoundsQueue, ptr) || isPlayingSaySound(mActiveSaySounds, ptr))
+            return true;
+
         SoundMap::const_iterator snditer = mActiveSounds.find(ptr.mRef);
         if (snditer != mActiveSounds.end())
         {
@@ -964,7 +973,24 @@ namespace MWSound
         SoundMap::iterator snditer = mActiveSounds.begin();
         while (snditer != mActiveSounds.end())
         {
-            MWWorld::ConstPtr ptr = snditer->first;
+            const MWWorld::LiveCellRefBase* attachedRef = snditer->first;
+            if (attachedRef != nullptr && (attachedRef->isDeleted() || !attachedRef->mData.isEnabled()))
+            {
+                for (SoundBufferRefPair& sndidx : snditer->second.mList)
+                {
+                    Sound* sound = sndidx.first.get();
+                    mOutput->finishSound(sound);
+                    if (sound == mUnderwaterSound)
+                        mUnderwaterSound = nullptr;
+                    if (sound == mNearWaterSound)
+                        mNearWaterSound = nullptr;
+                    mSoundBuffers.release(*sndidx.second);
+                }
+                snditer = mActiveSounds.erase(snditer);
+                continue;
+            }
+
+            MWWorld::ConstPtr ptr = attachedRef;
             SoundBufferRefPairList::iterator sndidx = snditer->second.mList.begin();
             while (sndidx != snditer->second.mList.end())
             {

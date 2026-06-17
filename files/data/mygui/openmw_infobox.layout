@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <MyGUI type="Layout">
-    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 545 265" align="Center" name="_Main">
+    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 680 330" align="Center" name="_Main">
 
-        <!-- Edit box -->
-        <Widget type="Widget" skin="" position="14 14 516 70" name="TextBox" align="Top HCenter">
-            <Widget type="TextBox" skin="SandText" position="4 4 508 62" name="Text" align="Top HCenter">
-                <Property key="WordWrap" value="1" />
+        <Widget type="Widget" skin="MW_Box" position="30 24 620 92" name="TextBox" align="Top HCenter">
+            <Widget type="TextBox" skin="SandText" position="18 14 584 64" name="Text" align="Top HCenter">
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.93 0.89 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="WordWrap" value="1"/>
             </Widget>
         </Widget>
 
         <!-- Button bar, buttons are created as children -->
-        <Widget type="Widget" skin="" position="72 98 450 150" name="ButtonBar" align="Top HCenter" />
+        <Widget type="Widget" skin="" position="70 138 540 160" name="ButtonBar" align="Top HCenter"/>
     </Widget>
 </MyGUI>

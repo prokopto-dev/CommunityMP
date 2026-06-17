@@ -15,6 +15,8 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/ptr.hpp"
 
+#include <stdexcept>
+
 #include "context.hpp"
 #include "luamanagerimp.hpp"
 
@@ -118,6 +120,8 @@ namespace MWLua
             MWWorld::Ptr target = p.getTarget();
             if (target.isEmpty())
                 return sol::nullopt;
+            if (p.getTypeId() == MWMechanics::AiPackageTypeId::Combat && !target.getClass().isActor())
+                return sol::nullopt;
             else
                 return LObject(getId(target));
         });
@@ -149,6 +153,7 @@ namespace MWLua
         selfAPI["_isFleeing"] = [](SelfObject& self) -> bool {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
+            ai.removeInvalidCombatPackages();
             if (ai.isEmpty())
                 return false;
             else
@@ -157,6 +162,7 @@ namespace MWLua
         selfAPI["_getActiveAiPackage"] = [](SelfObject& self) -> sol::optional<std::shared_ptr<AiPackage>> {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
+            ai.removeInvalidCombatPackages();
             if (ai.isEmpty())
                 return sol::nullopt;
             else
@@ -165,14 +171,17 @@ namespace MWLua
         selfAPI["_iterateAndFilterAiSequence"] = [](SelfObject& self, sol::function callback) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
+            ai.removeInvalidCombatPackages();
 
             ai.erasePackagesIf([&](auto& entry) {
-                bool keep = LuaUtil::call(callback, entry).template get<bool>();
-                return !keep;
+                sol::object keep = LuaUtil::call(callback, entry);
+                return keep.is<bool>() && !keep.as<bool>();
             });
         };
         selfAPI["_startAiCombat"] = [](SelfObject& self, const LObject& target, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
+            if (!target.ptr().getClass().isActor())
+                throw std::runtime_error("AI Combat target must be an actor");
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
             ai.stack(MWMechanics::AiCombat(target.ptr()), ptr, cancelOther);
         };

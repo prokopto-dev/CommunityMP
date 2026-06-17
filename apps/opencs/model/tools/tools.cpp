@@ -20,6 +20,7 @@
 #include "mergeoperation.hpp"
 #include "pathgridcheck.hpp"
 #include "racecheck.hpp"
+#include "recordidcheck.hpp"
 #include "referenceablecheck.hpp"
 #include "referencecheck.hpp"
 #include "regioncheck.hpp"
@@ -77,6 +78,35 @@ CSMDoc::OperationHolder* CSMTools::Tools::getVerifier()
 
         mVerifierOperation->appendStage(new MandatoryIdStage(
             mData.getGlobals(), CSMWorld::UniversalId(CSMWorld::UniversalId::Type_Globals), mandatoryRefIds));
+
+        mVerifierOperation->appendStage(new RecordIdCheckStage({
+            { &mData.getGlobals(), CSMWorld::UniversalId::Type_Global },
+            { &mData.getGmsts(), CSMWorld::UniversalId::Type_Gmst },
+            { &mData.getSkills(), CSMWorld::UniversalId::Type_Skill },
+            { &mData.getClasses(), CSMWorld::UniversalId::Type_Class },
+            { &mData.getFactions(), CSMWorld::UniversalId::Type_Faction },
+            { &mData.getRaces(), CSMWorld::UniversalId::Type_Race },
+            { &mData.getSounds(), CSMWorld::UniversalId::Type_Sound },
+            { &mData.getScripts(), CSMWorld::UniversalId::Type_Script },
+            { &mData.getRegions(), CSMWorld::UniversalId::Type_Region },
+            { &mData.getBirthsigns(), CSMWorld::UniversalId::Type_Birthsign },
+            { &mData.getSpells(), CSMWorld::UniversalId::Type_Spell },
+            { &mData.getTopics(), CSMWorld::UniversalId::Type_Topic },
+            { &mData.getJournals(), CSMWorld::UniversalId::Type_Journal },
+            { &mData.getCells(), CSMWorld::UniversalId::Type_Cell },
+            { &mData.getReferenceables(), CSMWorld::UniversalId::Type_Referenceable },
+            { &mData.getFilters(), CSMWorld::UniversalId::Type_Filter },
+            { &mData.getEnchantments(), CSMWorld::UniversalId::Type_Enchantment },
+            { &mData.getBodyParts(), CSMWorld::UniversalId::Type_BodyPart },
+            { &mData.getDebugProfiles(), CSMWorld::UniversalId::Type_DebugProfile },
+            { &mData.getSelectionGroups(), CSMWorld::UniversalId::Type_SelectionGroup },
+            { &mData.getSoundGens(), CSMWorld::UniversalId::Type_SoundGen },
+            { &mData.getMagicEffects(), CSMWorld::UniversalId::Type_MagicEffect },
+            { &mData.getLand(), CSMWorld::UniversalId::Type_Land },
+            { &mData.getLandTextures(), CSMWorld::UniversalId::Type_LandTexture },
+            { &mData.getPathgrids(), CSMWorld::UniversalId::Type_Pathgrid },
+            { &mData.getStartScripts(), CSMWorld::UniversalId::Type_StartScript },
+        }));
 
         mVerifierOperation->appendStage(new SkillCheckStage(mData.getSkills()));
 

@@ -20,6 +20,11 @@
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/player.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "birth.hpp"
 #include "class.hpp"
 #include "inventorywindow.hpp"
@@ -29,6 +34,17 @@
 
 namespace
 {
+#ifdef BUILD_TES3MP_CLIENT
+    bool isCommunityMpCharacterCreation()
+    {
+        if (!mwmp::Main::isInitialized())
+            return false;
+
+        const mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        return localPlayer != nullptr && !localPlayer->hasLoadedCharacter();
+    }
+#endif
+
     struct Response
     {
         const std::string mText;
@@ -147,6 +163,18 @@ namespace MWGui
 
     void CharacterCreation::onFrame(float duration)
     {
+        if (mNameDialog)
+            mNameDialog->onFrame(duration);
+        if (mRaceDialog)
+            mRaceDialog->onFrame(duration);
+        if (mClassChoiceDialog)
+            mClassChoiceDialog->onFrame(duration);
+        if (mPickClassDialog)
+            mPickClassDialog->onFrame(duration);
+        if (mBirthSignDialog)
+            mBirthSignDialog->onFrame(duration);
+        if (mCreateClassDialog)
+            mCreateClassDialog->onFrame(duration);
         if (mReviewDialog)
             mReviewDialog->onFrame(duration);
     }
@@ -160,7 +188,8 @@ namespace MWGui
                 case GM_Name:
                 {
                     MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mNameDialog));
-                    mNameDialog = std::make_unique<TextInputDialog>();
+                    mNameDialog
+                        = std::make_unique<TextInputDialog>("openmw_chargen_name.layout", mParent, mResourceSystem);
                     mNameDialog->setTextLabel(
                         MWBase::Environment::get().getWindowManager()->getGameSettingString("sName", "Name"));
                     mNameDialog->setTextInput(mPlayerName);
@@ -185,7 +214,7 @@ namespace MWGui
                 case GM_Class:
                 {
                     MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mClassChoiceDialog));
-                    mClassChoiceDialog = std::make_unique<ClassChoiceDialog>();
+                    mClassChoiceDialog = std::make_unique<ClassChoiceDialog>(mParent, mResourceSystem);
                     mClassChoiceDialog->eventButtonSelected
                         += MyGUI::newDelegate(this, &CharacterCreation::onClassChoice);
                     mClassChoiceDialog->setVisible(true);
@@ -196,7 +225,7 @@ namespace MWGui
                 case GM_ClassPick:
                 {
                     MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mPickClassDialog));
-                    mPickClassDialog = std::make_unique<PickClassDialog>();
+                    mPickClassDialog = std::make_unique<PickClassDialog>(mParent, mResourceSystem);
                     mPickClassDialog->setNextButtonShow(mCreationStage >= CSE_ClassChosen);
                     mPickClassDialog->setClassId(mPlayerClass.mId);
                     mPickClassDialog->eventDone += MyGUI::newDelegate(this, &CharacterCreation::onPickClassDialogDone);
@@ -209,7 +238,7 @@ namespace MWGui
                 case GM_Birth:
                 {
                     MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mBirthSignDialog));
-                    mBirthSignDialog = std::make_unique<BirthDialog>();
+                    mBirthSignDialog = std::make_unique<BirthDialog>(mParent, mResourceSystem);
                     mBirthSignDialog->setNextButtonShow(mCreationStage >= CSE_BirthSignChosen);
                     mBirthSignDialog->setBirthId(mPlayerBirthSignId);
                     mBirthSignDialog->eventDone += MyGUI::newDelegate(this, &CharacterCreation::onBirthSignDialogDone);
@@ -223,7 +252,7 @@ namespace MWGui
                 {
                     if (mCreateClassDialog == nullptr)
                     {
-                        mCreateClassDialog = std::make_unique<CreateClassDialog>();
+                        mCreateClassDialog = std::make_unique<CreateClassDialog>(mParent, mResourceSystem);
                         mCreateClassDialog->eventDone
                             += MyGUI::newDelegate(this, &CharacterCreation::onCreateClassDialogDone);
                         mCreateClassDialog->eventBack
@@ -250,7 +279,7 @@ namespace MWGui
                 case GM_Review:
                 {
                     MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mReviewDialog));
-                    mReviewDialog = std::make_unique<ReviewDialog>();
+                    mReviewDialog = std::make_unique<ReviewDialog>(mParent, mResourceSystem);
 
                     MWBase::World* world = MWBase::Environment::get().getWorld();
 
@@ -299,6 +328,23 @@ namespace MWGui
         catch (std::exception& e)
         {
             Log(Debug::Error) << "Error: Failed to create chargen window: " << e.what();
+
+#ifdef BUILD_TES3MP_CLIENT
+            if (isCommunityMpCharacterCreation())
+            {
+                MWBase::Environment::get().getWindowManager()->popGuiMode();
+                if (id == GM_Class)
+                {
+                    Log(Debug::Warning) << "CommunityMP chargen recovered by returning to appearance selection";
+                    MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Race);
+                }
+                else
+                {
+                    Log(Debug::Warning) << "CommunityMP chargen recovered by returning to class selection";
+                    MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Class);
+                }
+            }
+#endif
         }
     }
 
@@ -352,6 +398,10 @@ namespace MWGui
             if (pickedClass)
             {
                 mPlayerClass = *pickedClass;
+#ifdef BUILD_TES3MP_CLIENT
+                if (mwmp::Main::isInitialized())
+                    mwmp::Main::get().getLocalPlayer()->setCharGenClass(mPlayerClass);
+#endif
             }
             MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mPickClassDialog));
         }
@@ -417,6 +467,11 @@ namespace MWGui
             {
                 MWBase::Environment::get().getMechanicsManager()->setPlayerRace(
                     data.mRace, data.isMale(), data.mHead, data.mHair);
+
+#ifdef BUILD_TES3MP_CLIENT
+                if (mwmp::Main::isInitialized())
+                    mwmp::Main::get().getLocalPlayer()->setCharGenBaseInfo(data);
+#endif
             }
             MWBase::Environment::get().getWindowManager()->getInventoryWindow()->rebuildAvatar();
 
@@ -493,6 +548,10 @@ namespace MWGui
 
             MWBase::Environment::get().getMechanicsManager()->setPlayerClass(createdClass);
             mPlayerClass = std::move(createdClass);
+#ifdef BUILD_TES3MP_CLIENT
+            if (mwmp::Main::isInitialized())
+                mwmp::Main::get().getLocalPlayer()->setCharGenClass(mPlayerClass);
+#endif
 
             // Do not delete dialog, so that choices are remembered in case we want to go back and adjust them later
             mCreateClassDialog->setVisible(false);
@@ -685,6 +744,10 @@ namespace MWGui
             = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(mGenerateClass);
 
         mPlayerClass = *generatedClass;
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::isInitialized())
+            mwmp::Main::get().getLocalPlayer()->setCharGenClass(mPlayerClass);
+#endif
     }
 
     void CharacterCreation::onGenerateClassBack()
@@ -706,6 +769,22 @@ namespace MWGui
 
     void CharacterCreation::handleDialogDone(CSE currentStage, int nextMode)
     {
+#ifdef BUILD_TES3MP_CLIENT
+        if (isCommunityMpCharacterCreation())
+        {
+            MWBase::Environment::get().getWindowManager()->popGuiMode();
+            if (mCreationStage < currentStage)
+                mCreationStage = currentStage;
+
+            if (mCreationStage == CSE_ReviewNext)
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Review);
+            else
+                MWBase::Environment::get().getWindowManager()->pushGuiMode(static_cast<GuiMode>(nextMode));
+
+            return;
+        }
+#endif
+
         MWBase::Environment::get().getWindowManager()->popGuiMode();
         if (mCreationStage == CSE_ReviewNext)
         {

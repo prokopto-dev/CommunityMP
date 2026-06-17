@@ -124,6 +124,9 @@ namespace MWMechanics
         /// Removes all packages using the specified id.
         void removePackagesById(AiPackageTypeId id);
 
+        /// Removes combat packages whose resolved target exists but is not an actor.
+        void removeInvalidCombatPackages();
+
         /// Are we in combat with any other actor, who's also engaging us?
         bool isEngagedWithActor() const;
 

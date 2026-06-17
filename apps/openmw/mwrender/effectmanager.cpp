@@ -55,7 +55,10 @@ namespace MWRender
         node->accept(assignVisitor);
 
         if (isMagicVFX)
+        {
             overrideFirstRootTexture(VFS::Path::toNormalized(textureOverride), mResourceSystem, *node);
+            useWorldspaceParticleSize(*node);
+        }
         else
             overrideTexture(VFS::Path::toNormalized(textureOverride), mResourceSystem, *node);
 

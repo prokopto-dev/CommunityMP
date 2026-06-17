@@ -4,7 +4,9 @@
 
 #include <SDL_events.h>
 #include <components/sdlutil/sdlmappings.hpp>
+#include <cassert>
 #include <ranges>
+#include <string>
 
 namespace
 {
@@ -17,6 +19,32 @@ namespace
 
 namespace LuaUi
 {
+    struct WidgetExtension::DeferredFocusCallback
+    {
+        LuaUtil::Callback mCallback;
+        sol::main_table mLayout;
+        bool mPropagateEvents;
+    };
+
+    struct WidgetExtension::DeferredFocusEvent
+    {
+        std::string mName;
+        std::vector<DeferredFocusCallback> mCallbacks;
+    };
+
+    int WidgetExtension::sDeferredFocusEventDepth = 0;
+    std::vector<WidgetExtension::DeferredFocusEvent> WidgetExtension::sDeferredFocusEvents;
+
+    WidgetExtension::DeferredFocusEventScope::DeferredFocusEventScope()
+    {
+        beginDeferredFocusEvents();
+    }
+
+    WidgetExtension::DeferredFocusEventScope::~DeferredFocusEventScope()
+    {
+        endDeferredFocusEvents();
+    }
+
     WidgetExtension::WidgetExtension()
         : mForcePosition(false)
         , mForceSize(false)
@@ -44,6 +72,54 @@ namespace LuaUi
         updateTemplate();
     }
 
+    bool WidgetExtension::shouldDeferFocusEvents()
+    {
+        return sDeferredFocusEventDepth > 0;
+    }
+
+    void WidgetExtension::beginDeferredFocusEvents()
+    {
+        ++sDeferredFocusEventDepth;
+    }
+
+    void WidgetExtension::endDeferredFocusEvents()
+    {
+        assert(sDeferredFocusEventDepth > 0);
+        --sDeferredFocusEventDepth;
+    }
+
+    void WidgetExtension::flushDeferredFocusEvents()
+    {
+        std::vector<DeferredFocusEvent> events;
+        events.swap(sDeferredFocusEvents);
+
+        for (const DeferredFocusEvent& event : events)
+        {
+            bool shouldPropagate = true;
+            for (const DeferredFocusCallback& callback : event.mCallbacks)
+            {
+                if (!shouldPropagate)
+                    break;
+
+                try
+                {
+                    sol::object res = callback.mCallback.call(sol::nil, callback.mLayout);
+                    shouldPropagate = callback.mPropagateEvents && res.is<bool>() && res.as<bool>();
+                }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << event.mName << " event propagation has failed: " << e.what();
+                    shouldPropagate = false;
+                }
+            }
+        }
+    }
+
+    void WidgetExtension::clearDeferredFocusEvents()
+    {
+        sDeferredFocusEvents.clear();
+    }
+
     void WidgetExtension::initialize()
     {
         // \todo might be more efficient to only register these if there are Lua callbacks
@@ -59,6 +135,16 @@ namespace LuaUi
             w->deinitialize();
         for (WidgetExtension* w : mTemplateChildren)
             w->deinitialize();
+    }
+
+    void WidgetExtension::fireFocusLossIfFocused()
+    {
+        if (mFocused)
+            propagateEvent("focusLoss", [](auto) { return sol::nil; });
+        for (WidgetExtension* w : mChildren)
+            w->fireFocusLossIfFocused();
+        for (WidgetExtension* w : mTemplateChildren)
+            w->fireFocusLossIfFocused();
     }
 
     void WidgetExtension::registerEvents(MyGUI::Widget* w)
@@ -308,6 +394,7 @@ namespace LuaUi
         mWidget->setPointer(propertyValue("pointer", std::string("arrow")));
         mWidget->setAlpha(propertyValue("alpha", 1.f));
         mWidget->setInheritsAlpha(propertyValue("inheritAlpha", true));
+        mWidget->setNeedMouseFocus(propertyValue("interactive", true));
     }
 
     void WidgetExtension::updateChildrenCoord()
@@ -387,6 +474,32 @@ namespace LuaUi
             it->second.call(argument, mLayout);
     }
 
+    void WidgetExtension::propagateFocusEvent(std::string_view name) const
+    {
+        if (!shouldDeferFocusEvents())
+        {
+            propagateEvent(name, [](auto) { return sol::nil; });
+            return;
+        }
+
+        DeferredFocusEvent event{ std::string(name), {} };
+        const WidgetExtension* w = this;
+        while (w)
+        {
+            auto it = w->mCallbacks.find(name);
+            if (it != w->mCallbacks.end())
+                event.mCallbacks.push_back({ it->second, w->mLayout, w->mPropagateEvents });
+
+            if (w->mParent && w->mPropagateEvents)
+                w = w->mParent;
+            else
+                w = nullptr;
+        }
+        if (!event.mCallbacks.empty())
+            sDeferredFocusEvents.push_back(std::move(event));
+    }
+
+
     bool WidgetExtension::collectWarnings(Warnings& warnings, int depth, bool generateWarningStrings) const
     {
         auto beginningSize = warnings.size();
@@ -456,6 +569,7 @@ namespace LuaUi
             "pointer",
             "alpha",
             "inheritAlpha",
+            "interactive",
         };
         return usedProps;
     }
@@ -499,12 +613,13 @@ namespace LuaUi
 
     void WidgetExtension::mouseClick(MyGUI::Widget* /*widget*/)
     {
-        propagateEvent("mouseClick", [](auto) { return sol::nil; });
+        protectedCall([=, this](LuaUtil::LuaView&) { propagateEvent("mouseClick", [](auto) { return sol::nil; }); });
     }
 
     void WidgetExtension::mouseDoubleClick(MyGUI::Widget* /*widget*/)
     {
-        propagateEvent("mouseDoubleClick", [](auto) { return sol::nil; });
+        protectedCall(
+            [=, this](LuaUtil::LuaView&) { propagateEvent("mouseDoubleClick", [](auto) { return sol::nil; }); });
     }
 
     void WidgetExtension::mousePress(MyGUI::Widget*, int left, int top, MyGUI::MouseButton button)
@@ -523,11 +638,13 @@ namespace LuaUi
 
     void WidgetExtension::focusGain(MyGUI::Widget*, MyGUI::Widget*)
     {
-        propagateEvent("focusGain", [](auto) { return sol::nil; });
+        mFocused = true;
+        protectedCall([=, this](LuaUtil::LuaView&) { propagateFocusEvent("focusGain"); });
     }
 
     void WidgetExtension::focusLoss(MyGUI::Widget*, MyGUI::Widget*)
     {
-        propagateEvent("focusLoss", [](auto) { return sol::nil; });
+        mFocused = false;
+        protectedCall([=, this](LuaUtil::LuaView&) { propagateFocusEvent("focusLoss"); });
     }
 }

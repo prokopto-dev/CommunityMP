@@ -1,30 +1,124 @@
 <?xml version="1.0" encoding="UTF-8"?>
+
 <MyGUI type="Layout">
-    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 527 378" align="Center" name="_Main">
+    <Widget type="Widget" skin="" layer="Modal" position="0 0 1320 760" align="Center" name="_Main">
+        <Property key="Visible" value="false"/>
 
-        <!-- Birthsign list -->
-        <Widget type="ListBox" skin="MW_List" position="8 8 232 137" name="BirthsignList"/>
-
-        <!-- Birthsign image -->
-        <Widget type="Widget" skin="MW_Box" position="248 8 263 137" align="Left Top">
-            <Widget type="ImageBox" skin="ImageBox" position="2 2 259 133" name="BirthsignImage" align="Left Top"/>
+        <Widget type="ImageBox" skin="ImageBox" position="0 0 1320 760" align="Stretch" name="Background">
+            <Property key="ImageTexture" value="mygui\characterselect\textures\communitymp_character_select_frame.png"/>
+            <Property key="NeedMouse" value="false"/>
         </Widget>
 
-        <!-- Spell list -->
-        <Widget type="ScrollView" skin="MW_ScrollView" position="8 160 507 170" align="Left Top" name="SpellArea">
-            <Property key="CanvasAlign" value="Left"/>
-        </Widget>>
+        <Widget type="TextBox" skin="SandText" position="72 44 360 24" name="BirthStageT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="BIRTHSIGN"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
 
-        <!-- Dialog buttons -->
-        <Widget type="HBox" position="0 338 511 28">
-            <Widget type="Spacer"/>
-            <Widget type="AutoSizedButton" skin="MW_Button" name="BackButton">
+        <Widget type="TextBox" skin="SandText" position="486 44 380 24" name="BirthImageT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="PREVIEW"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="900 44 348 24" name="BirthPowerT" align="Left Top">
+            <Property key="FontName" value="Russo"/>
+            <Property key="Caption" value="SIGN EFFECTS"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="72 86 360 548" name="BirthsignPanel" align="Left Top">
+            <Widget type="ListBox" skin="MW_List" position="14 14 332 520" name="BirthsignList"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="486 86 380 548" name="BirthAvatarPanel" align="Left Top">
+            <Widget type="ImageBox" skin="ImageBox" position="12 10 356 528" name="AvatarPreviewImage" align="Stretch"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="900 86 348 214" name="BirthsignArtPanel" align="Left Top">
+            <Widget type="ImageBox" skin="ImageBox" position="10 10 328 194" name="BirthsignImage" align="Stretch"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="900 324 348 92" name="BirthHintPanel" align="Left Top">
+            <Widget type="TextBox" skin="SandText" position="18 16 312 60" name="BirthHintText" align="Left Top">
+                <Property key="FontName" value="Russo"/>
+                <Property key="Caption" value="Pick a sign for starting powers."/>
+                <Property key="TextAlign" value="Left Top"/>
+                <Property key="TextColour" value="0.76 0.82 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="900 440 348 194" name="BirthPowerPanel" align="Left Top">
+            <Widget type="ScrollView" skin="MW_ScrollView" position="14 14 320 166" align="Stretch" name="SpellArea">
+                <Property key="CanvasAlign" value="Left"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="48 668 1224 30" name="CreatorStageRail" align="Left Top">
+            <Widget type="TextBox" skin="ProgressText" position="18 6 224 18" name="CreatorStageIdentity" align="Left Top">
+                <Property key="Caption" value="01 Identity"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="252 6 224 18" name="CreatorStageAppearance" align="Left Top">
+                <Property key="Caption" value="02 Appearance"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="486 6 224 18" name="CreatorStageClass" align="Left Top">
+                <Property key="Caption" value="03 Class"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="720 6 224 18" name="CreatorStageBirthsign" align="Left Top">
+                <Property key="Caption" value="04 Birthsign"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="954 6 224 18" name="CreatorStageReview" align="Left Top">
+                <Property key="Caption" value="05 Review"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Widget" skin="" position="48 708 1224 34" name="FooterActions" align="Left Top">
+            <Widget type="Button" skin="MW_Button" position="1040 4 88 26" name="BackButton">
                 <Property key="Caption" value="#{sBack}"/>
             </Widget>
-            <Widget type="AutoSizedButton" skin="MW_Button" name="OKButton">
+            <Widget type="Button" skin="MW_Button" position="1136 4 88 26" name="OKButton">
                 <Property key="Caption" value="#{Interface:OK}"/>
             </Widget>
         </Widget>
-
     </Widget>
 </MyGUI>

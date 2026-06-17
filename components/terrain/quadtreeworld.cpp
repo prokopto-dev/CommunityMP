@@ -364,8 +364,8 @@ namespace Terrain
         return lodFlags;
     }
 
-    void QuadTreeWorld::loadRenderingNode(
-        ViewDataEntry& entry, ViewData* vd, float cellWorldSize, const osg::Vec4i& gridbounds, bool compile)
+    void QuadTreeWorld::loadRenderingNode(ViewDataEntry& entry, ViewData* vd, float cellWorldSize,
+        const osg::Vec4i& gridbounds, bool compile, unsigned int traversalMask)
     {
         if (!vd->hasChanged() && entry.mRenderingNode)
             return;
@@ -396,6 +396,10 @@ namespace Terrain
 
             for (QuadTreeWorld::ChunkManager* m : mChunkManagers)
             {
+                const unsigned int nodeMask = m->getNodeMask();
+                if (nodeMask != 0 && !(nodeMask & traversalMask))
+                    continue;
+
                 osg::ref_ptr<osg::Node> n = m->getChunk(entry.mNode->getSize(), entry.mNode->getCenter(),
                     static_cast<unsigned char>(DefaultLodCallback::getNativeLodLevel(entry.mNode, mMinSize)),
                     entry.mLodFlags, activeGrid, vd->getViewPoint(), compile);
@@ -493,7 +497,7 @@ namespace Terrain
         for (unsigned int i = 0; i < vd->getNumEntries(); ++i)
         {
             ViewDataEntry& entry = vd->getEntry(i);
-            loadRenderingNode(entry, vd, cellWorldSize, mActiveGrid, false);
+            loadRenderingNode(entry, vd, cellWorldSize, mActiveGrid, false, nv.getTraversalMask());
             entry.mRenderingNode->accept(nv);
         }
 
@@ -561,7 +565,7 @@ namespace Terrain
         for (unsigned int i = 0, n = vd->getNumEntries(); i < n && !abort; ++i)
         {
             ViewDataEntry& entry = vd->getEntry(i);
-            loadRenderingNode(entry, vd, cellWorldSize, grid, true);
+            loadRenderingNode(entry, vd, cellWorldSize, grid, true, ~0u);
             reporter.addProgress(1);
         }
     }

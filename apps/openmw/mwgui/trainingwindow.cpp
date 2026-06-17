@@ -58,6 +58,12 @@ namespace MWGui
         center();
     }
 
+    void TrainingWindow::setDisabledByLua(bool disabled)
+    {
+        WindowBase::setDisabledByLua(disabled);
+        mProgressBar.setDisabledByLua(disabled);
+    }
+
     void TrainingWindow::setPtr(const MWWorld::Ptr& actor)
     {
         if (actor.isEmpty() || !actor.getClass().isActor())

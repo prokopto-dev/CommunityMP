@@ -1,30 +1,84 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <MyGUI type="Layout">
-    <Widget type="VBox" skin="MW_Dialog" layer="Modal" position="0 0 289 256" align="Center" name="_Main">
-        <Property key="AutoResize" value="true"/>
-        <Property key="Padding" value="8"/>
-        <Property key="Spacing" value="8"/>
-
-        <!-- Class image -->
-        <Widget type="Widget" skin="MW_Box" position="8 8 265 138" align="Left Top">
-            <Widget type="ImageBox" skin="ImageBox" position="2 2 261 134" name="ClassImage" align="Left Top"/>
+    <Widget type="Window" skin="MW_Dialog" layer="Modal" position="0 0 900 560" align="Center" name="_Main">
+        <Widget type="TextBox" skin="HeaderText" position="32 24 836 28" name="GeneratedClassT" align="Left Top">
+            <Property key="Caption" value="Generated Class"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
         </Widget>
 
-        <!-- Class text -->
-        <Widget type="AutoSizedEditBox" skin="SandText" position="8 152 265 40" name="ReflectT" align="Left Top">
-            <Property key="TextAlign" value="Top HCenter"/>
-            <Property key="MultiLine" value="true"/>
-            <Property key="WordWrap" value="true"/>
-            <Property key="Static" value="true"/>
-        </Widget>
-        <Widget type="AutoSizedTextBox" skin="SandText" position="8 183 265 23" name="ClassName" align="Left Top">
-            <Property key="Caption" value="[Class]"/>
-            <Property key="TextAlign" value="Top HCenter"/>
+        <Widget type="Widget" skin="MW_Box" position="32 64 836 30" name="CreatorStageRail" align="Left Top">
+            <Widget type="TextBox" skin="ProgressText" position="14 6 148 18" name="CreatorStageIdentity" align="Left Top">
+                <Property key="Caption" value="01 Identity"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="172 6 148 18" name="CreatorStageAppearance" align="Left Top">
+                <Property key="Caption" value="02 Appearance"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="330 6 148 18" name="CreatorStageClass" align="Left Top">
+                <Property key="Caption" value="03 Class"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="488 6 148 18" name="CreatorStageBirthsign" align="Left Top">
+                <Property key="Caption" value="04 Birthsign"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="ProgressText" position="646 6 148 18" name="CreatorStageReview" align="Left Top">
+                <Property key="Caption" value="05 Review"/>
+                <Property key="TextAlign" value="Center"/>
+                <Property key="TextColour" value="0.55 0.62 0.62"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
         </Widget>
 
-        <!-- Dialog buttons -->
-        <Widget type="HBox" position="0 216 273 28">
+        <Widget type="Widget" skin="MW_Box" position="32 116 372 358" name="GeneratedClassImagePanel" align="Left Top">
+            <Widget type="ImageBox" skin="ImageBox" position="16 16 340 326" name="ClassImage" align="Stretch"/>
+        </Widget>
+
+        <Widget type="Widget" skin="MW_Box" position="428 116 440 358" name="GeneratedClassSummaryPanel" align="Left Top">
+            <Widget type="AutoSizedEditBox" skin="SandText" position="20 28 400 108" name="ReflectT" align="Left Top">
+                <Property key="TextAlign" value="Top HCenter"/>
+                <Property key="TextColour" value="0.76 0.82 0.78"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="MultiLine" value="true"/>
+                <Property key="WordWrap" value="true"/>
+                <Property key="Static" value="true"/>
+            </Widget>
+            <Widget type="AutoSizedTextBox" skin="SandText" position="20 166 400 42" name="ClassName" align="Left Top">
+                <Property key="Caption" value="[Class]"/>
+                <Property key="TextAlign" value="Top HCenter"/>
+                <Property key="TextColour" value="1 0.86 0.42"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="HBox" position="0 516 872 28">
+            <Widget type="Spacer"/>
             <Widget type="AutoSizedButton" skin="MW_Button" name="BackButton">
                 <Property key="Caption" value="#{sBack}"/>
             </Widget>

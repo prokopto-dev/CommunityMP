@@ -375,6 +375,46 @@ namespace ESM
             EXPECT_EQ(record.mPos, result.mPos);
         }
 
+        TEST_F(Esm3SaveLoadRecordTest, cellRefShouldSanitizeNonFiniteScaleOnLoad)
+        {
+            CellRef raw;
+            raw.blank();
+            raw.mRefID = RefId::stringRefId("nan_scale_ref");
+
+            auto stream = std::make_unique<std::stringstream>();
+            ESMWriter writer;
+            writer.setFormatVersion(CurrentContentFormatVersion);
+            writer.save(*stream);
+            writer.startRecord(fakeRecordId);
+            writer.writeFormId(raw.mRefNum, true);
+            writer.writeHNCRefId("NAME", raw.mRefID);
+            writer.writeHNT("XSCL", std::numeric_limits<float>::quiet_NaN());
+            writer.writeNamedComposite("DATA", raw.mPos);
+            writer.endRecord(fakeRecordId);
+
+            ESMReader reader;
+            reader.open(std::move(stream), "stream");
+            ASSERT_TRUE(reader.hasMoreRecs());
+            ASSERT_EQ(reader.getRecName().toInt(), fakeRecordId);
+            reader.getRecHeader();
+
+            CellRef result;
+            load(reader, result);
+            EXPECT_EQ(result.mScale, 1.f);
+        }
+
+        TEST_F(Esm3SaveLoadRecordTest, cellRefShouldNotSaveNonFiniteScale)
+        {
+            CellRef record;
+            record.blank();
+            record.mRefID = RefId::stringRefId("nan_scale_ref");
+            record.mScale = std::numeric_limits<float>::quiet_NaN();
+
+            const std::unique_ptr<std::istream> stream = makeEsmStream(record, CurrentContentFormatVersion);
+            const std::stringstream& stringStream = static_cast<const std::stringstream&>(*stream);
+            EXPECT_THAT(stringStream.str(), Not(HasSubstr("XSCL")));
+        }
+
         TEST_P(Esm3SaveLoadRecordTest, creatureStatsShouldNotChange)
         {
             CreatureStats record;
@@ -722,6 +762,27 @@ namespace ESM
                 EXPECT_EQ(resultS.mFunction, recordS.mFunction);
                 EXPECT_EQ(resultS.mComparison, recordS.mComparison);
             }
+        }
+
+        TEST_P(Esm3SaveLoadRecordTest, infoResultScriptShouldUseWindowsLineEndings)
+        {
+            DialInfo record = {
+                .mData = {
+                    .mType = ESM::Dialogue::Topic,
+                    .mDisposition = 1,
+                    .mRank = 2,
+                    .mGender = ESM::DialInfo::NA,
+                    .mPCrank = 3,
+                },
+                .mId = generateRandomRefId(32),
+                .mResultScript = "CLEARINFOACTOR ;\nChoice Continue 1 ;\rGoodbye ;\r\n",
+                .mQuestStatus = ESM::DialInfo::QS_None,
+            };
+
+            DialInfo result;
+            saveAndLoadRecord(record, GetParam(), result);
+
+            EXPECT_EQ(result.mResultScript, "CLEARINFOACTOR ;\r\nChoice Continue 1 ;\r\nGoodbye ;\r\n");
         }
 
         TEST_P(Esm3SaveLoadRecordTest, landShouldNotChange)

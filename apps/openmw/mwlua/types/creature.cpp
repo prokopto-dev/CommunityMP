@@ -1,8 +1,10 @@
 #include "types.hpp"
 
+#include "../contentbindings.hpp"
 #include "../stats.hpp"
 #include "actor.hpp"
 #include "modelproperty.hpp"
+#include "usertypeutil.hpp"
 
 #include <components/esm3/loadcrea.hpp>
 #include <components/lua/luastate.hpp>
@@ -12,9 +14,9 @@
 
 namespace
 {
-    ESM::Creature tableToCreature(const sol::table& rec)
+    ESM::Creature tableToCreatureImpl(const sol::table& rec)
     {
-        ESM::Creature crea;
+        auto crea = MWLua::Types::initFromTemplate<ESM::Creature>(rec);
         auto setCreatureFlag = [&](std::string_view key, int flag) {
             if (rec[key] == sol::nil)
                 return;
@@ -25,12 +27,6 @@ namespace
             else
                 crea.mFlags &= ~flag;
         };
-
-        // Start from template if provided
-        if (rec["template"] != sol::nil)
-            crea = LuaUtil::cast<ESM::Creature>(rec["template"]);
-        else
-            crea.blank();
 
         // Basic fields
         if (rec["name"] != sol::nil)
@@ -112,6 +108,78 @@ namespace sol
 
 namespace MWLua
 {
+    namespace
+    {
+        template <class T>
+        void addAttackProperty(sol::usertype<T>& record)
+        {
+            const auto getter = [](const T& rec, sol::this_state state) -> sol::table {
+                sol::table res(state, sol::create);
+                int index = 1;
+                for (auto attack : Types::RecordType<T>::asRecord(rec).mData.mAttack)
+                    res[index++] = attack;
+                return LuaUtil::makeReadOnly(res);
+            };
+            if constexpr (Types::RecordType<T>::isMutable)
+            {
+                record["attack"] = sol::property(std::move(getter), [](T& rec, const sol::table& values) {
+                    auto& attack = rec.find().mData.mAttack;
+                    for (int i = 0; i < 6; ++i)
+                    {
+                        sol::object value = values[i + 1];
+                        if (value != sol::nil)
+                            attack[i] = value.as<int>();
+                    }
+                });
+            }
+            else
+            {
+                record["attack"] = sol::readonly_property(std::move(getter));
+            }
+        }
+
+        template <class T>
+        void addUserType(sol::state_view& lua, std::string_view name)
+        {
+            sol::usertype<T> record = lua.new_usertype<T>(name);
+
+            record[sol::meta_function::to_string]
+                = [](const T& rec) { return "ESM3_Creature[" + rec.mId.toDebugString() + "]"; };
+            record["id"] = sol::readonly_property([](const T& rec) -> ESM::RefId { return rec.mId; });
+
+            Types::addProperty(record, "name", &ESM::Creature::mName);
+            Types::addModelProperty(record);
+            Types::addProperty(record, "mwscript", &ESM::Creature::mScript);
+            Types::addProperty(record, "baseCreature", &ESM::Creature::mOriginal);
+            Types::addProperty(record, "soulValue", &ESM::Creature::mData, &ESM::Creature::NPDTstruct::mSoul);
+            Types::addProperty(record, "type", &ESM::Creature::mData, &ESM::Creature::NPDTstruct::mType);
+            Types::addProperty(record, "baseGold", &ESM::Creature::mData, &ESM::Creature::NPDTstruct::mGold);
+            Types::addProperty(record, "combatSkill", &ESM::Creature::mData, &ESM::Creature::NPDTstruct::mCombat);
+            Types::addProperty(record, "magicSkill", &ESM::Creature::mData, &ESM::Creature::NPDTstruct::mMagic);
+            Types::addProperty(record, "stealthSkill", &ESM::Creature::mData, &ESM::Creature::NPDTstruct::mStealth);
+            addAttackProperty(record);
+            Types::addFlagProperty(record, "canFly", ESM::Creature::Flies, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "canSwim", ESM::Creature::Swims, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "canUseWeapons", ESM::Creature::Weapon, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "canWalk", ESM::Creature::Walks, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "isBiped", ESM::Creature::Bipedal, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "isEssential", ESM::Creature::Essential, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "isRespawning", ESM::Creature::Respawn, &ESM::Creature::mFlags);
+            Types::addFlagProperty(record, "isPersistent", ESM::FLAG_Persistent, &ESM::Creature::mRecordFlags);
+            Types::addProperty(record, "bloodType", &ESM::Creature::mBloodType);
+        }
+    }
+
+    ESM::Creature tableToCreature(const sol::table& rec)
+    {
+        return tableToCreatureImpl(rec);
+    }
+
+    void addMutableCreatureType(sol::state_view& lua)
+    {
+        addUserType<MutableRecord<ESM::Creature>>(lua, "ESM3_MutableCreature");
+    }
+
     void addCreatureBindings(sol::table creature, const Context& context)
     {
         sol::state_view lua = context.sol();

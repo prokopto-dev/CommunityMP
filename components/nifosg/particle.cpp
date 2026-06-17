@@ -134,6 +134,15 @@ namespace NifOsg
         return nullptr;
     }
 
+    osg::BoundingBox ParticleSystem::computeBoundingBox() const
+    {
+        const osg::BoundingBox& initialBound = getInitialBound();
+        if (initialBound.valid())
+            return initialBound;
+
+        return osgParticle::ParticleSystem::computeBoundingBox();
+    }
+
     void ParticleSystem::drawImplementation(osg::RenderInfo& renderInfo) const
     {
         osg::State& state = *renderInfo.getState();

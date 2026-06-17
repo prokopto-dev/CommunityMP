@@ -114,6 +114,9 @@ namespace MWGui
         // otherwise, do the transfer
         if (targetModel != mSourceModel)
         {
+            if (!targetModel->onDropItem(mItem.mBase, static_cast<int>(mDraggedCount)))
+                return;
+
             mSourceModel->moveItem(mItem, mDraggedCount, targetModel);
         }
 
@@ -151,10 +154,19 @@ namespace MWGui
             finish();
     }
 
-    void DragAndDrop::finish()
+    void DragAndDrop::finish(bool removeDraggedItems)
     {
+        if (!mIsOnDragAndDrop)
+            return;
+
         mIsOnDragAndDrop = false;
-        mSourceSortModel->clearDragItems();
+        if (removeDraggedItems && mSourceModel != nullptr)
+        {
+            mSourceModel->removeItem(mItem, mDraggedCount);
+            mSourceModel->update();
+        }
+        if (mSourceSortModel)
+            mSourceSortModel->clearDragItems();
         // since mSourceView doesn't get updated in drag()
         MWBase::Environment::get().getWindowManager()->getInventoryWindow()->updateItemView();
 

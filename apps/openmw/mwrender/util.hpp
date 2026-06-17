@@ -25,6 +25,9 @@ namespace MWRender
 
     void overrideTexture(VFS::Path::NormalizedView texture, Resource::ResourceSystem* resourceSystem, osg::Node& node);
 
+    // Keep particle billboards at their NIF-authored size when a magic VFX node is scaled.
+    void useWorldspaceParticleSize(osg::Node& node);
+
     // Node callback to entirely skip the traversal.
     class NoTraverseCallback : public osg::NodeCallback
     {

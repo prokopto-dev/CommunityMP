@@ -11,6 +11,25 @@
 -- @field [parent=#core] #number API_REVISION
 
 ---
+-- Possible log levels for @{#log}.
+-- @field [parent=#core] #LogLevel LOG_LEVEL
+
+--- `core.LOG_LEVEL`
+-- @type LogLevel
+-- @field #number Error
+-- @field #number Warning
+-- @field #number Info
+-- @field #number Verbose
+-- @field #number Debug
+
+---
+-- Write a message to the log with the given level. Arguments are formatted like `print`.
+-- @function [parent=#core] log
+-- @param #number level One of @{#LogLevel}.
+-- @param ... Values to log.
+-- @usage core.log(core.LOG_LEVEL.Warning, 'message', value)
+
+---
 -- Terminates the game and quits to the OS. Should be used only for testing purposes. Not available in load scripts.
 -- @function [parent=#core] quit
 
@@ -889,6 +908,7 @@
 
 ---
 -- Check if a sound file is playing on the given object
+-- Also returns true for active `core.sound.say` voiceover streams with the same file name.
 -- @function [parent=#Sound] isSoundFilePlaying
 -- @param #string fileName Path to sound file in VFS
 -- @param #GameObject object Object on which we want to check sound
@@ -922,6 +942,13 @@
 -- @param #GameObject object Object on which we want to check an animated voiceover
 -- @return #boolean
 -- @usage local isActive = isSayActive(object);
+
+---
+-- Creates a @{#SoundRecord} without adding it to the world database.
+-- Use @{openmw_world#(world).createRecord} to add the record to the world.
+-- @function [parent=#Sound] createRecordDraft
+-- @param #SoundRecord sound A Lua table with the fields of a SoundRecord, with an optional field `template` that accepts a @{#SoundRecord} as a base.
+-- @return #SoundRecord A strongly typed Sound record.
 
 ---
 -- @type SoundRecord
@@ -1086,15 +1113,25 @@
 -- @usage local record = core.dialogue.voice.records["flee"]
 
 ---
+-- Event data received by local player scripts for `DialogueResponse`.
+-- @type DialogueResponseEvent
+-- @field openmw.core#GameObject actor Actor who provided the dialogue response.
+-- @field #string type Dialogue record type: "greeting", "journal", "persuasion", "topic", or "voice".
+-- @field #string recordId Dialogue record identifier.
+-- @field #string infoId Dialogue info identifier.
+-- @field #DialogueRecordInfo info Selected dialogue info. Equivalent to `core.dialogue[data.type].records[data.recordId].infos[data.infoId]`, but available directly.
+
+---
 -- Depending on which store this read-only dialogue record is from, it may either be a journal, topic, greeting, persuasion or voice.
 -- @type DialogueRecord
 -- @field #string id Record identifier
 -- @field #string name Same as id, but with upper cases preserved.
 -- @field #string questName Non-nil only for journal records with available value. Holds the quest name for this journal entry. Same info may be available under `infos[1].text` as well, but this variable is made for convenience.
--- @field #list<#DialogueRecordInfo> infos A read-only list containing all @{#DialogueRecordInfo}s for this record, in order.
+-- @field #list<#DialogueRecordInfo> infos A read-only list containing all @{#DialogueRecordInfo}s for this record, in order. May be indexed by numeric index or info id.
 -- @usage local journalId = core.dialogue.journal.records['A2_4_MiloGone'].id -- "a2_4_milogone"
 -- @usage local journalName = core.dialogue.journal.records['A2_4_MiloGone'].name -- "A2_4_MiloGone"
 -- @usage local questName = core.dialogue.journal.records['A2_4_MiloGone'].questName -- "Mehra Milo and the Lost Prophecies"
+-- @usage local info = core.dialogue.topic.records[data.recordId].infos[data.infoId]
 
 ---
 -- Holds the read-only data for one of many info entries inside a dialogue record. Depending on the type of the dialogue record (journal, topic, greeting, persuasion or voice), it could be, for example, a single journal entry or a NPC dialogue line.
@@ -1477,6 +1514,18 @@
 -- @function [parent=#Weather] getCurrentStormDirection
 -- @param #Cell cell The cell to get the storm direction for
 -- @return openmw.util#Vector3 Can be nil if the cell is inactive or has no weather
+
+---
+-- Get the current Masser phase.
+-- Matches the MWScript `GetMasserPhase` result: 0 new moon, 1 crescent, 2 half, 3 gibbous, 4 full moon.
+-- @function [parent=#Weather] getMasserPhase
+-- @return #number
+
+---
+-- Get the current Secunda phase.
+-- Matches the MWScript `GetSecundaPhase` result: 0 new moon, 1 crescent, 2 half, 3 gibbous, 4 full moon.
+-- @function [parent=#Weather] getSecundaPhase
+-- @return #number
 
 ---
 -- Weather data

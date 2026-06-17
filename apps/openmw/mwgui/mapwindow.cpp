@@ -31,6 +31,11 @@
 #include "../mwrender/globalmap.hpp"
 #include "../mwrender/localmap.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/GUIController.hpp"
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "confirmationdialog.hpp"
 
 #include <numeric>
@@ -196,7 +201,7 @@ namespace MWGui
 
     MWGui::LocalMapBase::MapEntry& LocalMapBase::addMapEntry()
     {
-        const int mapWidgetSize = Settings::map().mLocalMapWidgetSize;
+        const int mapWidgetSize = static_cast<int>(getWidgetSize());
         MyGUI::ImageBox* map = mLocalMap->createWidget<MyGUI::ImageBox>(
             "ImageBox", MyGUI::IntCoord(0, 0, mapWidgetSize, mapWidgetSize), MyGUI::Align::Top | MyGUI::Align::Left);
         map->setDepth(Local_MapLayer);
@@ -218,7 +223,7 @@ namespace MWGui
         mCompass = compass;
         mGrid = createRect({ 0, 0 }, cellDistance);
 
-        const int mapWidgetSize = Settings::map().mLocalMapWidgetSize;
+        const int mapWidgetSize = static_cast<int>(getWidgetSize());
         setCanvasSize(mLocalMap, mGrid, mapWidgetSize);
 
         mCompass->setDepth(Local_CompassLayer);
@@ -371,6 +376,59 @@ namespace MWGui
         }
         else
             updateMarkers(mCustomMarkers.getMarkers(mActiveCell->getId()));
+
+        redraw();
+    }
+
+    void LocalMapBase::updatePlayerMarkers(const std::vector<ESM::CustomMarker>& markers)
+    {
+        if (markers.empty() && mPlayerMarkerWidgets.empty())
+            return;
+
+        for (MyGUI::Widget* widget : mPlayerMarkerWidgets)
+            MyGUI::Gui::getInstance().destroyWidget(widget);
+        mPlayerMarkerWidgets.clear();
+
+        if (!mActiveCell)
+            return;
+
+        for (const ESM::CustomMarker& marker : markers)
+        {
+            bool showMarker = false;
+            if (mActiveCell->isExterior())
+            {
+                for (int x = mGrid.left; x <= mGrid.right && !showMarker; ++x)
+                {
+                    for (int y = mGrid.top; y <= mGrid.bottom; ++y)
+                    {
+                        if (marker.mCell == getCellIdInWorldSpace(*mActiveCell, x, y))
+                        {
+                            showMarker = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+                showMarker = marker.mCell == mActiveCell->getId();
+
+            if (!showMarker)
+                continue;
+
+            MarkerUserData markerPos(mLocalMapRender);
+            MarkerWidget* markerWidget = mLocalMap->createWidget<MarkerWidget>("CustomMarkerButton",
+                getMarkerCoordinates(marker.mWorldX, marker.mWorldY, markerPos, 16), MyGUI::Align::Default);
+            markerWidget->setDepth(Local_MarkerAboveFogLayer);
+            markerWidget->setUserString("ToolTipType", "Layout");
+            markerWidget->setUserString("ToolTipLayout", "TextToolTipOneLine");
+            markerWidget->setUserString("Caption_TextOneLine", MyGUI::TextIterator::toTagsString(marker.mNote));
+            markerWidget->setNormalColour(MyGUI::Colour(0.2f, 0.75f, 1.0f));
+            markerWidget->setHoverColour(MyGUI::Colour(0.65f, 0.95f, 1.0f));
+            markerWidget->setUserData(marker);
+            markerWidget->setNeedMouseFocus(true);
+            customMarkerCreated(markerWidget);
+            mPlayerMarkerWidgets.push_back(markerWidget);
+        }
 
         redraw();
     }
@@ -598,6 +656,10 @@ namespace MWGui
         {
             mMarkerUpdateTimer = 0;
             updateMagicMarkers();
+#ifdef BUILD_TES3MP_CLIENT
+            if (mwmp::Main::isInitialized())
+                mwmp::Main::get().getGUIController()->updatePlayersMarkers(this);
+#endif
         }
 
         updateRequiredMaps();
@@ -775,6 +837,12 @@ namespace MWGui
             updateMarkerCoordinates(widget, 8);
 
         for (MyGUI::Widget* widget : mCustomMarkerWidgets)
+        {
+            const auto& marker = *widget->getUserData<ESM::CustomMarker>();
+            widget->setCoord(getMarkerCoordinates(marker.mWorldX, marker.mWorldY, markerPos, 16));
+        }
+
+        for (MyGUI::Widget* widget : mPlayerMarkerWidgets)
         {
             const auto& marker = *widget->getUserData<ESM::CustomMarker>();
             widget->setCoord(getMarkerCoordinates(marker.mWorldX, marker.mWorldY, markerPos, 16));
@@ -1159,6 +1227,18 @@ namespace MWGui
         }
     }
 
+    void MapWindow::setGlobalMapImage(int x, int y, const std::vector<char>& imageData)
+    {
+        ESM::GlobalMap map;
+        map.mBounds.mMinX = x;
+        map.mBounds.mMaxX = x;
+        map.mBounds.mMinY = y;
+        map.mBounds.mMaxY = y;
+        map.mImageData = imageData;
+
+        mGlobalMapRender->read(map);
+    }
+
     void MapWindow::cellExplored(int x, int y)
     {
         mGlobalMapRender->cleanupCameras();
@@ -1168,6 +1248,14 @@ namespace MWGui
     void MapWindow::onFrame(float dt)
     {
         LocalMapBase::onFrame(dt);
+#ifdef BUILD_TES3MP_CLIENT
+        mGlobalPlayerMarkerUpdateTimer += dt;
+        if (mGlobalPlayerMarkerUpdateTimer >= 0.25f && mwmp::Main::isInitialized())
+        {
+            mGlobalPlayerMarkerUpdateTimer = 0.f;
+            mwmp::Main::get().getGUIController()->updateGlobalMapMarkerTooltips(this);
+        }
+#endif
         NoDrop::onFrame(dt);
     }
 
@@ -1332,6 +1420,52 @@ namespace MWGui
         rotatingSubskin->setAngle(angle);
     }
 
+    void MapWindow::updateGlobalPlayerMarkers(const std::vector<ESM::CustomMarker>& markers)
+    {
+        if (markers.empty() && mGlobalPlayerMarkerWidgets.empty())
+            return;
+
+        for (MyGUI::Widget* widget : mGlobalPlayerMarkerWidgets)
+            MyGUI::Gui::getInstance().destroyWidget(widget);
+        mGlobalPlayerMarkerWidgets.clear();
+
+        if (markers.empty())
+            return;
+
+        ensureGlobalMapLoaded();
+
+        for (const ESM::CustomMarker& marker : markers)
+        {
+            const ESM::ExteriorCellLocation cellLocation
+                = ESM::positionToExteriorCellLocation(marker.mWorldX, marker.mWorldY);
+            if (marker.mCell != ESM::RefId::esm3ExteriorCell(cellLocation.mX, cellLocation.mY))
+                continue;
+
+            float imageX, imageY;
+            worldPosToGlobalMapImageSpace(marker.mWorldX, marker.mWorldY, imageX, imageY);
+
+            const float markerSize = 12.f * mGlobalMapZoom;
+            const float halfMarkerSize = markerSize / 2.f;
+            MyGUI::Widget* markerWidget = mGlobalMap->createWidget<MarkerWidget>("MarkerButton",
+                MyGUI::IntCoord(static_cast<int>(imageX - halfMarkerSize), static_cast<int>(imageY - halfMarkerSize),
+                    static_cast<int>(markerSize), static_cast<int>(markerSize)),
+                MyGUI::Align::Default);
+            markerWidget->setVisible(markerWidget->getHeight() >= 6);
+            markerWidget->setUserString("ToolTipType", "Layout");
+            markerWidget->setUserString("ToolTipLayout", "TextToolTipOneLine");
+            markerWidget->setUserString("Caption_TextOneLine", MyGUI::TextIterator::toTagsString(marker.mNote));
+            markerWidget->setNeedMouseFocus(true);
+            markerWidget->setColour(MyGUI::Colour(0.2f, 0.75f, 1.0f));
+            markerWidget->setDepth(Global_MarkerLayer);
+            markerWidget->eventMouseDrag += MyGUI::newDelegate(this, &MapWindow::onMouseDrag);
+            if (Settings::map().mAllowZooming)
+                markerWidget->eventMouseWheel += MyGUI::newDelegate(this, &MapWindow::onMapZoomed);
+            markerWidget->eventMouseButtonPressed += MyGUI::newDelegate(this, &MapWindow::onDragStart);
+
+            mGlobalPlayerMarkerWidgets.push_back(markerWidget);
+        }
+    }
+
     void MapWindow::ensureGlobalMapLoaded()
     {
         if (!mGlobalMapTexture.get())
@@ -1364,6 +1498,10 @@ namespace MWGui
             MyGUI::Gui::getInstance().destroyWidget(widgetPair.first.widget);
         mGlobalMapMarkers.clear();
         mGlobalMapMarkersByName.clear();
+
+        for (MyGUI::Widget* widget : mGlobalPlayerMarkerWidgets)
+            MyGUI::Gui::getInstance().destroyWidget(widget);
+        mGlobalPlayerMarkerWidgets.clear();
     }
 
     void MapWindow::write(ESM::ESMWriter& writer, Loading::Listener& progress)

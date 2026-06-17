@@ -601,6 +601,7 @@ void CSVRender::PagedWorldspaceWidget::useViewHint(const std::string& hint)
     if (!hint.empty())
     {
         CSMWorld::CellSelection selection;
+        std::string referenceToSelect;
 
         if (hint[0] == 'c')
         {
@@ -638,12 +639,21 @@ void CSVRender::PagedWorldspaceWidget::useViewHint(const std::string& hint)
                 while (stream >> ignore1 >> refCode)
                 {
                 }
+                referenceToSelect = refCode;
 
                 // Find out cell coordinate
                 CSMWorld::IdTable& references = dynamic_cast<CSMWorld::IdTable&>(
                     *mDocument.getData().getTableModel(CSMWorld::UniversalId::Type_References));
                 int cellColumn = references.findColumnIndex(CSMWorld::Columns::ColumnId_Cell);
-                QVariant cell = references.data(references.getModelIndex(refCode, cellColumn)).value<QVariant>();
+                int stateColumn = references.findColumnIndex(CSMWorld::Columns::ColumnId_Modification);
+                QModelIndex cellIndex = references.getModelIndex(refCode, cellColumn);
+                QModelIndex stateIndex = references.getModelIndex(refCode, stateColumn);
+
+                if (!cellIndex.isValid() || !stateIndex.isValid()
+                    || references.data(stateIndex).toInt() == CSMWorld::RecordBase::State_Deleted)
+                    return;
+
+                QVariant cell = references.data(cellIndex).value<QVariant>();
                 QString cellqs = cell.toString();
                 std::istringstream streamCellCoord(cellqs.toStdString().c_str());
 
@@ -663,6 +673,9 @@ void CSVRender::PagedWorldspaceWidget::useViewHint(const std::string& hint)
         }
 
         setCellSelection(selection);
+
+        if (!referenceToSelect.empty())
+            selectReferenceById(referenceToSelect);
     }
 }
 

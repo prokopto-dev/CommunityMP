@@ -6,6 +6,7 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include <components/misc/strings/algorithm.hpp>
 
@@ -13,6 +14,18 @@ namespace Files::Wine
 {
     namespace Impl
     {
+        inline bool isRegularFile(const std::filesystem::path& path)
+        {
+            std::error_code ec;
+            return std::filesystem::is_regular_file(path, ec);
+        }
+
+        inline bool isDirectory(const std::filesystem::path& path)
+        {
+            std::error_code ec;
+            return std::filesystem::is_directory(path, ec);
+        }
+
         inline std::filesystem::path searchRegistryPath(std::ifstream& stream,
             const std::filesystem::path& dosdevicesPath, std::string_view subKey, std::string_view valueName)
         {
@@ -61,7 +74,7 @@ namespace Files::Wine
                     path[0] = Misc::StringUtils::toLower(path[0]);
                     std::filesystem::path installPath = dosdevicesPath / path;
 
-                    if (std::filesystem::is_directory(installPath))
+                    if (isDirectory(installPath))
                         return installPath;
                 }
             }
@@ -74,7 +87,7 @@ namespace Files::Wine
         std::vector<std::filesystem::path> paths;
 
         const std::filesystem::path registryPath = homePath / ".wine/system.reg";
-        if (!std::filesystem::is_regular_file(registryPath))
+        if (!Impl::isRegularFile(registryPath))
             return paths;
 
         std::ifstream registryFile(registryPath);

@@ -1,6 +1,8 @@
 #include "types.hpp"
 
+#include "../contentbindings.hpp"
 #include "modelproperty.hpp"
+#include "usertypeutil.hpp"
 
 #include <components/esm3/loadarmo.hpp>
 #include <components/lua/luastate.hpp>
@@ -18,16 +20,49 @@ namespace sol
     {
     };
 }
-namespace
+namespace MWLua
 {
-    // Populates an armor struct from a Lua table.
+    namespace
+    {
+        template <class T>
+        void addUserType(sol::state_view& lua, std::string_view name)
+        {
+            sol::usertype<T> record = lua.new_usertype<T>(name);
+
+            record[sol::meta_function::to_string]
+                = [](const T& rec) -> std::string { return "ESM3_Armor[" + rec.mId.toDebugString() + "]"; };
+            record["id"] = sol::readonly_property([](const T& rec) -> ESM::RefId { return rec.mId; });
+
+            Types::addProperty(record, "name", &ESM::Armor::mName);
+            Types::addModelProperty(record);
+            Types::addIconProperty(record);
+            Types::addProperty(record, "enchant", &ESM::Armor::mEnchant);
+            Types::addProperty(record, "mwscript", &ESM::Armor::mScript);
+            Types::addProperty(record, "weight", &ESM::Armor::mData, &ESM::Armor::AODTstruct::mWeight);
+            Types::addProperty(record, "value", &ESM::Armor::mData, &ESM::Armor::AODTstruct::mValue);
+            Types::addProperty(record, "type", &ESM::Armor::mData, &ESM::Armor::AODTstruct::mType);
+            Types::addProperty(record, "health", &ESM::Armor::mData, &ESM::Armor::AODTstruct::mHealth);
+            Types::addProperty(record, "baseArmor", &ESM::Armor::mData, &ESM::Armor::AODTstruct::mArmor);
+
+            const auto getEnchant = [](const T& rec) -> float {
+                return Types::RecordType<T>::asRecord(rec).mData.mEnchant * 0.1f;
+            };
+            if constexpr (Types::RecordType<T>::isMutable)
+            {
+                record["enchantCapacity"] = sol::property(std::move(getEnchant), [](T& rec, Misc::FiniteFloat value) {
+                    rec.find().mData.mEnchant = static_cast<int32_t>(std::round(value.mValue * 10));
+                });
+            }
+            else
+            {
+                record["enchantCapacity"] = sol::readonly_property(std::move(getEnchant));
+            }
+        }
+    }
+
     ESM::Armor tableToArmor(const sol::table& rec)
     {
-        ESM::Armor armor;
-        if (rec["template"] != sol::nil)
-            armor = LuaUtil::cast<ESM::Armor>(rec["template"]);
-        else
-            armor.blank();
+        auto armor = Types::initFromTemplate<ESM::Armor>(rec);
         if (rec["name"] != sol::nil)
             armor.mName = rec["name"];
         if (rec["model"] != sol::nil)
@@ -66,10 +101,12 @@ namespace
 
         return armor;
     }
-}
 
-namespace MWLua
-{
+    void addMutableArmorType(sol::state_view& lua)
+    {
+        addUserType<MutableRecord<ESM::Armor>>(lua, "ESM3_MutableArmor");
+    }
+
     void addArmorBindings(sol::table armor, const Context& context)
     {
         sol::state_view lua = context.sol();

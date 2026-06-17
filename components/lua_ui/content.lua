@@ -7,14 +7,23 @@ function validateContentChild(v)
     end
 end
 
+local function childName(v)
+    if type(v.name) == 'string' then
+        return v.name
+    end
+    local layout = v.layout
+    return layout and type(layout.name) == 'string' and layout.name
+end
+
 M.new = function(source)
     local result = {}
     result.__nameIndex = {}
     for i, v in ipairs(source) do
         validateContentChild(v)
         result[i] = v
-        if type(v.name) == 'string' then
-            result.__nameIndex[v.name] = i
+        local name = childName(v)
+        if name then
+            result.__nameIndex[name] = i
         end
     end
     return setmetatable(result, M)
@@ -42,14 +51,15 @@ local methods = {
         validateContentChild(value)
         for i = #self, index, -1 do
             rawset(self, i + 1, rawget(self, i))
-            local name = rawget(self, i + 1)
+            local name = childName(rawget(self, i + 1))
             if name then
                 self.__nameIndex[name] = i + 1
             end
         end
         rawset(self, index, value)
-        if value.name then
-            self.__nameIndex[value.name] = index
+        local name = childName(value)
+        if name then
+            self.__nameIndex[name] = index
         end
     end,
     indexOf = function(self, value)
@@ -76,7 +86,7 @@ M.__index = function(self, key)
 end
 local function nameAt(self, index)
     local v = rawget(self, index)
-    return v and type(v.name) == 'string' and v.name
+    return v and childName(v)
 end
 
 local function remove(self, index)
@@ -90,8 +100,9 @@ local function remove(self, index)
     for i = index, #self - 1 do
         local v = rawget(self, i + 1)
         rawset(self, i, v)
-        if type(v.name) == 'string' then
-            self.__nameIndex[v.name] = i
+        local name = childName(v)
+        if name then
+            self.__nameIndex[name] = i
         end
     end
     rawset(self, #self, nil)
@@ -103,8 +114,9 @@ local function assign(self, index, value)
         self.__nameIndex[oldName] = nil
     end
     rawset(self, index, value)
-    if value.name then
-        self.__nameIndex[value.name] = index
+    local name = childName(value)
+    if name then
+        self.__nameIndex[name] = index
     end
 end
 

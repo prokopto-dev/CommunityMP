@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace VFS::Path
 {
@@ -328,6 +330,23 @@ namespace VFS::Path
                 TypePair<NormalizedView, std::string_view>, TypePair<NormalizedView, NormalizedView>>;
 
         INSTANTIATE_TYPED_TEST_SUITE_P(Typed, VFSPathNormalizedOperatorsTest, VFSPathNormalizedOperatorsTypePairs);
+
+        TEST(VFSPathNormalizedHashTest, shouldSupportDefaultHeterogeneousLookup)
+        {
+            std::unordered_map<Normalized, int> values;
+            values.emplace(Normalized("meshes\\Example.NIF"), 42);
+
+            const auto byView = values.find(NormalizedView("meshes/example.nif"));
+            ASSERT_NE(byView, values.end());
+            EXPECT_EQ(byView->second, 42);
+            EXPECT_TRUE(values.contains(std::string_view("meshes/example.nif")));
+            EXPECT_TRUE(values.contains(std::string("meshes/example.nif")));
+
+            std::unordered_set<Normalized> paths;
+            paths.emplace("textures\\Example.DDS");
+            EXPECT_TRUE(paths.contains(NormalizedView("textures/example.dds")));
+            EXPECT_TRUE(paths.contains(std::string_view("textures/example.dds")));
+        }
 
         TEST(VFSPathNormalizedViewTest, shouldSupportConstructorFromNormalized)
         {

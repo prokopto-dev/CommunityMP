@@ -8,6 +8,8 @@
 #include <components/misc/rng.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 
+#include <stdexcept>
+
 #include "../mwphysics/raycasting.hpp"
 
 #include "../mwworld/class.hpp"
@@ -47,11 +49,16 @@ namespace
 namespace MWMechanics
 {
     AiCombat::AiCombat(const MWWorld::Ptr& actor)
+        : mStartTime(MWBase::Environment::get().getWorld()->getTimeStamp())
     {
+        if (!actor.getClass().isActor())
+            throw std::runtime_error("AI Combat target must be an actor");
         mTargetActor = actor.getCellRef().getRefNum();
     }
 
     AiCombat::AiCombat(const ESM::AiSequence::AiCombat* combat)
+        : mStartTime(combat->mHasStartTime ? MWWorld::TimeStamp(combat->mStartTime)
+                                           : MWBase::Environment::get().getWorld()->getTimeStamp())
     {
         mTargetActor = combat->mTargetActor;
     }
@@ -108,6 +115,9 @@ namespace MWMechanics
     bool AiCombat::execute(
         const MWWorld::Ptr& actor, CharacterController& characterController, AiState& state, float duration)
     {
+        if (shouldExpireCombat())
+            return true;
+
         // Get or create temporary storage
         AiCombatStorage& storage = state.get<AiCombatStorage>();
 
@@ -119,7 +129,8 @@ namespace MWMechanics
 
         // Stop if the target doesn't exist
         if (target.isEmpty() || !target.getCellRef().getCount() || !target.getRefData().isEnabled()
-            || target.getClass().getCreatureStats(target).isDead() || !target.getRefData().getBaseNode())
+            || !target.getClass().isActor() || target.getClass().getCreatureStats(target).isDead()
+            || !target.getRefData().getBaseNode())
             return true;
 
         if (actor == target) // This should never happen.
@@ -347,6 +358,21 @@ namespace MWMechanics
         return false;
     }
 
+    bool AiCombat::shouldExpireCombat() const
+    {
+        const ESM::GameSetting* clearCorpseDelay
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>().search("fClearCorpseDelay");
+        if (clearCorpseDelay == nullptr)
+            return false;
+
+        const float clearCorpseDelayHours = clearCorpseDelay->mValue.getFloat();
+        if (clearCorpseDelayHours <= 0.f)
+            return false;
+
+        const double elapsedHours = MWBase::Environment::get().getWorld()->getTimeStamp() - mStartTime;
+        return elapsedHours >= clearCorpseDelayHours;
+    }
+
     void MWMechanics::AiCombat::updateLOS(
         const MWWorld::Ptr& actor, const MWWorld::Ptr& target, float duration, MWMechanics::AiCombatStorage& storage)
     {
@@ -497,6 +523,8 @@ namespace MWMechanics
     {
         auto combat = std::make_unique<ESM::AiSequence::AiCombat>();
         combat->mTargetActor = mTargetActor;
+        combat->mStartTime = mStartTime.toEsm();
+        combat->mHasStartTime = true;
 
         ESM::AiSequence::AiPackageContainer package;
         package.mType = ESM::AiSequence::Ai_Combat;

@@ -93,6 +93,8 @@ namespace MWGui
 
         getWidget(mCrosshair, "Crosshair");
 
+        mLocalMapZoom = Settings::map().mLocalMapHudZoom;
+
         LocalMapBase::init(mMinimap, mCompass);
 
         mMainWidget->eventMouseButtonClick += MyGUI::newDelegate(this, &HUD::onWorldClicked);

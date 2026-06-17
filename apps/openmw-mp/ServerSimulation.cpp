@@ -1,0 +1,1585 @@
+#include "ServerSimulation.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <components/openmw-mp/Base/ActorStatsAuthority.hpp>
+#include <components/openmw-mp/NetworkMessages.hpp>
+#include <components/openmw-mp/Packets/Actor/ActorPacket.hpp>
+#include <components/openmw-mp/Packets/Player/PlayerPacket.hpp>
+#include <components/openmw-mp/TimedLog.hpp>
+#include <components/openmw-mp/Transport/PacketDelivery.hpp>
+
+#include "Script/Script.hpp"
+#include "Cell.hpp"
+#include "CellController.hpp"
+#include "Networking.hpp"
+#include "Player.hpp"
+#include "processors/ActorProcessor.hpp"
+#include "processors/actor/ActorSequenceCoalescing.hpp"
+
+namespace
+{
+    constexpr float serverMovementUnitsPerSecond = 300.f;
+    constexpr float firstMovementStepSeconds = 1.f / 60.f;
+    constexpr float maxMovementStepSeconds = 0.05f;
+    constexpr float actorTickIntervalSeconds = 0.05f;
+    constexpr float correctionDistanceSquared = 48.f * 48.f;
+    constexpr float maxPlayerMovementUnitsPerSecond = 1600.f;
+    constexpr float maxPlayerVerticalUnitsPerSecond = 2400.f;
+    constexpr float playerMovementCorrectionAllowance = 128.f;
+    constexpr float cellSpaceTransitionDistance = static_cast<float>(ESM::Cell::sSize) * 0.5f;
+    constexpr float cellSpaceTransitionDistanceSquared = cellSpaceTransitionDistance * cellSpaceTransitionDistance;
+    constexpr float healthDeadEpsilon = 0.001f;
+    constexpr float maxServerAttackDamage = 10000.f;
+    constexpr float aiCoordinateStopDistance = 64.f;
+    constexpr float aiTargetStopDistance = 128.f;
+    constexpr float aiMinimumStopDistance = 48.f;
+    constexpr float aiMaximumStopDistance = 2048.f;
+    constexpr float aiWanderStopDistance = 32.f;
+    constexpr float aiWanderMinimumDecisionSeconds = 2.f;
+    constexpr float aiWanderMaximumDecisionSeconds = 8.f;
+    constexpr float twoPi = 6.28318530717958647692f;
+    constexpr float followerCellChangeBehindDistance = 96.f;
+    constexpr float followerCellChangeRowSpacing = 48.f;
+    constexpr float followerCellChangeColumnSpacing = 48.f;
+
+    float squaredHorizontalLength(float x, float y)
+    {
+        return x * x + y * y;
+    }
+
+    float squaredDistance(const ESM::Position& left, const ESM::Position& right)
+    {
+        float result = 0.f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float delta = left.pos[axis] - right.pos[axis];
+            result += delta * delta;
+        }
+        return result;
+    }
+
+    void sanitizeFinitePosition(ESM::Position& position)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            if (!std::isfinite(position.pos[axis]))
+                position.pos[axis] = 0.f;
+
+            if (!std::isfinite(position.rot[axis]))
+                position.rot[axis] = 0.f;
+        }
+    }
+
+    void normalizeHorizontalIntent(float& x, float& y)
+    {
+        const float lengthSquared = squaredHorizontalLength(x, y);
+        if (!std::isfinite(lengthSquared) || lengthSquared <= 0.f)
+        {
+            x = 0.f;
+            y = 0.f;
+            return;
+        }
+
+        if (lengthSquared <= 1.f)
+            return;
+
+        const float inverseLength = 1.f / std::sqrt(lengthSquared);
+        x *= inverseLength;
+        y *= inverseLength;
+    }
+
+    ESM::Position simulateMovementPosition(const ESM::Position& currentPosition,
+        const ESM::Position& observedPosition, ESM::Position& observedDirection, float deltaSeconds)
+    {
+        sanitizeFinitePosition(observedDirection);
+
+        float horizontalX = observedDirection.pos[0];
+        float horizontalY = observedDirection.pos[1];
+        normalizeHorizontalIntent(horizontalX, horizontalY);
+
+        const float yaw = std::isfinite(observedPosition.rot[2]) ? observedPosition.rot[2] : currentPosition.rot[2];
+        const float sinYaw = std::sin(yaw);
+        const float cosYaw = std::cos(yaw);
+        const float worldX = horizontalX * cosYaw + horizontalY * sinYaw;
+        const float worldY = -horizontalX * sinYaw + horizontalY * cosYaw;
+
+        ESM::Position simulatedPosition = currentPosition;
+        simulatedPosition.pos[0] += worldX * serverMovementUnitsPerSecond * deltaSeconds;
+        simulatedPosition.pos[1] += worldY * serverMovementUnitsPerSecond * deltaSeconds;
+
+        const float maxVerticalDelta = serverMovementUnitsPerSecond * deltaSeconds;
+        simulatedPosition.pos[2] += std::clamp(
+            observedPosition.pos[2] - currentPosition.pos[2], -maxVerticalDelta, maxVerticalDelta);
+
+        for (int axis = 0; axis < 3; ++axis)
+            simulatedPosition.rot[axis] = observedPosition.rot[axis];
+
+        sanitizeFinitePosition(simulatedPosition);
+        observedDirection.pos[0] = horizontalX;
+        observedDirection.pos[1] = horizontalY;
+
+        return simulatedPosition;
+    }
+
+    bool isPlausiblePlayerMovement(
+        const ESM::Position& acceptedPosition, const ESM::Position& clientPosition, float deltaSeconds)
+    {
+        const float deltaX = clientPosition.pos[0] - acceptedPosition.pos[0];
+        const float deltaY = clientPosition.pos[1] - acceptedPosition.pos[1];
+        const float horizontalDistanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        if (!std::isfinite(horizontalDistanceSquared))
+            return false;
+
+        const float maxHorizontalDistance =
+            maxPlayerMovementUnitsPerSecond * deltaSeconds + playerMovementCorrectionAllowance;
+        if (horizontalDistanceSquared > maxHorizontalDistance * maxHorizontalDistance)
+            return false;
+
+        const float deltaZ = std::abs(clientPosition.pos[2] - acceptedPosition.pos[2]);
+        const float maxVerticalDistance =
+            maxPlayerVerticalUnitsPerSecond * deltaSeconds + playerMovementCorrectionAllowance;
+        return std::isfinite(deltaZ) && deltaZ <= maxVerticalDistance;
+    }
+
+    bool positionsMatchWithinEpsilon(const ESM::Position& left, const ESM::Position& right)
+    {
+        constexpr float positionEpsilon = 0.01f;
+        constexpr float rotationEpsilon = 0.0001f;
+
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            if (std::abs(left.pos[axis] - right.pos[axis]) > positionEpsilon)
+                return false;
+
+            if (std::abs(left.rot[axis] - right.rot[axis]) > rotationEpsilon)
+                return false;
+        }
+
+        return true;
+    }
+
+    bool isLikelyCellSpaceTransitionSnapshot(
+        const ESM::Position& acceptedPosition, const ESM::Position& clientPosition)
+    {
+        const float deltaX = clientPosition.pos[0] - acceptedPosition.pos[0];
+        const float deltaY = clientPosition.pos[1] - acceptedPosition.pos[1];
+        const float horizontalDistanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        return std::isfinite(horizontalDistanceSquared)
+            && horizontalDistanceSquared > cellSpaceTransitionDistanceSquared;
+    }
+
+    std::string getCellSimulationKey(const ESM::Cell& cell)
+    {
+        if (cell.isExterior())
+            return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
+
+        return "interior:" + cell.mName;
+    }
+
+    std::uint32_t mixWanderHash(std::uint32_t hash, std::uint32_t value)
+    {
+        for (int byte = 0; byte < 4; ++byte)
+        {
+            hash ^= (value >> (byte * 8)) & 0xffu;
+            hash *= 16777619u;
+        }
+
+        return hash;
+    }
+
+    std::uint32_t getActorWanderHash(const std::string& cellKey, unsigned int refNum, unsigned int mpNum,
+        std::uint32_t sequence, std::uint32_t salt)
+    {
+        std::uint32_t hash = 2166136261u;
+
+        for (const char character : cellKey)
+        {
+            hash ^= static_cast<unsigned char>(character);
+            hash *= 16777619u;
+        }
+
+        hash = mixWanderHash(hash, refNum);
+        hash = mixWanderHash(hash, mpNum);
+        hash = mixWanderHash(hash, sequence);
+        hash = mixWanderHash(hash, salt);
+        return hash;
+    }
+
+    float getUnitWanderValue(std::uint32_t hash)
+    {
+        return static_cast<float>(hash & 0x00ffffffu) / static_cast<float>(0x01000000u);
+    }
+
+    bool isSameSimulationCell(const ESM::Cell& left, const ESM::Cell& right)
+    {
+        return getCellSimulationKey(left) == getCellSimulationKey(right);
+    }
+
+    bool areAdjacentExteriorCells(const ESM::Cell& left, const ESM::Cell& right)
+    {
+        if (!left.isExterior() || !right.isExterior())
+            return false;
+
+        const int deltaX = left.mData.mX - right.mData.mX;
+        const int deltaY = left.mData.mY - right.mData.mY;
+        return deltaX >= -1 && deltaX <= 1 && deltaY >= -1 && deltaY <= 1;
+    }
+
+    bool exteriorAxisMatchesPosition(int cellIndex, float coordinate)
+    {
+        if (!std::isfinite(coordinate))
+            return false;
+
+        constexpr double cellSize = static_cast<double>(ESM::Cell::sSize);
+        const double coordinateValue = static_cast<double>(coordinate);
+        const int positionCellIndex = static_cast<int>(std::floor(coordinateValue / cellSize));
+
+        if (cellIndex == positionCellIndex)
+            return true;
+
+        if (cellIndex == positionCellIndex + 1)
+            return coordinateValue >= static_cast<double>(cellIndex) * cellSize - playerMovementCorrectionAllowance;
+
+        if (cellIndex == positionCellIndex - 1)
+            return coordinateValue <= static_cast<double>(cellIndex + 1) * cellSize + playerMovementCorrectionAllowance;
+
+        return false;
+    }
+
+    bool isExteriorCellConsistentWithPosition(const ESM::Cell& cell, const ESM::Position& position)
+    {
+        if (!cell.isExterior())
+            return true;
+
+        return exteriorAxisMatchesPosition(cell.mData.mX, position.pos[0])
+            && exteriorAxisMatchesPosition(cell.mData.mY, position.pos[1]);
+    }
+
+    bool hasServerAcceptedDestinationTransform(const Player& player)
+    {
+        return player.hasAcceptedPositionPacket
+            && isExteriorCellConsistentWithPosition(player.cell, player.position)
+            && squaredDistance(player.acceptedPosition, player.position) <= playerMovementCorrectionAllowance
+                * playerMovementCorrectionAllowance;
+    }
+
+    bool isCellChangePlausibleFromAcceptedState(const Player& player, const ESM::Cell& acceptedCell)
+    {
+        if (!isExteriorCellConsistentWithPosition(player.cell, player.position))
+            return false;
+
+        if (isSameSimulationCell(acceptedCell, player.cell))
+            return true;
+
+        if (!acceptedCell.isExterior() || !player.cell.isExterior())
+            return mwmp::isExplicitCellChangeReason(player.cellChangeReason);
+
+        if (areAdjacentExteriorCells(acceptedCell, player.cell))
+            return true;
+
+        return mwmp::isExplicitCellChangeReason(player.cellChangeReason)
+            || hasServerAcceptedDestinationTransform(player);
+    }
+
+    void sendAcceptedPlayerCellCorrection(Player& player, mwmp::PlayerPacket& packet, const ESM::Cell& acceptedCell)
+    {
+        const std::string attemptedCell = player.cell.getDescription();
+        const std::string correctionCell = acceptedCell.getDescription();
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Rejecting implausible cell change for %s to %s; correcting to %s",
+            player.npc.mName.c_str(), attemptedCell.c_str(), correctionCell.c_str());
+
+        player.cell = acceptedCell;
+        player.cellChangeReason = mwmp::CELL_CHANGE_REASON_SERVER;
+        if (player.hasAcceptedPositionPacket)
+            player.restoreAcceptedPositionPacket();
+
+        player.previousCellPosition = player.position;
+        player.isChangingRegion = false;
+        packet.setPlayer(&player);
+        packet.SendWithReliability(player.guid, mwmp::PacketReliability::ReliableOrdered);
+    }
+
+    bool hasMovementIntent(const ESM::Position& direction)
+    {
+        return direction.pos[0] != 0.f || direction.pos[1] != 0.f || direction.pos[2] != 0.f
+            || direction.rot[0] != 0.f || direction.rot[1] != 0.f || direction.rot[2] != 0.f;
+    }
+
+    ESM::Position zeroPosition()
+    {
+        ESM::Position position;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            position.pos[axis] = 0.f;
+            position.rot[axis] = 0.f;
+        }
+        return position;
+    }
+
+    bool hasFiniteWorldPosition(const ESM::Position& position)
+    {
+        return std::isfinite(position.pos[0]) && std::isfinite(position.pos[1]) && std::isfinite(position.pos[2]);
+    }
+
+    bool canApplyServerAttackDamage(const mwmp::Attack& attack)
+    {
+        return attack.isHit && attack.success && !attack.block && std::isfinite(attack.damage)
+            && attack.damage > healthDeadEpsilon;
+    }
+
+    bool hasValidCastShape(const mwmp::Cast& cast)
+    {
+        if (cast.type != mwmp::Cast::REGULAR && cast.type != mwmp::Cast::ITEM)
+            return false;
+
+        if (cast.type == mwmp::Cast::REGULAR)
+            return !cast.spellId.empty();
+
+        return !cast.itemId.empty();
+    }
+
+    bool hasExplicitActorTarget(const mwmp::Target& target)
+    {
+        return !target.refId.empty() || target.refNum != static_cast<unsigned int>(-1)
+            || target.mpNum != static_cast<unsigned int>(-1);
+    }
+
+    bool castHasReleasedOutcome(const mwmp::Cast& cast)
+    {
+        if (cast.pressed)
+            return false;
+
+        return cast.success || cast.type == mwmp::Cast::ITEM;
+    }
+
+    bool isAcceptedCastTarget(const mwmp::Cast& cast, const ESM::Cell& casterCell, Player* playerCaster,
+        Cell* serverCell);
+
+    float getServerAttackDamage(const mwmp::Attack& attack)
+    {
+        return std::clamp(attack.damage, 0.f, maxServerAttackDamage);
+    }
+
+    bool isUnarmedMeleeAttack(const mwmp::Attack& attack)
+    {
+        return attack.type == mwmp::Attack::MELEE && attack.rangedWeaponId.empty();
+    }
+
+    bool shouldApplyUnarmedHealthDamage(bool isKnockedDown, float fatigue)
+    {
+        return isKnockedDown || (std::isfinite(fatigue) && fatigue <= 0.f);
+    }
+
+    bool shouldApplyAttackHealthDamage(const mwmp::Attack& attack, const ESM::CreatureStats& targetStats)
+    {
+        if (!isUnarmedMeleeAttack(attack))
+            return true;
+
+        return shouldApplyUnarmedHealthDamage(targetStats.mKnockdown, targetStats.mDynamic[2].mCurrent);
+    }
+
+    bool shouldApplyAttackHealthDamage(const mwmp::Attack& attack, const mwmp::SimpleCreatureStats& targetStats)
+    {
+        if (!isUnarmedMeleeAttack(attack))
+            return true;
+
+        return shouldApplyUnarmedHealthDamage(false, targetStats.mDynamic[2].mCurrent);
+    }
+
+    bool targetMatchesActor(const mwmp::Target& target, const mwmp::BaseActor& actor)
+    {
+        if (target.refNum != actor.refNum || target.mpNum != actor.mpNum)
+            return false;
+
+        return target.refId.empty() || actor.refId.empty() || target.refId == actor.refId;
+    }
+
+    bool isMissingActorTarget(const mwmp::Target& target)
+    {
+        return !target.isPlayer && !hasExplicitActorTarget(target);
+    }
+
+    bool targetsReferToSameEntity(const mwmp::Target& left, const mwmp::Target& right)
+    {
+        if (left.isPlayer != right.isPlayer)
+            return false;
+
+        if (left.isPlayer)
+            return mwmp::isPacketGuidAssigned(left.guid) && left.guid == right.guid;
+
+        if (left.refNum != right.refNum || left.mpNum != right.mpNum)
+            return false;
+
+        return left.refId.empty() || right.refId.empty() || left.refId == right.refId;
+    }
+
+    mwmp::BaseActor* findActorTarget(Cell& cell, const mwmp::Target& target)
+    {
+        mwmp::BaseActor* actor = cell.getActor(target.refNum, target.mpNum);
+        if (actor == nullptr || !targetMatchesActor(target, *actor))
+            return nullptr;
+
+        return actor;
+    }
+
+    std::pair<Cell*, mwmp::BaseActor*> findLoadedActorTarget(Player& player, const mwmp::Target& target)
+    {
+        for (Cell* loadedCell : *player.getCells())
+        {
+            if (loadedCell == nullptr)
+                continue;
+
+            if (mwmp::BaseActor* actor = findActorTarget(*loadedCell, target))
+                return { loadedCell, actor };
+        }
+
+        return { nullptr, nullptr };
+    }
+
+    bool isLivePlayerAiTarget(const Player& player)
+    {
+        if (player.creatureStats.mDead)
+            return false;
+
+        if (player.hasFiniteDynamicStats()
+            && player.creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon)
+            return false;
+
+        return true;
+    }
+
+    bool isAcceptedPlayerCastTarget(const mwmp::Target& target, const ESM::Cell& casterCell)
+    {
+        Player* targetPlayer = Players::getPlayer(target.guid);
+        if (targetPlayer == nullptr || !isLivePlayerAiTarget(*targetPlayer))
+            return false;
+
+        return isSameSimulationCell(targetPlayer->cell, casterCell);
+    }
+
+    bool isAcceptedActorCombatTarget(Cell& cell, const mwmp::Target& target)
+    {
+        if (target.isPlayer)
+            return isAcceptedPlayerCastTarget(target, cell.getCellData());
+
+        mwmp::BaseActor* targetActor = findActorTarget(cell, target);
+        return isClientActorControlUpdateAllowed(targetActor);
+    }
+
+    bool actorHasServerCombatTarget(const mwmp::BaseActor& storedActor)
+    {
+        return storedActor.hasAiData && storedActor.hasAiTarget
+            && storedActor.aiAction == mwmp::BaseActorList::COMBAT;
+    }
+
+    bool actorCombatTargetMatchesServerAi(Cell& cell, const mwmp::BaseActor& storedActor,
+        const mwmp::Target& observedTarget, bool allowMissingTarget)
+    {
+        if (!actorHasServerCombatTarget(storedActor))
+            return false;
+
+        if (allowMissingTarget && isMissingActorTarget(observedTarget))
+            return true;
+
+        if (!targetsReferToSameEntity(storedActor.aiTarget, observedTarget))
+            return false;
+
+        return isAcceptedActorCombatTarget(cell, observedTarget);
+    }
+
+    bool isAcceptedActorAttackObservation(Cell& cell, const mwmp::BaseActor& storedActor,
+        const mwmp::BaseActor& observedActor)
+    {
+        const bool isDamageEvent = canApplyServerAttackDamage(observedActor.attack);
+        if (actorCombatTargetMatchesServerAi(cell, storedActor, observedActor.attack.target, !isDamageEvent))
+            return true;
+
+        if (isDamageEvent)
+            return false;
+
+        if (isMissingActorTarget(observedActor.attack.target))
+            return true;
+
+        return isAcceptedActorCombatTarget(cell, observedActor.attack.target);
+    }
+
+    bool isAcceptedActorCastObservation(Cell& cell, const mwmp::BaseActor& storedActor,
+        const mwmp::BaseActor& observedActor)
+    {
+        if (!hasValidCastShape(observedActor.cast))
+            return false;
+
+        const bool isReleasedOutcome = castHasReleasedOutcome(observedActor.cast);
+        if (!isReleasedOutcome)
+            return actorCombatTargetMatchesServerAi(cell, storedActor, observedActor.cast.target, true);
+
+        const bool hasTargetedOutcome = observedActor.cast.target.isPlayer || hasExplicitActorTarget(observedActor.cast.target);
+        if (!actorCombatTargetMatchesServerAi(cell, storedActor, observedActor.cast.target, !hasTargetedOutcome))
+            return false;
+
+        return isAcceptedCastTarget(observedActor.cast, cell.getCellData(), nullptr, &cell);
+    }
+
+    bool isAcceptedCastTarget(const mwmp::Cast& cast, const ESM::Cell& casterCell, Player* playerCaster,
+        Cell* serverCell)
+    {
+        if (!hasValidCastShape(cast))
+            return false;
+
+        if (!castHasReleasedOutcome(cast))
+            return true;
+
+        if (cast.target.isPlayer)
+            return isAcceptedPlayerCastTarget(cast.target, casterCell);
+
+        if (!hasExplicitActorTarget(cast.target))
+            return true;
+
+        if (serverCell != nullptr)
+            return findActorTarget(*serverCell, cast.target) != nullptr;
+
+        if (playerCaster != nullptr)
+        {
+            const auto [targetCell, targetActor] = findLoadedActorTarget(*playerCaster, cast.target);
+            return targetCell != nullptr && targetActor != nullptr;
+        }
+
+        return false;
+    }
+
+    bool getAiTargetPosition(Cell& cell, const mwmp::Target& target, ESM::Position& destination)
+    {
+        if (target.isPlayer)
+        {
+            Player* player = Players::getPlayer(target.guid);
+            if (player == nullptr || !player->hasFinitePositionPacket())
+                return false;
+
+            if (!isLivePlayerAiTarget(*player))
+                return false;
+
+            if (getCellSimulationKey(player->cell) != getCellSimulationKey(cell.getCellData()))
+                return false;
+
+            destination = player->position;
+            return true;
+        }
+
+        mwmp::BaseActor* actor = findActorTarget(cell, target);
+        if (actor == nullptr || !actor->hasPositionData || !hasFiniteWorldPosition(actor->position))
+            return false;
+
+        destination = actor->position;
+        return true;
+    }
+
+    float getAiStopDistance(const mwmp::BaseActor& actor, bool coordinatePackage)
+    {
+        if (coordinatePackage)
+            return aiCoordinateStopDistance;
+
+        if (actor.aiDistance == 0)
+            return aiTargetStopDistance;
+
+        return std::clamp(static_cast<float>(actor.aiDistance), aiMinimumStopDistance, aiMaximumStopDistance);
+    }
+
+    bool buildAiMovementIntent(Cell& cell, mwmp::BaseActor& actor, ESM::Position& direction)
+    {
+        if (!actor.hasAiData || !actor.hasPositionData)
+            return false;
+
+        ESM::Position destination;
+        bool coordinatePackage = false;
+
+        switch (actor.aiAction)
+        {
+            case mwmp::BaseActorList::TRAVEL:
+            case mwmp::BaseActorList::ESCORT:
+                if (!hasFiniteWorldPosition(actor.aiCoordinates))
+                    return false;
+                destination = actor.aiCoordinates;
+                coordinatePackage = true;
+                break;
+
+            case mwmp::BaseActorList::ACTIVATE:
+            case mwmp::BaseActorList::COMBAT:
+            case mwmp::BaseActorList::FOLLOW:
+                if (!actor.hasAiTarget || !getAiTargetPosition(cell, actor.aiTarget, destination))
+                    return false;
+                break;
+
+            default:
+                return false;
+        }
+
+        direction = zeroPosition();
+
+        const float deltaX = destination.pos[0] - actor.position.pos[0];
+        const float deltaY = destination.pos[1] - actor.position.pos[1];
+        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        if (!std::isfinite(distanceSquared))
+            return true;
+
+        const float stopDistance = getAiStopDistance(actor, coordinatePackage);
+        if (distanceSquared <= stopDistance * stopDistance)
+            return true;
+
+        actor.position.rot[2] = std::atan2(deltaX, deltaY);
+        direction.pos[1] = 1.f;
+        sanitizeFinitePosition(actor.position);
+        return true;
+    }
+
+    void chooseWanderDestination(const std::string& cellKey, unsigned int refNum, unsigned int mpNum,
+        mwmp::BaseActor& actor, mwmp::ActorWanderState& wanderState)
+    {
+        if (!wanderState.hasOrigin || !hasFiniteWorldPosition(wanderState.origin))
+        {
+            wanderState.origin = actor.position;
+            sanitizeFinitePosition(wanderState.origin);
+            wanderState.hasOrigin = true;
+        }
+
+        const std::uint32_t sequence = wanderState.decisionSequence++;
+        const float wanderDistance = std::clamp(
+            static_cast<float>(actor.aiDistance), 0.f, aiMaximumStopDistance);
+        const float angle = getUnitWanderValue(getActorWanderHash(cellKey, refNum, mpNum, sequence, 0x01u)) * twoPi;
+        const float distance = std::sqrt(
+            getUnitWanderValue(getActorWanderHash(cellKey, refNum, mpNum, sequence, 0x02u))) * wanderDistance;
+
+        wanderState.destination = wanderState.origin;
+        wanderState.destination.pos[0] += std::sin(angle) * distance;
+        wanderState.destination.pos[1] += std::cos(angle) * distance;
+        sanitizeFinitePosition(wanderState.destination);
+        wanderState.hasDestination = true;
+
+        const float decisionWindow = aiWanderMaximumDecisionSeconds - aiWanderMinimumDecisionSeconds;
+        wanderState.remainingDecisionSeconds = aiWanderMinimumDecisionSeconds
+            + getUnitWanderValue(getActorWanderHash(cellKey, refNum, mpNum, sequence, 0x03u)) * decisionWindow;
+    }
+
+    bool buildWanderMovementIntent(const std::string& cellKey, unsigned int refNum, unsigned int mpNum,
+        mwmp::BaseActor& actor, mwmp::ActorWanderState& wanderState, float deltaSeconds, ESM::Position& direction)
+    {
+        if (!actor.hasAiData || actor.aiAction != mwmp::BaseActorList::WANDER
+            || !actor.hasPositionData || !hasFiniteWorldPosition(actor.position))
+            return false;
+
+        if (!wanderState.hasOrigin || !hasFiniteWorldPosition(wanderState.origin))
+        {
+            wanderState.origin = actor.position;
+            sanitizeFinitePosition(wanderState.origin);
+            wanderState.hasOrigin = true;
+            wanderState.hasDestination = false;
+        }
+
+        wanderState.remainingDecisionSeconds = std::max(0.f, wanderState.remainingDecisionSeconds - std::max(0.f, deltaSeconds));
+
+        if (!wanderState.hasDestination || !hasFiniteWorldPosition(wanderState.destination)
+            || wanderState.remainingDecisionSeconds <= 0.f)
+            chooseWanderDestination(cellKey, refNum, mpNum, actor, wanderState);
+
+        direction = zeroPosition();
+
+        const float deltaX = wanderState.destination.pos[0] - actor.position.pos[0];
+        const float deltaY = wanderState.destination.pos[1] - actor.position.pos[1];
+        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        if (!std::isfinite(distanceSquared))
+        {
+            wanderState.hasDestination = false;
+            return true;
+        }
+
+        if (distanceSquared <= aiWanderStopDistance * aiWanderStopDistance)
+            return true;
+
+        actor.position.rot[2] = std::atan2(deltaX, deltaY);
+        direction.pos[1] = 1.f;
+        sanitizeFinitePosition(actor.position);
+        return true;
+    }
+
+    bool hasServerOwnedActorMovement(const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasAiData || !actor.hasPositionData)
+            return false;
+
+        switch (actor.aiAction)
+        {
+            case mwmp::BaseActorList::CANCEL:
+            case mwmp::BaseActorList::WANDER:
+            case mwmp::BaseActorList::TRAVEL:
+            case mwmp::BaseActorList::ESCORT:
+            case mwmp::BaseActorList::ACTIVATE:
+            case mwmp::BaseActorList::COMBAT:
+            case mwmp::BaseActorList::FOLLOW:
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    bool hasValidAiTarget(Cell& cell, const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasAiTarget)
+            return false;
+
+        ESM::Position unusedDestination;
+        return getAiTargetPosition(cell, actor.aiTarget, unusedDestination);
+    }
+
+    bool hasValidActorAiSnapshot(Cell& cell, const mwmp::BaseActor& actor)
+    {
+        switch (actor.aiAction)
+        {
+            case mwmp::BaseActorList::CANCEL:
+                return true;
+
+            case mwmp::BaseActorList::WANDER:
+                return true;
+
+            case mwmp::BaseActorList::TRAVEL:
+                return hasFiniteWorldPosition(actor.aiCoordinates);
+
+            case mwmp::BaseActorList::ACTIVATE:
+            case mwmp::BaseActorList::COMBAT:
+            case mwmp::BaseActorList::FOLLOW:
+                return hasValidAiTarget(cell, actor);
+
+            case mwmp::BaseActorList::ESCORT:
+                return hasFiniteWorldPosition(actor.aiCoordinates) && hasValidAiTarget(cell, actor);
+
+            default:
+                return false;
+        }
+    }
+
+    mwmp::BaseActor buildServerAcceptedAiActor(Cell& cell, const mwmp::BaseActor& incomingActor,
+        const mwmp::BaseActor& currentActor)
+    {
+        mwmp::BaseActor acceptedActor = incomingActor;
+        acceptedActor.refId = currentActor.refId.empty() ? incomingActor.refId : currentActor.refId;
+        acceptedActor.cell = cell.getCellData();
+        acceptedActor.hasAiData = true;
+
+        if (currentActor.hasPositionData)
+        {
+            acceptedActor.hasPositionData = true;
+            acceptedActor.positionSequence = currentActor.positionSequence;
+            acceptedActor.position = currentActor.position;
+            acceptedActor.direction = currentActor.direction;
+        }
+        else if (incomingActor.hasPositionData && isFiniteActorMovementSnapshot(incomingActor))
+        {
+            acceptedActor.hasPositionData = true;
+            sanitizeFinitePosition(acceptedActor.direction);
+        }
+        else
+            acceptedActor.hasPositionData = false;
+
+        return acceptedActor;
+    }
+
+    bool isPlayerFollowerPackage(const mwmp::BaseActor& actor, mwmp::PacketGuid playerGuid)
+    {
+        return actor.hasAiData && actor.hasAiTarget && actor.aiTarget.isPlayer && actor.aiTarget.guid == playerGuid
+            && (actor.aiAction == mwmp::BaseActorList::FOLLOW || actor.aiAction == mwmp::BaseActorList::ESCORT);
+    }
+
+    ESM::Position makeFollowerCellChangePosition(const Player& player, std::size_t followerIndex)
+    {
+        ESM::Position position = player.position;
+        sanitizeFinitePosition(position);
+
+        const float yaw = std::isfinite(position.rot[2]) ? position.rot[2] : 0.f;
+        const float sinYaw = std::sin(yaw);
+        const float cosYaw = std::cos(yaw);
+
+        const float forwardX = sinYaw;
+        const float forwardY = cosYaw;
+        const float rightX = cosYaw;
+        const float rightY = -sinYaw;
+
+        const int lane = static_cast<int>(followerIndex % 3) - 1;
+        const int row = static_cast<int>(followerIndex / 3);
+        const float behind = followerCellChangeBehindDistance + followerCellChangeRowSpacing * row;
+        const float lateral = followerCellChangeColumnSpacing * lane;
+
+        position.pos[0] += rightX * lateral - forwardX * behind;
+        position.pos[1] += rightY * lateral - forwardY * behind;
+
+        sanitizeFinitePosition(position);
+        return position;
+    }
+
+    ESM::Position zeroMovementDirectionLike(const ESM::Position& position)
+    {
+        ESM::Position direction = zeroPosition();
+        direction.rot[0] = position.rot[0];
+        direction.rot[1] = position.rot[1];
+        direction.rot[2] = position.rot[2];
+        return direction;
+    }
+
+    class ScopedReceivedActorList
+    {
+    public:
+        explicit ScopedReceivedActorList(const mwmp::BaseActorList& actorList)
+            : mReceivedActorList(mwmp::Networking::getPtr()->getReceivedActorList())
+            , mPreviousActorList(*mReceivedActorList)
+        {
+            *mReceivedActorList = actorList;
+        }
+
+        ~ScopedReceivedActorList()
+        {
+            *mReceivedActorList = mPreviousActorList;
+        }
+
+        ScopedReceivedActorList(const ScopedReceivedActorList&) = delete;
+        ScopedReceivedActorList& operator=(const ScopedReceivedActorList&) = delete;
+
+    private:
+        mwmp::BaseActorList* mReceivedActorList;
+        mwmp::BaseActorList mPreviousActorList;
+    };
+
+    void persistServerGeneratedActorCellChange(Player& player, mwmp::BaseActorList& actorList)
+    {
+        const std::string sourceCellDescription = actorList.cell.getDescription();
+        ScopedReceivedActorList receivedActorList(actorList);
+        Script::Call<Script::CallbackIdentity("OnActorCellChange")>(player.getId(), sourceCellDescription.c_str());
+    }
+
+    void moveFollowingActorsAcrossPlayerCellChange(Player& player, const ESM::Cell& sourceCellData)
+    {
+        if (isSameSimulationCell(sourceCellData, player.cell))
+            return;
+
+        CellController* cellController = CellController::get();
+        if (cellController == nullptr)
+            return;
+
+        ESM::Cell sourceLookupCell = sourceCellData;
+        Cell* sourceCell = cellController->getCell(&sourceLookupCell);
+        if (sourceCell == nullptr)
+            return;
+
+        mwmp::BaseActorList* sourceActors = sourceCell->getActorList();
+        if (sourceActors == nullptr || sourceActors->baseActors.empty())
+            return;
+
+        mwmp::BaseActorList movedFollowers;
+        movedFollowers.cell = sourceCell->getCellData();
+        movedFollowers.guid = player.guid;
+
+        std::size_t followerIndex = 0;
+        for (const mwmp::BaseActor& actor : sourceActors->baseActors)
+        {
+            if (!isClientActorControlUpdateAllowed(&actor) || !isPlayerFollowerPackage(actor, player.guid))
+                continue;
+
+            mwmp::BaseActor movedActor = actor;
+            movedActor.cell = player.cell;
+            movedActor.position = makeFollowerCellChangePosition(player, followerIndex);
+            movedActor.direction = zeroMovementDirectionLike(movedActor.position);
+            movedActor.isFollowerCellChange = true;
+            movedActor.hasPositionData = true;
+            ++movedActor.positionSequence;
+            movedFollowers.baseActors.push_back(movedActor);
+            ++followerIndex;
+        }
+
+        movedFollowers.count = static_cast<unsigned int>(movedFollowers.baseActors.size());
+        if (movedFollowers.count == 0)
+            return;
+
+        persistServerGeneratedActorCellChange(player, movedFollowers);
+
+        mwmp::ActorProcessor::cacheCellChange(movedFollowers);
+        mwmp::ActorPacket* actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(
+            ID_ACTOR_CELL_CHANGE);
+        actorPacket->setActorList(&movedFollowers);
+        mwmp::ActorProcessor::sendCellChangeToLoaded(*actorPacket, movedFollowers);
+        actorPacket->Send(player.guid);
+    }
+
+    bool applyHealthDamageToPlayer(Player& target, float damage, bool& becameDead)
+    {
+        becameDead = false;
+        if (!target.hasFiniteDynamicStats())
+            return false;
+
+        float& health = target.creatureStats.mDynamic[0].mCurrent;
+        if (target.creatureStats.mDead || !std::isfinite(health) || health <= healthDeadEpsilon)
+            return false;
+
+        health = std::max(0.f, health - damage);
+        target.creatureStats.mDead = health <= healthDeadEpsilon;
+        becameDead = target.creatureStats.mDead;
+        ++target.statsDynamicSequence;
+        target.exchangeFullInfo = false;
+        target.statsDynamicIndexChanges.clear();
+        target.statsDynamicIndexChanges.push_back(0);
+        target.acceptCurrentStatsDynamicPacket();
+        return true;
+    }
+
+    bool applyFatigueDamageToPlayer(Player& target, float damage)
+    {
+        if (!target.hasFiniteDynamicStats())
+            return false;
+
+        float& fatigue = target.creatureStats.mDynamic[2].mCurrent;
+        if (target.creatureStats.mDead || !std::isfinite(fatigue))
+            return false;
+
+        fatigue -= damage;
+        target.creatureStats.mKnockdown = target.creatureStats.mKnockdown || fatigue <= 0.f;
+        ++target.statsDynamicSequence;
+        target.exchangeFullInfo = false;
+        target.statsDynamicIndexChanges.clear();
+        target.statsDynamicIndexChanges.push_back(2);
+        target.acceptCurrentStatsDynamicPacket();
+        return true;
+    }
+
+    bool applyAttackDamageToPlayer(Player& target, const mwmp::Attack& attack, bool& becameDead)
+    {
+        const float damage = getServerAttackDamage(attack);
+        if (shouldApplyAttackHealthDamage(attack, target.creatureStats))
+            return applyHealthDamageToPlayer(target, damage, becameDead);
+
+        becameDead = false;
+        return applyFatigueDamageToPlayer(target, damage);
+    }
+
+    bool applyHealthDamageToActor(mwmp::BaseActor& target, float damage)
+    {
+        if (!target.hasStatsDynamicData || !mwmp::hasFiniteActorDynamicStats(target))
+            return false;
+
+        float& health = target.creatureStats.mDynamic[0].mCurrent;
+        if (!std::isfinite(health) || health <= healthDeadEpsilon)
+            return false;
+
+        health = std::max(0.f, health - damage);
+        target.creatureStats.mDead = health <= healthDeadEpsilon;
+        if (target.creatureStats.mDead)
+            target.creatureStats.mDeathAnimationFinished = false;
+        ++target.statsDynamicSequence;
+        target.hasStatsDynamicData = true;
+        return true;
+    }
+
+    bool applyFatigueDamageToActor(mwmp::BaseActor& target, float damage)
+    {
+        if (!target.hasStatsDynamicData || !mwmp::hasFiniteActorDynamicStats(target))
+            return false;
+
+        float& fatigue = target.creatureStats.mDynamic[2].mCurrent;
+        if (!std::isfinite(fatigue))
+            return false;
+
+        fatigue -= damage;
+        ++target.statsDynamicSequence;
+        target.hasStatsDynamicData = true;
+        return true;
+    }
+
+    bool applyAttackDamageToActor(mwmp::BaseActor& target, const mwmp::Attack& attack)
+    {
+        const float damage = getServerAttackDamage(attack);
+        if (shouldApplyAttackHealthDamage(attack, target.creatureStats))
+            return applyHealthDamageToActor(target, damage);
+
+        return applyFatigueDamageToActor(target, damage);
+    }
+
+    void broadcastPlayerStats(Player& target)
+    {
+        mwmp::PlayerPacket* statsPacket = mwmp::Networking::get().getPlayerPacketController()->GetPacket(
+            ID_PLAYER_STATS_DYNAMIC);
+        statsPacket->setPlayer(&target);
+        statsPacket->Send(target.guid);
+        target.sendToLoaded(statsPacket);
+    }
+
+    void broadcastActorStats(Cell& cell, const mwmp::BaseActor& target)
+    {
+        mwmp::BaseActorList statsList;
+        statsList.cell = cell.getCellData();
+        statsList.guid = mwmp::unassignedPacketGuid();
+        statsList.baseActors.push_back(target);
+        statsList.count = static_cast<unsigned int>(statsList.baseActors.size());
+
+        mwmp::ActorPacket* statsPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(
+            ID_ACTOR_STATS_DYNAMIC);
+        statsPacket->setActorList(&statsList);
+        cell.sendToLoaded(statsPacket, &statsList);
+    }
+
+    void notifyPlayerDeath(Player& target)
+    {
+        Script::Call<Script::CallbackIdentity("OnPlayerDeath")>(target.getId());
+    }
+
+    void notifyPlayerStatsDynamic(Player& target)
+    {
+        Script::Call<Script::CallbackIdentity("OnPlayerStatsDynamic")>(target.getId());
+    }
+
+    void notifyActorStatsDynamic(Player& source, Cell& cell)
+    {
+        Script::Call<Script::CallbackIdentity("OnActorStatsDynamic")>(
+            source.getId(), cell.getCellData().getDescription().c_str());
+    }
+}
+
+namespace mwmp
+{
+    ServerSimulation::ServerSimulation()
+        : mLastTick(Clock::now())
+    {
+    }
+
+    void ServerSimulation::tick()
+    {
+        const Clock::time_point now = Clock::now();
+        const float deltaSeconds = clampDeltaSeconds(std::chrono::duration<float>(now - mLastTick).count());
+        mLastTick = now;
+
+        mActorTickAccumulator += deltaSeconds;
+        if (mActorTickAccumulator < actorTickIntervalSeconds)
+            return;
+
+        const float actorDeltaSeconds = std::min(mActorTickAccumulator, maxMovementStepSeconds);
+        mActorTickAccumulator = 0.f;
+        tickActors(actorDeltaSeconds);
+    }
+
+    void ServerSimulation::removePlayer(PacketGuid guid)
+    {
+        mPlayerMovementStates.erase(guid);
+        mPlayerAcceptedCells.erase(guid);
+    }
+
+    bool ServerSimulation::acceptServerAuthoredPlayerState(Player& player, bool cellChangePacket)
+    {
+        if (!player.hasFinitePositionPacket())
+        {
+            if (player.hasAcceptedPositionPacket)
+                player.restoreAcceptedPositionPacket();
+            return false;
+        }
+
+        player.hasAcceptedPositionPacket = false;
+        if (!player.acceptPositionPacket())
+            return false;
+
+        PlayerMovementState& movementState = mPlayerMovementStates[player.guid];
+        movementState.lastMovementPacket = Clock::now();
+        if (cellChangePacket)
+        {
+            movementState.lastServerCellChangePacket = movementState.lastMovementPacket;
+            movementState.lastServerCellChangePosition = player.position;
+            movementState.lastServerCellChangeDirection = player.direction;
+            movementState.lastServerCellChangePositionSequence = player.positionSequence;
+            movementState.hasServerCellChangePacket = true;
+        }
+        else
+            movementState.hasServerCellChangePacket = false;
+
+        mPlayerAcceptedCells[player.guid] = player.cell;
+        return true;
+    }
+
+    bool ServerSimulation::isRedundantServerAuthoredPosition(const Player& player) const
+    {
+        const auto movementStateIt = mPlayerMovementStates.find(player.guid);
+        if (movementStateIt == mPlayerMovementStates.end())
+            return false;
+
+        const PlayerMovementState& movementState = movementStateIt->second;
+        if (!movementState.hasServerCellChangePacket)
+            return false;
+
+        constexpr float redundantCellPositionWindowSeconds = 1.f;
+        const float ageSeconds = std::chrono::duration<float>(
+            Clock::now() - movementState.lastServerCellChangePacket).count();
+        if (!std::isfinite(ageSeconds) || ageSeconds > redundantCellPositionWindowSeconds)
+            return false;
+
+        return player.positionSequence == movementState.lastServerCellChangePositionSequence
+            && positionsMatchWithinEpsilon(player.position, movementState.lastServerCellChangePosition)
+            && positionsMatchWithinEpsilon(player.direction, movementState.lastServerCellChangeDirection);
+    }
+
+    float ServerSimulation::clampDeltaSeconds(float seconds)
+    {
+        if (!std::isfinite(seconds) || seconds <= 0.f)
+            return firstMovementStepSeconds;
+
+        return std::clamp(seconds, 0.f, maxMovementStepSeconds);
+    }
+
+    bool ServerSimulation::acceptActorCasts(BaseActorList& actorList, Cell& serverCell)
+    {
+        std::vector<BaseActor> acceptedActors;
+        acceptedActors.reserve(actorList.baseActors.size());
+
+        for (BaseActor actor : actorList.baseActors)
+        {
+            BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);
+            if (!isClientActorControlUpdateAllowed(currentActor))
+                continue;
+
+            if (!isActorCombatSequenceAllowed(*currentActor, actor))
+                continue;
+
+            normalizeActorMovementSnapshot(&serverCell, actor);
+            if (!actor.hasPositionData)
+                continue;
+
+            if (!isAcceptedActorCastObservation(serverCell, *currentActor, actor))
+                continue;
+
+            acceptActorCombatSequence(*currentActor, actor);
+            acceptedActors.push_back(actor);
+        }
+
+        actorList.baseActors = std::move(acceptedActors);
+        actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
+        return actorList.count != 0;
+    }
+
+    bool ServerSimulation::acceptPlayerCast(Player& caster)
+    {
+        return isAcceptedCastTarget(caster.cast, caster.cell, &caster, nullptr);
+    }
+
+    bool ServerSimulation::acceptActorAiSnapshot(BaseActorList& actorList, Cell& serverCell)
+    {
+        std::vector<BaseActor> acceptedActors;
+        acceptedActors.reserve(actorList.baseActors.size());
+
+        for (const BaseActor& actor : actorList.baseActors)
+        {
+            BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);
+            if (!isClientActorControlUpdateAllowed(currentActor))
+                continue;
+
+            if (!hasValidActorAiSnapshot(serverCell, actor))
+                continue;
+
+            acceptedActors.push_back(buildServerAcceptedAiActor(serverCell, actor, *currentActor));
+        }
+
+        actorList.baseActors = std::move(acceptedActors);
+        actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
+        if (actorList.count == 0)
+            return false;
+
+        serverCell.readActorList(ID_ACTOR_AI, &actorList);
+        return true;
+    }
+
+    bool ServerSimulation::acceptActorAttacks(BaseActorList& actorList, Cell& serverCell)
+    {
+        std::vector<BaseActor> acceptedActors;
+        acceptedActors.reserve(actorList.baseActors.size());
+
+        Player* source = Players::getPlayer(actorList.guid);
+
+        for (BaseActor actor : actorList.baseActors)
+        {
+            BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);
+            if (!isClientActorControlUpdateAllowed(currentActor))
+                continue;
+
+            if (!isActorCombatSequenceAllowed(*currentActor, actor))
+                continue;
+
+            normalizeActorMovementSnapshot(&serverCell, actor);
+            if (!actor.hasPositionData)
+                continue;
+
+            if (!isAcceptedActorAttackObservation(serverCell, *currentActor, actor))
+                continue;
+
+            acceptActorCombatSequence(*currentActor, actor);
+            acceptedActors.push_back(actor);
+
+            const Attack& attack = actor.attack;
+            if (!canApplyServerAttackDamage(attack))
+                continue;
+
+            if (attack.target.isPlayer)
+            {
+                Player* target = Players::getPlayer(attack.target.guid);
+                bool becameDead = false;
+                if (target != nullptr && applyAttackDamageToPlayer(*target, attack, becameDead))
+                {
+                    broadcastPlayerStats(*target);
+                    notifyPlayerStatsDynamic(*target);
+                    if (becameDead)
+                        notifyPlayerDeath(*target);
+                }
+                continue;
+            }
+
+            BaseActor* target = findActorTarget(serverCell, attack.target);
+            if (target != nullptr && applyAttackDamageToActor(*target, attack))
+            {
+                broadcastActorStats(serverCell, *target);
+                if (source != nullptr)
+                    notifyActorStatsDynamic(*source, serverCell);
+            }
+        }
+
+        actorList.baseActors = std::move(acceptedActors);
+        actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
+        return actorList.count != 0;
+    }
+
+    void ServerSimulation::applyPlayerAttack(Player& attacker)
+    {
+        const Attack& attack = attacker.attack;
+        if (!canApplyServerAttackDamage(attack))
+            return;
+
+        if (attack.target.isPlayer)
+        {
+            Player* target = Players::getPlayer(attack.target.guid);
+            bool becameDead = false;
+            if (target != nullptr && applyAttackDamageToPlayer(*target, attack, becameDead))
+            {
+                broadcastPlayerStats(*target);
+                notifyPlayerStatsDynamic(*target);
+                if (becameDead)
+                    notifyPlayerDeath(*target);
+            }
+            return;
+        }
+
+        auto [targetCell, targetActor] = findLoadedActorTarget(attacker, attack.target);
+        if (targetCell != nullptr && targetActor != nullptr && applyAttackDamageToActor(*targetActor, attack))
+        {
+            broadcastActorStats(*targetCell, *targetActor);
+            notifyActorStatsDynamic(attacker, *targetCell);
+        }
+    }
+
+    bool ServerSimulation::acceptActorMovementSnapshot(ActorPacket& packet, BaseActorList& actorList, Cell& serverCell)
+    {
+        std::vector<BaseActor> acceptedActors;
+        acceptedActors.reserve(actorList.baseActors.size());
+        std::map<ActorIdentityKey, std::size_t> acceptedActorIndexes;
+
+        std::vector<BaseActor> correctionActors;
+        correctionActors.reserve(actorList.baseActors.size());
+        std::map<ActorIdentityKey, std::size_t> correctionActorIndexes;
+
+        const std::string cellKey = getCellSimulationKey(actorList.cell);
+        const Clock::time_point now = Clock::now();
+
+        const auto addPositionCorrection = [&](const BaseActor& actor) {
+            acceptNewestPositionActor(correctionActors, correctionActorIndexes, actor);
+        };
+
+        for (const BaseActor& actor : actorList.baseActors)
+        {
+            BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);
+            if (currentActor == nullptr)
+                continue;
+
+            if (serverCell.hasSimulationInterest() && hasServerOwnedActorMovement(*currentActor))
+            {
+                addPositionCorrection(*currentActor);
+                continue;
+            }
+
+            if (!isFiniteActorMovementSnapshot(actor))
+            {
+                if (currentActor->hasPositionData)
+                    addPositionCorrection(*currentActor);
+                continue;
+            }
+
+            if (!isClientActorControlUpdateAllowed(currentActor))
+            {
+                if (currentActor->hasPositionData)
+                    addPositionCorrection(*currentActor);
+                continue;
+            }
+
+            const bool hasNewerPosition = !currentActor->hasPositionData
+                || isNewerPositionSequence(actor.positionSequence, currentActor->positionSequence);
+
+            if (!hasNewerPosition)
+            {
+                if (currentActor->hasPositionData)
+                    addPositionCorrection(*currentActor);
+                continue;
+            }
+
+            if (!serverCell.hasSimulationInterest())
+            {
+                BaseActor acceptedActor = actor;
+                acceptedActor.hasPositionData = true;
+                acceptNewestPositionActor(acceptedActors, acceptedActorIndexes, acceptedActor);
+                const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+                mActorMovementStates[actorKey].lastMovementPacket = now;
+                continue;
+            }
+
+            BaseActor simulatedActor = actor;
+            simulatedActor.hasPositionData = true;
+
+            const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+            PlayerMovementState& movementState = mActorMovementStates[actorKey];
+            const bool hasMovementClock = movementState.lastMovementPacket != Clock::time_point();
+            const bool needsInitialSeed = !currentActor->hasPositionData || !hasMovementClock;
+
+            if (needsInitialSeed)
+            {
+                movementState.lastMovementPacket = now;
+                acceptNewestPositionActor(acceptedActors, acceptedActorIndexes, simulatedActor);
+                continue;
+            }
+
+            const float deltaSeconds = clampDeltaSeconds(
+                std::chrono::duration<float>(now - movementState.lastMovementPacket).count());
+            movementState.lastMovementPacket = now;
+
+            simulatedActor.direction = actor.direction;
+            simulatedActor.position = simulateMovementPosition(
+                currentActor->position, actor.position, simulatedActor.direction, deltaSeconds);
+
+            acceptNewestPositionActor(acceptedActors, acceptedActorIndexes, simulatedActor);
+
+            if (squaredDistance(actor.position, simulatedActor.position) > correctionDistanceSquared)
+                addPositionCorrection(simulatedActor);
+        }
+
+        if (!correctionActors.empty())
+        {
+            BaseActorList correctionList = actorList;
+            correctionList.baseActors = correctionActors;
+            correctionList.count = static_cast<unsigned int>(correctionList.baseActors.size());
+            packet.setActorList(&correctionList);
+            packet.SendWithReliability(actorList.guid, PacketReliability::ReliableOrdered);
+        }
+
+        actorList.baseActors = acceptedActors;
+        actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
+        if (actorList.count == 0)
+            return false;
+
+        serverCell.readActorList(ID_ACTOR_POSITION, &actorList);
+        serverCell.sendToLoaded(&packet, &actorList);
+        return true;
+    }
+
+    void ServerSimulation::tickActors(float deltaSeconds)
+    {
+        CellController* cellController = CellController::get();
+        if (cellController == nullptr)
+            return;
+
+        ActorPacket* actorPacket = Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+
+        for (Cell* cell : cellController->getCells())
+        {
+            if (cell == nullptr)
+                continue;
+
+            if (!cell->hasSimulationInterest())
+                continue;
+
+            BaseActorList* storedActorList = cell->getActorList();
+            if (storedActorList == nullptr || storedActorList->baseActors.empty())
+                continue;
+
+            const std::string cellKey = getCellSimulationKey(cell->getCellData());
+            BaseActorList tickActorList;
+            tickActorList.cell = cell->getCellData();
+            tickActorList.guid = unassignedPacketGuid();
+
+            for (BaseActor& actor : storedActorList->baseActors)
+            {
+                if (!actor.hasPositionData || !isClientActorControlUpdateAllowed(&actor))
+                    continue;
+
+                const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+                ESM::Position direction = actor.direction;
+                const bool serverOwnsActorMovement = hasServerOwnedActorMovement(actor);
+                const bool hasAiMovementIntent = buildAiMovementIntent(*cell, actor, direction);
+                bool hasWanderMovementIntent = false;
+
+                if (!hasAiMovementIntent && actor.hasAiData && actor.aiAction == BaseActorList::WANDER)
+                {
+                    ActorWanderState& wanderState = mActorWanderStates[actorKey];
+                    hasWanderMovementIntent = buildWanderMovementIntent(
+                        cellKey, actor.refNum, actor.mpNum, actor, wanderState, deltaSeconds, direction);
+                }
+                else
+                    mActorWanderStates.erase(actorKey);
+
+                const bool hasServerMovementIntent = hasAiMovementIntent || hasWanderMovementIntent;
+                if (!hasServerMovementIntent)
+                {
+                    if (serverOwnsActorMovement)
+                        direction = zeroPosition();
+                    else
+                        sanitizeFinitePosition(direction);
+                }
+
+                if (!hasMovementIntent(direction))
+                {
+                    if ((hasServerMovementIntent || serverOwnsActorMovement) && hasMovementIntent(actor.direction))
+                    {
+                        actor.direction = direction;
+                        ++actor.positionSequence;
+                        actor.hasPositionData = true;
+                        tickActorList.baseActors.push_back(actor);
+                    }
+                    continue;
+                }
+
+                actor.position = simulateMovementPosition(actor.position, actor.position, direction, deltaSeconds);
+                actor.direction = direction;
+                ++actor.positionSequence;
+                actor.hasPositionData = true;
+
+                tickActorList.baseActors.push_back(actor);
+            }
+
+            tickActorList.count = static_cast<unsigned int>(tickActorList.baseActors.size());
+            if (tickActorList.count == 0)
+                continue;
+
+            actorPacket->setActorList(&tickActorList);
+            cell->sendToLoaded(actorPacket, &tickActorList);
+        }
+    }
+
+    bool ServerSimulation::acceptPlayerMovementSnapshot(Player& player, PlayerPacket& packet)
+    {
+        if (!player.hasFinitePositionPacket())
+        {
+            if (player.hasAcceptedPositionPacket)
+            {
+                player.restoreAcceptedPositionPacket();
+                packet.SendWithReliability(player.guid, PacketReliability::ReliableOrdered);
+            }
+            return false;
+        }
+
+        if (player.hasStalePositionPacket())
+        {
+            player.restoreAcceptedPositionPacket();
+            return false;
+        }
+
+        const Clock::time_point now = Clock::now();
+        const ESM::Position clientPosition = player.position;
+        ESM::Position clientDirection = player.direction;
+
+        PlayerMovementState& movementState = mPlayerMovementStates[player.guid];
+        const bool hasMovementClock = movementState.lastMovementPacket != Clock::time_point();
+        const bool needsInitialSeed = !player.hasAcceptedPositionPacket || !hasMovementClock;
+
+        if (needsInitialSeed)
+        {
+            if (!player.acceptPositionPacket())
+                return false;
+
+            movementState.lastMovementPacket = now;
+            mPlayerAcceptedCells[player.guid] = player.cell;
+            player.sendToLoaded(&packet);
+            return true;
+        }
+
+        const float deltaSeconds = clampDeltaSeconds(
+            std::chrono::duration<float>(now - movementState.lastMovementPacket).count());
+        movementState.lastMovementPacket = now;
+
+        if (!isPlausiblePlayerMovement(player.acceptedPosition, clientPosition, deltaSeconds))
+        {
+            const bool likelyCellSpaceTransition = isLikelyCellSpaceTransitionSnapshot(
+                player.acceptedPosition, clientPosition);
+
+            player.restoreAcceptedPositionPacket();
+
+            if (likelyCellSpaceTransition)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                    "Ignoring implausible cell-less movement snapshot for %s; awaiting reliable cell change",
+                    player.npc.mName.c_str());
+                return false;
+            }
+
+            packet.setPlayer(&player);
+            packet.SendWithReliability(player.guid, PacketReliability::ReliableOrdered);
+            return false;
+        }
+
+        sanitizeFinitePosition(clientDirection);
+        normalizeHorizontalIntent(clientDirection.pos[0], clientDirection.pos[1]);
+
+        player.position = clientPosition;
+        player.direction = clientDirection;
+
+        if (!player.acceptPositionPacket())
+            return false;
+
+        mPlayerAcceptedCells[player.guid] = player.cell;
+
+        packet.setPlayer(&player);
+        player.sendToLoaded(&packet);
+        return true;
+    }
+
+    bool ServerSimulation::acceptPlayerCellChange(Player& player, PlayerPacket& packet)
+    {
+        const auto previousCellIt = mPlayerAcceptedCells.find(player.guid);
+        const bool hasPreviousAcceptedCell = previousCellIt != mPlayerAcceptedCells.end();
+        ESM::Cell previousAcceptedCell;
+        if (hasPreviousAcceptedCell)
+            previousAcceptedCell = previousCellIt->second;
+
+        if (!player.hasFinitePositionPacket())
+        {
+            if (player.hasAcceptedPositionPacket)
+            {
+                if (hasPreviousAcceptedCell)
+                    sendAcceptedPlayerCellCorrection(player, packet, previousAcceptedCell);
+                else
+                    player.restoreAcceptedPositionPacket();
+            }
+            return false;
+        }
+
+        if (hasPreviousAcceptedCell && !isCellChangePlausibleFromAcceptedState(player, previousAcceptedCell))
+        {
+            sendAcceptedPlayerCellCorrection(player, packet, previousAcceptedCell);
+            return false;
+        }
+
+        if (!acceptServerAuthoredPlayerState(player, true))
+            return false;
+
+        if (hasPreviousAcceptedCell)
+            moveFollowingActorsAcrossPlayerCellChange(player, previousAcceptedCell);
+
+        return true;
+    }
+}

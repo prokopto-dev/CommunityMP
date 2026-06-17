@@ -168,6 +168,16 @@ namespace Fx
                         error(std::format("target '{}' not defined", it->second->mTarget));
                 }
 
+                for (std::string_view renderTargetName : it->second->mRenderTargets)
+                {
+                    if (renderTargetName.empty())
+                        continue;
+
+                    auto rtIt = mRenderTargets.find(renderTargetName);
+                    if (rtIt == mRenderTargets.end())
+                        error(std::format("render target '{}' not defined", renderTargetName));
+                }
+
                 mPasses.emplace_back(it->second);
             }
 

@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MyGUI type="Layout">
+    <Widget type="Widget" skin="" layer="Windows" position="0 0 1180 650" name="_Main">
+        <Property key="Visible" value="false"/>
+
+        <Widget type="ImageBox" skin="ImageBox" position="0 0 1180 650" align="Stretch" name="Background">
+            <Property key="ImageTexture" value="mygui\characterselect\textures\communitymp_character_select_frame.png"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="54 34 230 24" align="Left Top" name="RosterEyebrow">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="ACCOUNT ROSTER"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="EditBox" skin="MW_TextBoxEdit" position="54 66 372 74" align="Left Top" name="Message">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.93 0.89 0.78"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Static" value="true"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="MultiLine" value="true"/>
+            <Property key="NeedKey" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="54 158 248 22" align="Left Top" name="RosterLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Characters"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterSlot" position="54 192 390 54" align="Left Top" name="Slot0">
+            <Property key="Caption" value=""/>
+            <Widget type="TextBox" skin="SandText" position="20 7 348 22" name="Slot0Text">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="20 30 348 18" name="Slot0Subtext">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.52 0.63 0.65"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterSlot" position="54 254 390 54" align="Left Top" name="Slot1">
+            <Property key="Caption" value=""/>
+            <Widget type="TextBox" skin="SandText" position="20 7 348 22" name="Slot1Text">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="20 30 348 18" name="Slot1Subtext">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.52 0.63 0.65"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterSlot" position="54 316 390 54" align="Left Top" name="Slot2">
+            <Property key="Caption" value=""/>
+            <Widget type="TextBox" skin="SandText" position="20 7 348 22" name="Slot2Text">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="20 30 348 18" name="Slot2Subtext">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.52 0.63 0.65"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterSlot" position="54 378 390 54" align="Left Top" name="Slot3">
+            <Property key="Caption" value=""/>
+            <Widget type="TextBox" skin="SandText" position="20 7 348 22" name="Slot3Text">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="20 30 348 18" name="Slot3Subtext">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.52 0.63 0.65"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterSlot" position="54 440 390 54" align="Left Top" name="Slot4">
+            <Property key="Caption" value=""/>
+            <Widget type="TextBox" skin="SandText" position="20 7 348 22" name="Slot4Text">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="20 30 348 18" name="Slot4Subtext">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.52 0.63 0.65"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterSlot" position="54 502 390 54" align="Left Top" name="Slot5">
+            <Property key="Caption" value=""/>
+            <Widget type="TextBox" skin="SandText" position="20 7 348 22" name="Slot5Text">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+            <Widget type="TextBox" skin="SandText" position="20 30 348 18" name="Slot5Subtext">
+                <Property key="FontName" value="Russo"/>
+                <Property key="TextAlign" value="Left VCenter"/>
+                <Property key="TextColour" value="0.52 0.63 0.65"/>
+                <Property key="TextShadow" value="true"/>
+                <Property key="TextShadowColour" value="0 0 0"/>
+                <Property key="NeedMouse" value="false"/>
+            </Widget>
+        </Widget>
+
+        <Widget type="Button" skin="CommunityMP_CharacterButton" position="456 192 46 36" align="Left Top" name="UpButton">
+            <Property key="Caption" value="^"/>
+        </Widget>
+        <Widget type="Button" skin="CommunityMP_CharacterButton" position="456 520 46 36" align="Left Top" name="DownButton">
+            <Property key="Caption" value="v"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="56 578 390 24" align="Left Top" name="StatusText">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.67 0.74 0.74"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="526 34 318 24" align="Left Top" name="StageEyebrow">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="PREVIEW"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="ImageBox" skin="ImageBox" position="520 70 330 474" align="HCenter Top" name="Portrait">
+            <Property key="ImageTexture" value="mygui\characterselect\textures\communitymp_character_portrait.png"/>
+            <Property key="NeedMouse" value="true"/>
+        </Widget>
+
+        <Widget type="ImageBox" skin="ImageBox" position="504 54 362 506" align="HCenter Top" name="PortraitFrame">
+            <Property key="ImageTexture" value="mygui\characterselect\textures\communitymp_character_portrait_frame.png"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="0 0 1 1" align="Right Top" name="PortraitInitial">
+            <Property key="Visible" value="false"/>
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.95 0.84 0.46"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="0 0 1 1" align="Right Top" name="PortraitSubtitle">
+            <Property key="Visible" value="false"/>
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.70 0.78 0.78"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="520 570 330 22" align="HCenter Bottom" name="StageHint">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Center"/>
+            <Property key="TextColour" value="0.65 0.74 0.74"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="Selected avatar"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="894 64 236 30" align="Right Top" name="CharacterTitle">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="1 0.86 0.42"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="894 102 236 96" align="Right Top" name="CharacterDetails">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.88 0.82 0.68"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="894 224 236 22" align="Right Top" name="LoadoutLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="SESSION"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="894 256 236 100" align="Right Top" name="SessionSummary">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.76 0.82 0.78"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value="Separate inventory and quests."/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="894 382 236 22" align="Right Top" name="CreateLabel">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left VCenter"/>
+            <Property key="TextColour" value="0.47 0.72 0.86"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="Caption" value="ACTION"/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="TextBox" skin="SandText" position="894 414 236 78" align="Right Top" name="ActionHint">
+            <Property key="FontName" value="Russo"/>
+            <Property key="TextAlign" value="Left Top"/>
+            <Property key="TextColour" value="0.88 0.82 0.68"/>
+            <Property key="TextShadow" value="true"/>
+            <Property key="TextShadowColour" value="0 0 0"/>
+            <Property key="WordWrap" value="true"/>
+            <Property key="Caption" value="Enter the selected character or start a new profile."/>
+            <Property key="NeedMouse" value="false"/>
+        </Widget>
+
+        <Widget type="Widget" skin="" position="894 544 236 34" align="Left Top" name="ActionButtons">
+            <Widget type="Button" skin="CommunityMP_CharacterActionButton" position="0 1 74 30" align="Left Top" name="DeleteButton">
+                <Property key="Caption" value="Delete"/>
+            </Widget>
+            <Widget type="Button" skin="CommunityMP_CharacterActionButton" position="82 1 154 30" align="Left Top" name="SelectButton">
+                <Property key="Caption" value="Enter World"/>
+            </Widget>
+        </Widget>
+    </Widget>
+</MyGUI>

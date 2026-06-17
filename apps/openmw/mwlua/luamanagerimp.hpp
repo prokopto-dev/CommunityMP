@@ -60,6 +60,11 @@ namespace MWLua
         // The parallelism can be turned off in the settings.
         void update();
 
+        // \brief Executes one configured Lua garbage collector step.
+        //
+        // Returns false when incremental Lua GC is disabled for this frame.
+        bool gc();
+
         // \brief Executes latency-critical and scene graph related Lua logic.
         //
         // Called by engine.cpp from the main thread between InputManager and MechanicsManager updates.
@@ -97,8 +102,10 @@ namespace MWLua
         void animationEnded(const MWWorld::Ptr& actor, std::string_view groupname, float time, float completion,
             std::string_view startKey, std::string_view stopKey) override;
         void skillUse(const MWWorld::Ptr& actor, ESM::RefId skillId, int useType, float scale) override;
+        void skillUseFailed(const MWWorld::Ptr& actor, ESM::RefId skillId, int useType, float scale) override;
         void skillLevelUp(const MWWorld::Ptr& actor, ESM::RefId skillId, std::string_view source) override;
-        void jailTimeServed(const MWWorld::Ptr& actor, int days) override;
+        void jailTimeServed(
+            const MWWorld::Ptr& actor, int days, bool preventSkillIncreases, std::string_view messageOverride) override;
         void onHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, const MWWorld::Ptr& weapon,
             const MWWorld::Ptr& ammo, int attackType, float attackStrength, float damage, bool isHealth,
             const osg::Vec3f& hitPos, bool successful, MWMechanics::DamageSourceType sourceType) override;

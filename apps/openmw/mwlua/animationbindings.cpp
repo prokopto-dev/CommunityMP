@@ -317,7 +317,7 @@ namespace MWLua
                       std::string texture = options->get_or<std::string>("particleTextureOverride", "");
                       float scale = options->get_or("scale", 1.f);
                       std::string vfxId = options->get_or<std::string>("vfxId", "");
-                      bool loop = options->get_or("loop", false);
+                      bool loop = options->get<sol::optional<bool>>("loop").value_or(!vfxId.empty());
                       bool useAmbientLight = options->get_or("useAmbientLight", true);
                       context.mLuaManager->addAction(
                           [model = VFS::Path::Normalized(model), texture = std::move(texture), worldPos, scale,

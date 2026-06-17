@@ -198,7 +198,7 @@ namespace Terrain
         int tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
         return ::Terrain::createPasses(mSceneManager, layers, blendmapTextures, tileCount,
-            static_cast<float>(tileCount), forCompositeMap, ESM::isEsm4Ext(mWorldspace));
+            static_cast<float>(tileCount), forCompositeMap, ESM::isEsm4Ext(mWorldspace), mWorldspace, chunkCenter);
     }
 
     osg::ref_ptr<osg::Node> ChunkManager::createChunk(float chunkSize, const osg::Vec2f& chunkCenter, unsigned char lod,

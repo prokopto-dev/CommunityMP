@@ -1,6 +1,7 @@
 #include "filedialog.hpp"
 
 #include <QDialogButtonBox>
+#include <QMessageBox>
 #include <QPushButton>
 
 #include <components/contentselector/model/contentmodel.hpp>
@@ -212,6 +213,23 @@ void CSVDoc::FileDialog::slotRejected()
 
 void CSVDoc::FileDialog::slotNewFile()
 {
+    if (mSelector->selectedFiles().empty())
+    {
+        QMessageBox warning(this);
+        warning.setIcon(QMessageBox::Warning);
+        warning.setWindowTitle(tr("Create addon without masters?"));
+        warning.setText(tr("No master files are selected."));
+        warning.setInformativeText(
+            tr("Dependency-free addons can override default records and break game data. Create this addon anyway?"));
+        QPushButton* createAnyway = warning.addButton(tr("Create Anyway"), QMessageBox::AcceptRole);
+        warning.addButton(QMessageBox::Cancel);
+        warning.setDefaultButton(QMessageBox::Cancel);
+        warning.exec();
+
+        if (warning.clickedButton() != createAnyway)
+            return;
+    }
+
     emit signalCreateNewFile(mAdjusterWidget->getPath());
     if (mFileWidget)
     {

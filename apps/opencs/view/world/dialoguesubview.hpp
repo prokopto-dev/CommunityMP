@@ -254,6 +254,8 @@ namespace CSVWorld
 
         void setEditLock(bool locked) override;
 
+        void switchToIdAndUseHint(const CSMWorld::UniversalId& id, const std::string& hint);
+
     private slots:
 
         void settingChanged(const CSMPrefs::Setting* setting);

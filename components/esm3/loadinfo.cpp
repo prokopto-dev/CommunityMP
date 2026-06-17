@@ -5,6 +5,32 @@
 
 #include <components/misc/concepts.hpp>
 
+namespace
+{
+    std::string normalizeDialogueResultScriptLineEndings(std::string_view value)
+    {
+        std::string result;
+        result.reserve(value.size());
+
+        for (std::size_t i = 0; i < value.size(); ++i)
+        {
+            const char c = value[i];
+            if (c == '\r')
+            {
+                result += "\r\n";
+                if (i + 1 < value.size() && value[i + 1] == '\n')
+                    ++i;
+            }
+            else if (c == '\n')
+                result += "\r\n";
+            else
+                result.push_back(c);
+        }
+
+        return result;
+    }
+}
+
 namespace ESM
 {
     template <Misc::SameAsWithoutCvref<DialInfo::DATAstruct> T>
@@ -122,7 +148,7 @@ namespace ESM
         for (const auto& rule : mSelects)
             rule.save(esm);
 
-        esm.writeHNOString("BNAM", mResultScript);
+        esm.writeHNOString("BNAM", normalizeDialogueResultScriptLineEndings(mResultScript));
 
         switch (mQuestStatus)
         {

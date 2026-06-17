@@ -7,13 +7,18 @@
 #include <osg/TexMat>
 #include <osg/Texture2D>
 
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <mutex>
+
+#include <components/material/materialapplier.hpp>
+#include <components/material/materialregistry.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/util.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/stereo/stereomanager.hpp>
-
-#include <mutex>
 
 namespace
 {
@@ -181,9 +186,23 @@ namespace Terrain
 {
     std::vector<osg::ref_ptr<osg::StateSet>> createPasses(Resource::SceneManager* sceneManager,
         const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
-        int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain)
+        int blendmapScale, float layerTileSize, bool isComposite, bool esm4terrain, const ESM::RefId& worldspace,
+        osg::Vec2f chunkCenter)
     {
         auto& shaderManager = sceneManager->getShaderManager();
+        const Material::MaterialDef* terrainOverride = nullptr;
+        if (!isComposite && !worldspace.empty())
+        {
+            if (Material::Registry* registry = sceneManager->getMaterialRegistry())
+            {
+                std::string worldspaceLower = worldspace.toDebugString();
+                std::transform(worldspaceLower.begin(), worldspaceLower.end(), worldspaceLower.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                terrainOverride = registry->matchTerrain(worldspaceLower, static_cast<int>(std::floor(chunkCenter.x())),
+                    static_cast<int>(std::floor(chunkCenter.y())));
+            }
+        }
+
         std::vector<osg::ref_ptr<osg::StateSet>> passes;
 
         unsigned int blendmapIndex = 0;
@@ -266,7 +285,16 @@ namespace Terrain
                 defineMap["reconstructNormalZ"] = reconstructNormalZ ? "1" : "0";
                 Stereo::shaderStereoDefines(defineMap);
 
-                stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                std::string templateName = "terrain";
+                if (terrainOverride != nullptr)
+                {
+                    if (!terrainOverride->mShaderPrefix.empty())
+                        templateName = terrainOverride->mShaderPrefix;
+                    Material::mergeDefines(*terrainOverride, defineMap);
+                    Material::pushUniforms(*terrainOverride, stateset);
+                }
+
+                stateset->setAttributeAndModes(shaderManager.getProgram(templateName, defineMap));
                 stateset->addUniform(UniformCollection::value().mColorMode);
             }
 

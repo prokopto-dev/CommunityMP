@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CommunityMP Hub",
+  "mainBinaryName": "communitymp-hub",
+  "version": "0.1.0",
+  "identifier": "com.communitymp.hub",
+  "build": {
+    "beforeDevCommand": "npm run dev:vite",
+    "beforeBuildCommand": "npm run build:ui",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "CommunityMP Hub",
+        "center": true,
+        "width": 1280,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 560,
+        "decorations": false,
+        "resizable": true,
+        "useHttpsScheme": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}

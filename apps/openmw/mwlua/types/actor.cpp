@@ -14,9 +14,19 @@
 #include "apps/openmw/mwmechanics/actorutil.hpp"
 #include "apps/openmw/mwmechanics/creaturestats.hpp"
 #include "apps/openmw/mwmechanics/drawstate.hpp"
+#include "apps/openmw/mwmechanics/resurrect.hpp"
 #include "apps/openmw/mwworld/class.hpp"
 #include "apps/openmw/mwworld/inventorystore.hpp"
+#include "apps/openmw/mwworld/timestamp.hpp"
 #include "apps/openmw/mwworld/worldmodel.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "apps/openmw/mwmp/LocalPlayer.hpp"
+#include "apps/openmw/mwmp/Main.hpp"
+#include "apps/openmw/mwmp/MechanicsHelper.hpp"
+#include "apps/openmw/mwmp/Networking.hpp"
+#include "apps/openmw/mwmp/ObjectList.hpp"
+#endif
 
 #include "../localscripts.hpp"
 #include "../luamanagerimp.hpp"
@@ -28,6 +38,70 @@ namespace MWLua
     using EquipmentItem = std::variant<std::string, ObjectId>;
     using Equipment = std::map<int, EquipmentItem>;
     static constexpr int sAnySlot = -1;
+
+#ifdef BUILD_TES3MP_CLIENT
+    static bool canSendTes3mpLuaActorObjectPacket(const MWWorld::Ptr& ptr, Context::Type contextType)
+    {
+        if (contextType != Context::Global || !mwmp::Main::isInitialized() || !ptr.isInCell())
+            return false;
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        return localPlayer != nullptr && localPlayer->isLoggedIn();
+    }
+
+    static mwmp::ObjectList* prepareTes3mpLuaActorObjectPacket()
+    {
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_SCRIPT_GLOBAL;
+        objectList->originClientScript = "openmw-lua:global";
+        return objectList;
+    }
+
+    static bool sendTes3mpLuaBarterGoldPacket(const MWWorld::Ptr& ptr, int gold, Context::Type contextType)
+    {
+        if (!canSendTes3mpLuaActorObjectPacket(ptr, contextType) || !ptr.getClass().isActor())
+            return false;
+
+        MWWorld::TimeStamp lastRestockTime = ptr.getClass().getCreatureStats(ptr).getLastRestockTime();
+        mwmp::ObjectList* objectList = prepareTes3mpLuaActorObjectPacket();
+        objectList->addObjectMiscellaneous(
+            ptr, static_cast<unsigned int>(gold), lastRestockTime.getHour(), lastRestockTime.getDay());
+        objectList->sendObjectMiscellaneous();
+        return true;
+    }
+
+    static mwmp::LocalPlayer* getLoggedInTes3mpLocalPlayerForPtr(const MWWorld::Ptr& ptr)
+    {
+        if (!mwmp::Main::isInitialized() || ptr.isEmpty()
+            || ptr != MWBase::Environment::get().getWorld()->getPlayerPtr())
+        {
+            return nullptr;
+        }
+
+        mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer();
+        if (localPlayer == nullptr || !localPlayer->isLoggedIn())
+            return nullptr;
+
+        return localPlayer;
+    }
+
+    static void sendTes3mpLuaSelectedEnchantedItemPacket(
+        const MWWorld::Ptr& actor, const MWWorld::Ptr& selectedItem)
+    {
+        mwmp::LocalPlayer* localPlayer = getLoggedInTes3mpLocalPlayerForPtr(actor);
+        if (localPlayer == nullptr || selectedItem.isEmpty())
+            return;
+
+        localPlayer->sendSelectedEnchantedItem(
+            MechanicsHelper::getItem(selectedItem, selectedItem.getCellRef().getCount()));
+    }
+#endif
+
+    static void setBarterGold(const MWWorld::Ptr& ptr, int gold)
+    {
+        ptr.getClass().getCreatureStats(ptr).setGoldPool(gold);
+    }
 
     static std::pair<MWWorld::ContainerStoreIterator, bool> findInInventory(
         MWWorld::ContainerStore& store, const EquipmentItem& item, int slot, bool isInventoryStore)
@@ -136,17 +210,17 @@ namespace MWLua
                 tryEquipToSlot(sAnySlot, item);
     }
 
-    static void setSelectedEnchantedItem(const MWWorld::Ptr& actor, const EquipmentItem& item)
+    static MWWorld::Ptr setSelectedEnchantedItem(const MWWorld::Ptr& actor, const EquipmentItem& item)
     {
         MWWorld::ContainerStore& contStore = actor.getClass().getContainerStore(actor);
         // We're not passing in a specific slot, so ignore the already equipped return value
         auto [it, _] = findInInventory(contStore, item, sAnySlot, actor.getClass().hasInventoryStore(actor));
         if (it == contStore.end())
-            return;
+            return {};
         if (!actor.getClass().hasInventoryStore(actor))
         {
             contStore.setSelectedEnchantItem(it);
-            return;
+            return *it;
         }
 
         MWWorld::InventoryStore& store = actor.getClass().getInventoryStore(actor);
@@ -168,12 +242,13 @@ namespace MWLua
                 MWBase::Environment::get().getWindowManager()->useItem(itemPtr);
                 // make sure that item was successfully equipped
                 if (!store.isEquipped(itemPtr))
-                    return;
+                    return {};
             }
         }
         store.setSelectedEnchantItem(it);
         // to reset WindowManager::mSelectedSpell immediately
         MWBase::Environment::get().getWindowManager()->setSelectedEnchantItem(*it);
+        return *it;
     }
 
     void addActorBindings(sol::table actor, const Context& context)
@@ -280,9 +355,12 @@ namespace MWLua
             {
                 ei = LuaUtil::cast<std::string>(item);
             }
-            context.mLuaManager->addAction(
-                [obj = Object(ptr), ei = std::move(ei)] { setSelectedEnchantedItem(obj.ptr(), ei); },
-                "setSelectedEnchantedItemAction");
+            context.mLuaManager->addAction([obj = Object(ptr), ei = std::move(ei)] {
+                MWWorld::Ptr selectedItem = setSelectedEnchantedItem(obj.ptr(), ei);
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpLuaSelectedEnchantedItemPacket(obj.ptr(), selectedItem);
+#endif
+            }, "setSelectedEnchantedItemAction");
         };
 
         actor["canMove"] = [](const Object& o) {
@@ -300,6 +378,29 @@ namespace MWLua
         actor["getCurrentSpeed"] = [](const Object& o) {
             const MWWorld::Class& cls = o.ptr().getClass();
             return cls.getCurrentSpeed(o.ptr());
+        };
+        actor["getInertialForce"] = [](const Object& o) {
+            const MWWorld::Ptr ptr = o.ptr();
+            if (!ptr.getClass().isActor())
+                throw std::runtime_error("Actor expected");
+            return MWBase::Environment::get().getWorld()->getActorInertialForce(ptr);
+        };
+        actor["setInertialForce"] = [context](const Object& object, const Misc::FiniteVec3f& force) {
+            if (!object.isGObject() && !object.isSelfObject())
+                throw std::runtime_error("Can only be used in global scripts or in local scripts on self.");
+
+            const MWWorld::Ptr ptr = object.ptr();
+            if (!ptr.getClass().isActor())
+                throw std::runtime_error("Actor expected");
+
+            context.mLuaManager->addAction(
+                [obj = Object(object), force = static_cast<osg::Vec3f>(force)] {
+                    const MWWorld::Ptr ptr = obj.ptr();
+                    if (!ptr.getClass().isActor())
+                        throw std::runtime_error("Actor expected");
+                    MWBase::Environment::get().getWorld()->setActorInertialForce(ptr, force);
+                },
+                "SetInertialForceAction");
         };
 
         // for compatibility; should be removed later
@@ -435,11 +536,22 @@ namespace MWLua
             if (!object.isGObject() && !object.isSelfObject())
                 throw std::runtime_error("Can only be used in global scripts or in local scripts on self.");
             context.mLuaManager->addAction(
-                [obj = Object(object), gold] {
+                [obj = Object(object), gold, contextType = context.mType] {
                     const MWWorld::Ptr ptr = obj.ptr();
-                    ptr.getClass().getCreatureStats(ptr).setGoldPool(gold);
+#ifdef BUILD_TES3MP_CLIENT
+                    if (sendTes3mpLuaBarterGoldPacket(ptr, gold, contextType))
+                        return;
+#endif
+                    setBarterGold(ptr, gold);
                 },
                 "SetBarterGoldAction");
+        };
+
+        actor["resurrect"] = [context](const Object& object) {
+            if (!object.isGObject() && !object.isSelfObject())
+                throw std::runtime_error("Can only be used in global scripts or in local scripts on self.");
+            context.mLuaManager->addAction(
+                [obj = Object(object)] { MWMechanics::resurrect(obj.ptr()); }, "ResurrectAction");
         };
 
         actor["_onHit"] = [context](const SelfObject& self, const sol::table& options) {

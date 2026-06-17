@@ -46,13 +46,16 @@ namespace MWGui
         void onDeleteSlotCancel();
 
         void onEditSelectAccept(MyGUI::EditBox* sender);
+        void onFilterSelectAccept(MyGUI::EditBox* sender);
+        void onFilterChanged(MyGUI::EditBox* sender);
         void onSaveNameChanged(MyGUI::EditBox* sender);
         void onConfirmationGiven();
         void onConfirmationCancel();
 
         void accept(bool reallySure = false);
 
-        void fillSaveList();
+        void fillSaveList(size_t preferredIndex = MyGUI::ITEM_NONE);
+        bool slotMatchesFilter(const MWState::Slot& slot) const;
 
         std::unique_ptr<MyGUI::ITexture> mScreenshotTexture;
         MyGUI::ImageBox* mScreenshot;
@@ -65,6 +68,7 @@ namespace MWGui
         MyGUI::Button* mCancelButton;
         MyGUI::Button* mDeleteButton;
         MyGUI::ListBox* mSaveList;
+        MyGUI::EditBox* mFilterEdit;
         MyGUI::EditBox* mSaveNameEdit;
 
         const MWState::Character* mCurrentCharacter;

@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 
+#include "iphysicsactor.hpp"
 #include "ptrholder.hpp"
 
 #include <components/detournavigator/collisionshapetype.hpp>
@@ -24,7 +25,7 @@ namespace MWPhysics
 {
     class PhysicsTaskScheduler;
 
-    class Actor final : public PtrHolder
+    class Actor final : public PtrHolder, public IPhysicsActor
     {
     public:
         Actor(const MWWorld::Ptr& ptr, const Resource::BulletShape* shape, PhysicsTaskScheduler* scheduler,
@@ -116,6 +117,12 @@ namespace MWPhysics
          */
         const osg::Vec3f& getInertialForce() const { return mForce; }
 
+        void forceFall();
+
+        void clearForceFall();
+
+        bool isForceFalling() const { return mForceFalling; }
+
         void setOnGround(bool grounded);
 
         bool getOnGround() const { return mOnGround; }
@@ -187,6 +194,7 @@ namespace MWPhysics
         bool mOnSlope;
         bool mInternalCollisionMode;
         bool mExternalCollisionMode;
+        bool mForceFalling = false;
         bool mActive;
 
         PhysicsTaskScheduler* mTaskScheduler;

@@ -11,6 +11,24 @@ local replacedWindows = {}
 local hiddenWindows = {}
 local modeStack = {}
 
+local function copyModeStack()
+    local copy = {}
+    for i, mode in ipairs(modeStack) do
+        copy[i] = mode
+    end
+    return copy
+end
+
+local function replaceModeStack(newStack)
+    local oldSize = #modeStack
+    for i, mode in ipairs(newStack) do
+        modeStack[i] = mode
+    end
+    for i = #newStack + 1, oldSize do
+        modeStack[i] = nil
+    end
+end
+
 local modePause = {}
 for _, mode in pairs(MODE) do
     modePause[mode] = true
@@ -58,16 +76,22 @@ local function updateHidden(mode, options)
 end
 
 local function setMode(mode, options)
+    local oldStack = copyModeStack()
+    replaceModeStack(mode and {mode} or {})
+
     local function impl()
-        updateHidden(mode, options)
-        ui._setUiModeStack({mode}, options and options.target)
+        if mode then
+            updateHidden(mode, options)
+        end
+        ui._setUiModeStack(modeStack, options and options.target)
     end
     if mode then
         if not pcall(impl) then
+            replaceModeStack(oldStack)
             error('Invalid mode: ' .. tostring(mode))
         end
     else
-        ui._setUiModeStack({})
+        ui._setUiModeStack(modeStack)
     end
 end
 
@@ -162,6 +186,13 @@ local function isWindowVisible(windowName)
     return ui._isWindowVisible(windowName)
 end
 
+local function getLayerForWindow(windowName)
+    if not WINDOW[windowName] then
+        error('Unknown window "'..tostring(windowName)..'".')
+    end
+    return ui._getLayerForWindow(windowName)
+end
+
 return {
     interfaceName = 'UI',
     ---
@@ -171,7 +202,7 @@ return {
     interface = {
         --- Interface version
         -- @field [parent=#UI] #number version
-        version = 3,
+        version = 4,
 
         --- All available UI modes.
         -- Use `view(I.UI.MODE)` in `luap` console mode to see the list.
@@ -190,6 +221,12 @@ return {
         -- @param #function showFn Callback that will be called when the window should become visible
         -- @param #function hideFn Callback that will be called when the window should be hidden
         registerWindow = registerWindow,
+
+        --- Returns layer name of a built-in window.
+        -- @function [parent=#UI] getLayerForWindow
+        -- @param #string windowName
+        -- @return #string
+        getLayerForWindow = getLayerForWindow,
 
         --- Returns windows that can be shown in given mode.
         -- @function [parent=#UI] getWindowsForMode

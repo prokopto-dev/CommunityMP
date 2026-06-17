@@ -1,9 +1,11 @@
 #include "characterpreview.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 #include <osg/BlendFunc>
 #include <osg/Camera>
+#include <osg/ComputeBoundsVisitor>
 #include <osg/Fog>
 #include <osg/Material>
 #include <osg/PositionAttitudeTransform>
@@ -36,6 +38,23 @@
 
 namespace MWRender
 {
+    namespace
+    {
+        constexpr float bodyPreviewFullDistance = 600.f;
+        constexpr float bodyPreviewCloseDistance = 320.f;
+        constexpr float bodyPreviewFullTargetZ = 72.f;
+        constexpr float bodyPreviewCloseTargetZ = 108.f;
+        constexpr float bodyPreviewMinFocusOffset = -48.f;
+        constexpr float bodyPreviewMaxFocusOffset = 48.f;
+        constexpr float bodyPreviewFovYDegrees = 12.3f;
+        constexpr float bodyPreviewVerticalPadding = 1.2f;
+
+        float getBodyPreviewFitDistance(float height)
+        {
+            const float fovHalfRadians = osg::DegreesToRadians(bodyPreviewFovYDegrees * 0.5f);
+            return height * bodyPreviewVerticalPadding / (2.f * std::tan(fovHalfRadians));
+        }
+    }
 
     class DrawOnceCallback : public SceneUtil::NodeCallback<DrawOnceCallback>
     {
@@ -145,7 +164,6 @@ namespace MWRender
 
     class CharacterPreviewRTTNode : public SceneUtil::RTTNode
     {
-        static constexpr float fovYDegrees = 12.3f;
         static constexpr float znear = 4.0f;
         static constexpr float zfar = 10000.f;
 
@@ -156,10 +174,10 @@ namespace MWRender
             , mAspectRatio(static_cast<float>(sizeX) / static_cast<float>(sizeY))
         {
             if (SceneUtil::AutoDepth::isReversed())
-                mPerspectiveMatrix = static_cast<osg::Matrixf>(
-                    SceneUtil::getReversedZProjectionMatrixAsPerspective(fovYDegrees, mAspectRatio, znear, zfar));
+                mPerspectiveMatrix = static_cast<osg::Matrixf>(SceneUtil::getReversedZProjectionMatrixAsPerspective(
+                    bodyPreviewFovYDegrees, mAspectRatio, znear, zfar));
             else
-                mPerspectiveMatrix = osg::Matrixf::perspective(fovYDegrees, mAspectRatio, znear, zfar);
+                mPerspectiveMatrix = osg::Matrixf::perspective(bodyPreviewFovYDegrees, mAspectRatio, znear, zfar);
             mGroup->getOrCreateStateSet()->addUniform(new osg::Uniform("projectionMatrix", mPerspectiveMatrix));
             mViewMatrix = osg::Matrixf::identity();
             setColorBufferInternalFormat(GL_RGBA);
@@ -173,7 +191,7 @@ namespace MWRender
             camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
             camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 0.f));
             camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-            camera->setProjectionMatrixAsPerspective(fovYDegrees, mAspectRatio, znear, zfar);
+            camera->setProjectionMatrixAsPerspective(bodyPreviewFovYDegrees, mAspectRatio, znear, zfar);
             camera->setViewport(0, 0, width(), height());
             camera->setRenderOrder(osg::Camera::PRE_RENDER);
             camera->setCullMask(~(Mask_UpdateVisitor));
@@ -497,12 +515,19 @@ namespace MWRender
 
     // --------------------------------------------------------------------------------------------------
 
-    RaceSelectionPreview::RaceSelectionPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
-        : CharacterPreview(
-            parent, resourceSystem, MWMechanics::getPlayer(), 512, 512, osg::Vec3f(0, 125, 8), osg::Vec3f(0, 0, 8))
+    RaceSelectionPreview::RaceSelectionPreview(
+        osg::Group* parent, Resource::ResourceSystem* resourceSystem, PreviewMode previewMode)
+        : CharacterPreview(parent, resourceSystem, MWMechanics::getPlayer(),
+            previewMode == PreviewMode::Body ? 768 : 512, previewMode == PreviewMode::Body ? 1024 : 512,
+            previewMode == PreviewMode::Body ? osg::Vec3f(0, bodyPreviewFullDistance, bodyPreviewFullTargetZ)
+                                             : osg::Vec3f(0, 125, 8),
+            previewMode == PreviewMode::Body ? osg::Vec3f(0, 0, bodyPreviewFullTargetZ) : osg::Vec3f(0, 0, 8))
         , mBase(*mCharacter.get<ESM::NPC>()->mBase)
         , mRef(ESM::makeBlankCellRef(), &mBase)
+        , mPreviewMode(previewMode)
         , mPitchRadians(osg::DegreesToRadians(6.f))
+        , mInspectionZoom(0.f)
+        , mInspectionFocusOffset(0.f)
     {
         mCharacter = MWWorld::Ptr(&mRef, nullptr);
     }
@@ -512,6 +537,30 @@ namespace MWRender
     void RaceSelectionPreview::setAngle(float angleRadians)
     {
         mNode->setAttitude(osg::Quat(mPitchRadians, osg::Vec3(1, 0, 0)) * osg::Quat(angleRadians, osg::Vec3(0, 0, 1)));
+        redraw();
+    }
+
+    void RaceSelectionPreview::setZoom(float zoom)
+    {
+        mInspectionZoom = std::clamp(zoom, 0.f, 1.f);
+        if (mPreviewMode != PreviewMode::Body)
+            return;
+
+        osg::Vec3f scale(1.f, 1.f, 1.f);
+        mCharacter.getClass().adjustScale(mCharacter, scale, true);
+        applyBodyCamera(scale.z());
+        redraw();
+    }
+
+    void RaceSelectionPreview::setVerticalFocus(float focusOffset)
+    {
+        mInspectionFocusOffset = std::clamp(focusOffset, bodyPreviewMinFocusOffset, bodyPreviewMaxFocusOffset);
+        if (mPreviewMode != PreviewMode::Body)
+            return;
+
+        osg::Vec3f scale(1.f, 1.f, 1.f);
+        mCharacter.getClass().adjustScale(mCharacter, scale, true);
+        applyBodyCamera(scale.z());
         redraw();
     }
 
@@ -562,6 +611,21 @@ namespace MWRender
         mAnimation->play("idle", 1, BlendMask::BlendMask_All, false, 1.0f, "start", "stop", 0.0f, 0);
         mAnimation->runAnimation(0.f);
 
+        if (mPreviewMode == PreviewMode::Body)
+        {
+            if (mUpdateCameraCallback)
+            {
+                mRTTNode->removeUpdateCallback(mUpdateCameraCallback);
+                mUpdateCameraCallback = nullptr;
+            }
+
+            osg::Vec3f scale(1.f, 1.f, 1.f);
+            mCharacter.getClass().adjustScale(mCharacter, scale, true);
+            mNode->setScale(scale);
+            applyBodyCamera(scale.z());
+            return;
+        }
+
         // attach camera to follow the head node
         if (mUpdateCameraCallback)
             mRTTNode->removeUpdateCallback(mUpdateCameraCallback);
@@ -574,6 +638,33 @@ namespace MWRender
         }
         else
             Log(Debug::Error) << "Error: Bip01 Head node not found";
+    }
+
+    void RaceSelectionPreview::applyBodyCamera(float scaleZ)
+    {
+        float fullDistance = bodyPreviewFullDistance;
+        float fullTargetZ = bodyPreviewFullTargetZ;
+        osg::ComputeBoundsVisitor boundsVisitor;
+        for (unsigned int i = 0; i < mNode->getNumChildren(); ++i)
+            mNode->getChild(i)->accept(boundsVisitor);
+
+        const osg::BoundingBox& bounds = boundsVisitor.getBoundingBox();
+        if (bounds.valid() && std::isfinite(bounds.zMin()) && std::isfinite(bounds.zMax())
+            && bounds.zMax() > bounds.zMin())
+        {
+            const float height = bounds.zMax() - bounds.zMin();
+            fullDistance = std::max(fullDistance, getBodyPreviewFitDistance(height));
+            fullTargetZ = (bounds.zMin() + bounds.zMax()) * 0.5f;
+        }
+
+        const float smoothZoom = mInspectionZoom * mInspectionZoom * (3.f - 2.f * mInspectionZoom);
+        const float distance = fullDistance + (bodyPreviewCloseDistance - fullDistance) * smoothZoom;
+        const float targetZ
+            = fullTargetZ + (bodyPreviewCloseTargetZ - fullTargetZ) * smoothZoom + mInspectionFocusOffset;
+
+        const osg::Vec3f position(0.f, distance, targetZ);
+        const osg::Vec3f lookAt(0.f, 0.f, targetZ);
+        mRTTNode->setViewMatrix(osg::Matrixf::lookAt(position * scaleZ, lookAt * scaleZ, osg::Vec3f(0, 0, 1)));
     }
 
 }

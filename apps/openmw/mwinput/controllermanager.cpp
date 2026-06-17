@@ -35,6 +35,8 @@ namespace MWInput
         , mGamepadMousePressed(false)
         , mLeftTriggerGuiPressed(false)
         , mRightTriggerGuiPressed(false)
+        , mCapturingGuiControllerButtons(false)
+        , mCapturedGuiControllerButtons{}
     {
         if (!controllerBindingsFile.empty())
         {
@@ -134,6 +136,9 @@ namespace MWInput
             { MWBase::LuaManager::InputEvent::ControllerPressed, arg.button });
 
         mJoystickLastUsed = true;
+        if (captureGuiControllerButtonPress(arg))
+            return;
+
         if (MWBase::Environment::get().getWindowManager()->isGuiMode())
         {
             if (gamepadToGuiControl(arg))
@@ -184,6 +189,9 @@ namespace MWInput
                 { MWBase::LuaManager::InputEvent::ControllerReleased, arg.button });
         }
 
+        if (captureGuiControllerButtonRelease(arg))
+            return;
+
         if (!Settings::input().mEnableController || MWBase::Environment::get().getInputManager()->controlsDisabled())
             return;
 
@@ -215,6 +223,26 @@ namespace MWInput
         mBindingsManager->controllerButtonReleased(deviceID, arg);
     }
 
+    bool ControllerManager::captureGuiControllerButtonPress(const SDL_ControllerButtonEvent& arg)
+    {
+        if (!mCapturingGuiControllerButtons || !MWBase::Environment::get().getWindowManager()->isGuiMode())
+            return false;
+
+        if (arg.button < mCapturedGuiControllerButtons.size())
+            mCapturedGuiControllerButtons[arg.button] = true;
+
+        return true;
+    }
+
+    bool ControllerManager::captureGuiControllerButtonRelease(const SDL_ControllerButtonEvent& arg)
+    {
+        if (arg.button >= mCapturedGuiControllerButtons.size() || !mCapturedGuiControllerButtons[arg.button])
+            return false;
+
+        mCapturedGuiControllerButtons[arg.button] = false;
+        return true;
+    }
+
     void ControllerManager::axisMoved(int deviceID, const SDL_ControllerAxisEvent& arg)
     {
         if (mBindingsManager->isDetectingBindingState())
@@ -233,7 +261,8 @@ namespace MWInput
                 return;
         }
         else if (mBindingsManager->actionIsActive(A_TogglePOV)
-            && (arg.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT || arg.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT))
+            && (arg.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT || arg.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT
+                || arg.axis == SDL_CONTROLLER_AXIS_LEFTY))
         {
             // Preview Mode Gamepad Zooming; do not propagate to mBindingsManager
             return;

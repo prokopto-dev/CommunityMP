@@ -5,12 +5,15 @@
 #include <components/nifosg/nifloader.hpp>
 #include <components/resource/bgsmfilemanager.hpp>
 #include <components/resource/imagemanager.hpp>
+#include <components/sceneutil/optimizer.hpp>
 #include <components/sceneutil/serialize.hpp>
+#include <components/sceneutil/util.hpp>
 #include <components/vfs/manager.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <osg/BoundingSphere>
 #include <osgDB/Registry>
 
 #include <array>
@@ -68,6 +71,35 @@ namespace
     {
     };
 
+    Nif::NiTriShapeData makeTriangleData(const osg::BoundingSpheref& authoredBound)
+    {
+        Nif::NiTriShapeData data;
+        data.mRecordType = Nif::RC_NiTriShapeData;
+        data.mNumVertices = 3;
+        data.mVertices = { osg::Vec3f(1.f, 2.f, 3.f), osg::Vec3f(2.f, 2.f, 3.f), osg::Vec3f(1.f, 3.f, 3.f) };
+        data.mBoundingSphere = authoredBound;
+        data.mNumTriangles = 1;
+        data.mTriangles = { 0, 1, 2 };
+        return data;
+    }
+
+    osg::Node* getOnlyLoadedRoot(osg::Node& result)
+    {
+        osg::Group* group = result.asGroup();
+        EXPECT_NE(group, nullptr);
+        if (group == nullptr || group->getNumChildren() != 1)
+            return nullptr;
+        return group->getChild(0);
+    }
+
+    void expectBoundingSphereNear(const osg::BoundingSphere& actualBound, const osg::BoundingSpheref& expectedBound)
+    {
+        EXPECT_NEAR(actualBound.center().x(), expectedBound.center().x(), 1e-5f);
+        EXPECT_NEAR(actualBound.center().y(), expectedBound.center().y(), 1e-5f);
+        EXPECT_NEAR(actualBound.center().z(), expectedBound.center().z(), 1e-5f);
+        EXPECT_NEAR(actualBound.radius(), expectedBound.radius(), 1e-5f);
+    }
+
     TEST_F(NifOsgLoaderTest, shouldLoadFileWithDefaultNode)
     {
         Nif::NiAVObject node;
@@ -110,6 +142,81 @@ osg::Group {
   }
 }
 )");
+    }
+
+    TEST_F(NifOsgLoaderTest, staticNiGeometryShouldUseAuthoredBoundingSphere)
+    {
+        const osg::BoundingSpheref authoredBound(osg::Vec3f(1.5f, 2.5f, 3.f), 2.f);
+        Nif::NiTriShapeData data = makeTriangleData(authoredBound);
+        Nif::NiTriShape shape;
+        init(shape);
+        shape.mData = Nif::NiGeometryDataPtr(&data);
+        shape.mShaderProperty = Nif::BSShaderPropertyPtr(nullptr);
+        shape.mAlphaProperty = Nif::NiAlphaPropertyPtr(nullptr);
+        shape.mTransform.mTranslation = osg::Vec3f(10.f, 20.f, 30.f);
+        shape.mTransform.mScale = 3.f;
+
+        Nif::NIFFile file(testNif);
+        file.mRoots.push_back(&shape);
+
+        osg::ref_ptr<osg::Node> result = Loader::load(file, &mImageManager, &mMaterialManager);
+
+        osg::Node* loadedRoot = getOnlyLoadedRoot(*result);
+        ASSERT_NE(loadedRoot, nullptr);
+        ASSERT_NE(loadedRoot->getComputeBoundingSphereCallback(), nullptr);
+
+        osg::BoundingSpheref expectedBound = authoredBound;
+        SceneUtil::transformBoundingSphere(shape.mTransform.toMatrix(), expectedBound);
+        expectBoundingSphereNear(loadedRoot->getBound(), expectedBound);
+    }
+
+    TEST_F(NifOsgLoaderTest, optimizerShouldPreserveAuthoredBoundingSphere)
+    {
+        const osg::BoundingSpheref authoredBound(osg::Vec3f(1.5f, 2.5f, 3.f), 2.f);
+        Nif::NiTriShapeData data = makeTriangleData(authoredBound);
+        Nif::NiTriShape shape;
+        init(shape);
+        shape.mData = Nif::NiGeometryDataPtr(&data);
+        shape.mShaderProperty = Nif::BSShaderPropertyPtr(nullptr);
+        shape.mAlphaProperty = Nif::NiAlphaPropertyPtr(nullptr);
+        shape.mTransform.mTranslation = osg::Vec3f(10.f, 20.f, 30.f);
+        shape.mTransform.mScale = 3.f;
+
+        Nif::NIFFile file(testNif);
+        file.mRoots.push_back(&shape);
+
+        osg::ref_ptr<osg::Node> result = Loader::load(file, &mImageManager, &mMaterialManager);
+
+        SceneUtil::Optimizer optimizer;
+        optimizer.optimize(result, SceneUtil::Optimizer::FLATTEN_STATIC_TRANSFORMS
+                | SceneUtil::Optimizer::REMOVE_REDUNDANT_NODES);
+
+        osg::Node* loadedRoot = getOnlyLoadedRoot(*result);
+        ASSERT_NE(loadedRoot, nullptr);
+        ASSERT_NE(loadedRoot->getComputeBoundingSphereCallback(), nullptr);
+
+        osg::BoundingSpheref expectedBound = authoredBound;
+        SceneUtil::transformBoundingSphere(shape.mTransform.toMatrix(), expectedBound);
+        expectBoundingSphereNear(loadedRoot->getBound(), expectedBound);
+    }
+
+    TEST_F(NifOsgLoaderTest, staticNiGeometryShouldRejectAuthoredBoundingSphereThatDoesNotEncloseVertices)
+    {
+        Nif::NiTriShapeData data = makeTriangleData(osg::BoundingSpheref(osg::Vec3f(0.f, 0.f, 0.f), 0.25f));
+        Nif::NiTriShape shape;
+        init(shape);
+        shape.mData = Nif::NiGeometryDataPtr(&data);
+        shape.mShaderProperty = Nif::BSShaderPropertyPtr(nullptr);
+        shape.mAlphaProperty = Nif::NiAlphaPropertyPtr(nullptr);
+
+        Nif::NIFFile file(testNif);
+        file.mRoots.push_back(&shape);
+
+        osg::ref_ptr<osg::Node> result = Loader::load(file, &mImageManager, &mMaterialManager);
+
+        osg::Node* loadedRoot = getOnlyLoadedRoot(*result);
+        ASSERT_NE(loadedRoot, nullptr);
+        EXPECT_EQ(loadedRoot->getComputeBoundingSphereCallback(), nullptr);
     }
 
     std::string formatOsgNodeForBSShaderProperty(std::string_view shaderPrefix)

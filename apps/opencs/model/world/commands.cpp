@@ -190,31 +190,45 @@ CSMWorld::ModifyCommand::ModifyCommand(
     QAbstractItemModel& model, const QModelIndex& index, const QVariant& newValue, QUndoCommand* parent)
     : QUndoCommand(parent)
     , mModel(&model)
-    , mIndex(index)
     , mNew(newValue)
     , mHasRecordState(false)
     , mOldRecordState(CSMWorld::RecordBase::State_BaseOnly)
 {
+    QModelIndex sourceIndex = index;
+
     if (QAbstractProxyModel* proxy = dynamic_cast<QAbstractProxyModel*>(mModel))
     {
         // Replace proxy with actual model
-        mIndex = proxy->mapToSource(mIndex);
+        sourceIndex = proxy->mapToSource(sourceIndex);
         mModel = proxy->sourceModel();
     }
+
+    mIndex = sourceIndex;
 }
 
 void CSMWorld::ModifyCommand::redo()
 {
-    if (mIndex.parent().isValid())
+    const QModelIndex index = mIndex;
+    if (!mModel || !index.isValid())
     {
-        CSMWorld::IdTree* tree = &dynamic_cast<CSMWorld::IdTree&>(*mModel);
-        setText("Modify "
-            + tree->nestedHeaderData(mIndex.parent().column(), mIndex.column(), Qt::Horizontal, Qt::DisplayRole)
-                  .toString());
+        setText("Modify invalid index");
+        return;
+    }
+
+    const QModelIndex parent = index.parent();
+    if (parent.isValid())
+    {
+        if (CSMWorld::IdTree* tree = dynamic_cast<CSMWorld::IdTree*>(mModel))
+        {
+            setText("Modify "
+                + tree->nestedHeaderData(parent.column(), index.column(), Qt::Horizontal, Qt::DisplayRole).toString());
+        }
+        else
+            setText("Modify " + mModel->headerData(index.column(), Qt::Horizontal, Qt::DisplayRole).toString());
     }
     else
     {
-        setText("Modify " + mModel->headerData(mIndex.column(), Qt::Horizontal, Qt::DisplayRole).toString());
+        setText("Modify " + mModel->headerData(index.column(), Qt::Horizontal, Qt::DisplayRole).toString());
     }
 
     // Remember record state before the modification
@@ -223,26 +237,32 @@ void CSMWorld::ModifyCommand::redo()
         mHasRecordState = true;
         int stateColumnIndex = table->findColumnIndex(Columns::ColumnId_Modification);
 
-        int rowIndex = mIndex.row();
-        if (mIndex.parent().isValid())
-        {
-            rowIndex = mIndex.parent().row();
-        }
+        int rowIndex = index.row();
+        if (parent.isValid())
+            rowIndex = parent.row();
 
         mRecordStateIndex = table->index(rowIndex, stateColumnIndex);
-        mOldRecordState = static_cast<CSMWorld::RecordBase::State>(table->data(mRecordStateIndex).toInt());
+        const QModelIndex recordStateIndex = mRecordStateIndex;
+        if (recordStateIndex.isValid())
+            mOldRecordState = static_cast<CSMWorld::RecordBase::State>(table->data(recordStateIndex).toInt());
     }
 
-    mOld = mModel->data(mIndex, Qt::EditRole);
-    mModel->setData(mIndex, mNew);
+    mOld = mModel->data(index, Qt::EditRole);
+    mModel->setData(index, mNew);
 }
 
 void CSMWorld::ModifyCommand::undo()
 {
-    mModel->setData(mIndex, mOld);
+    const QModelIndex index = mIndex;
+    if (!mModel || !index.isValid())
+        return;
+
+    mModel->setData(index, mOld);
     if (mHasRecordState)
     {
-        mModel->setData(mRecordStateIndex, mOldRecordState);
+        const QModelIndex recordStateIndex = mRecordStateIndex;
+        if (recordStateIndex.isValid())
+            mModel->setData(recordStateIndex, mOldRecordState);
     }
 }
 

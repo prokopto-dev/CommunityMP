@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <osg/Vec2f>
 
@@ -83,6 +84,7 @@ namespace MWGui
         void requestMapRender(const MWWorld::CellStore* cell);
         void setPlayerDir(const float x, const float y);
         void setPlayerPos(int cellX, int cellY, const float nx, const float ny);
+        void updatePlayerMarkers(const std::vector<ESM::CustomMarker>& markers);
 
         void onFrame(float dt);
 
@@ -152,6 +154,7 @@ namespace MWGui
         std::vector<MarkerWidget*> mInteriorDoorMarkerWidgets;
         std::vector<MyGUI::Widget*> mMagicMarkerWidgets;
         std::vector<MyGUI::Widget*> mCustomMarkerWidgets;
+        std::vector<MyGUI::Widget*> mPlayerMarkerWidgets;
         std::vector<MarkerWidget*> mDoorMarkersToRecycle;
 
         std::vector<MarkerWidget*>& currentDoorMarkersWidgets();
@@ -244,11 +247,14 @@ namespace MWGui
         /// @param name The ESM::Cell::mName
         void addVisitedLocation(const std::string& name, int x, int y);
 
+        void setGlobalMapImage(int x, int y, const std::vector<char>& imageData);
+
         // reveals this cell's map on the global map
         void cellExplored(int x, int y);
 
         void setGlobalMapPlayerPosition(float worldX, float worldY);
         void setGlobalMapPlayerDir(const float x, const float y);
+        void updateGlobalPlayerMarkers(const std::vector<ESM::CustomMarker>& markers);
 
         void ensureGlobalMapLoaded();
 
@@ -315,6 +321,7 @@ namespace MWGui
         MyGUI::Button* mEventBoxLocal;
 
         float mGlobalMapZoom = 1.0f;
+        float mGlobalPlayerMarkerUpdateTimer = 0.f;
         std::unique_ptr<MWRender::GlobalMap> mGlobalMapRender;
 
         struct MapMarkerType
@@ -327,6 +334,7 @@ namespace MWGui
 
         std::map<std::string, MapMarkerType> mGlobalMapMarkersByName;
         std::map<MapMarkerType, std::vector<MapMarkerType>> mGlobalMapMarkers;
+        std::vector<MyGUI::Widget*> mGlobalPlayerMarkerWidgets;
 
         EditNoteDialog mEditNoteDialog;
         ESM::CustomMarker mEditingMarker;

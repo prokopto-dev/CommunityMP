@@ -29,15 +29,15 @@ varying float linearDepth;
 #if PER_PIXEL_LIGHTING
 varying vec3 passViewPos;
 #else
+centroid varying vec3 shadedLighting;
 centroid varying vec3 passLighting;
-centroid varying vec3 shadowDiffuseLighting;
+#include "lib/light/clamp.glsl"
 #endif
 
 varying vec3 passNormal;
 
 #include "shadows_vertex.glsl"
 #include "compatibility/normals.glsl"
-#include "lib/light/clamp.glsl"
 #include "lib/view/depth.glsl"
 
 uniform float osg_SimulationTime;
@@ -45,6 +45,7 @@ uniform mat4 osg_ViewMatrixInverse;
 uniform mat4 osg_ViewMatrix;
 uniform float windSpeed;
 uniform vec3 playerPos;
+uniform vec2 uWindDirection;
 
 #if @groundcoverStompMode == 0
 #else
@@ -57,7 +58,11 @@ uniform vec3 playerPos;
 
 vec2 groundcoverDisplacement(in vec3 worldpos, float h)
 {
-    vec2 windDirection = vec2(1.0);
+    float driftAngle = osg_SimulationTime * 0.02;
+    vec2 base = length(uWindDirection) > 0.001 ? normalize(uWindDirection) : vec2(0.7071);
+    vec2 windDirection = vec2(
+        base.x * cos(driftAngle) - base.y * sin(driftAngle),
+        base.x * sin(driftAngle) + base.y * cos(driftAngle));
     vec3 footPos = playerPos;
     vec3 windVec = vec3(windSpeed * windDirection, 1.0);
 
@@ -166,10 +171,15 @@ void main(void)
 #if PER_PIXEL_LIGHTING
     passViewPos = viewPos.xyz;
 #else
-    vec3 diffuseLight, ambientLight, specularLight;
-    vec3 unusedShadowSpecular;
-    doLighting(clipToScreen(gl_Position), viewPos.xyz, viewNormal, gl_FrontMaterial.shininess, diffuseLight, ambientLight, specularLight, shadowDiffuseLighting, unusedShadowSpecular);
-    passLighting = diffuseLight + ambientLight;
+    float shininess = max(1e-4, gl_FrontMaterial.shininess);
+    vec3 viewDir = viewPos.xyz / euclideanDepth;
+
+    vec3 sunDiffuse, sunAmbient, unusedSpecular1, pointDiffuse, pointAmbient, unusedSpecular2;
+    directionalLighting(viewDir, viewNormal, shininess, sunDiffuse, sunAmbient, unusedSpecular1);
+    pointLighting(clipToScreen(gl_Position), viewDir, viewPos.xyz, viewNormal, shininess, pointDiffuse, pointAmbient, unusedSpecular2);
+    shadedLighting = pointDiffuse + pointAmbient + sunAmbient;
+    passLighting = shadedLighting + sunDiffuse;
+    clampLighting(shadedLighting);
     clampLighting(passLighting);
 #endif
 

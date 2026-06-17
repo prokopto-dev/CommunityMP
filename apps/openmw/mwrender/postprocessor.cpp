@@ -646,9 +646,11 @@ namespace MWRender
 
                 if (!pass->getTarget().empty())
                 {
-                    // FIXME: https://gitlab.com/OpenMW/openmw/-/work_items/9034
-                    std::string target = pass->getTarget();
-                    auto& renderTarget = technique->getRenderTargetsMap()[target];
+                    auto rtIt = technique->getRenderTargetsMap().find(pass->getTarget());
+                    if (rtIt == technique->getRenderTargetsMap().end())
+                        continue;
+
+                    auto& renderTarget = rtIt->second;
                     subPass.mSize = renderTarget.mSize;
                     subPass.mRenderTexture = renderTarget.mTarget;
                     subPass.mMipMap = renderTarget.mMipMap;
@@ -686,7 +688,11 @@ namespace MWRender
                         continue;
                     }
 
-                    auto& renderTarget = technique->getRenderTargetsMap()[name];
+                    auto rtIt = technique->getRenderTargetsMap().find(name);
+                    if (rtIt == technique->getRenderTargetsMap().end())
+                        continue;
+
+                    auto& renderTarget = rtIt->second;
                     subPass.mStateSet->setTextureAttribute(subTexUnit, renderTarget.mTarget);
                     subPass.mStateSet->addUniform(new osg::Uniform(name.c_str(), subTexUnit));
 

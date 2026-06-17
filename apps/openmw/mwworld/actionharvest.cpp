@@ -6,6 +6,10 @@
 
 #include <components/misc/strings/format.hpp>
 
+#ifdef BUILD_TES3MP_CLIENT
+#include <components/esm3/loadcell.hpp>
+#endif
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -15,6 +19,38 @@
 
 #include "class.hpp"
 #include "containerstore.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#endif
+
+#ifdef BUILD_TES3MP_CLIENT
+namespace
+{
+    ESM::Cell makePacketCell(const MWWorld::Ptr& ptr)
+    {
+        const MWWorld::Cell& cell = *ptr.getCell()->getCell();
+        ESM::Cell packetCell;
+
+        if (cell.isExterior())
+        {
+            packetCell.mData.mX = cell.getGridX();
+            packetCell.mData.mY = cell.getGridY();
+        }
+        else
+        {
+            packetCell.mData.mFlags = ESM::Cell::Interior;
+            packetCell.mName = std::string(cell.getNameId());
+        }
+
+        packetCell.mRegion = cell.getRegion();
+        packetCell.updateId();
+        return packetCell;
+    }
+}
+#endif
 
 namespace MWWorld
 {
@@ -30,6 +66,42 @@ namespace MWWorld
             return;
 
         MWWorld::Ptr target = getTarget();
+
+#ifdef BUILD_TES3MP_CLIENT
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (actor != world->getPlayerPtr())
+            return;
+
+        MWWorld::ContainerStore& store = target.getClass().getContainerStore(target);
+        store.resolve();
+
+        mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+        objectList->reset();
+        objectList->packetOrigin = mwmp::CLIENT_GAMEPLAY;
+        objectList->cell = makePacketCell(target);
+        objectList->action = mwmp::BaseObjectList::REMOVE;
+        objectList->containerSubAction = mwmp::BaseObjectList::TAKE_ALL;
+
+        mwmp::BaseObject baseObject = objectList->getBaseObjectFromPtr(target);
+
+        for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
+        {
+            if (!it->getClass().showsInInventory(*it))
+                continue;
+
+            int itemCount = it->getCellRef().getCount();
+            MWBase::Environment::get().getMechanicsManager()->itemTaken(actor, *it, target, itemCount);
+            objectList->addContainerItem(baseObject, *it, itemCount, itemCount);
+        }
+
+        if (!baseObject.containerItems.empty())
+        {
+            objectList->addBaseObject(baseObject);
+            objectList->sendContainer();
+        }
+
+        return;
+#else
         MWWorld::ContainerStore& store = target.getClass().getContainerStore(target);
         store.resolve();
         MWWorld::ContainerStore& actorStore = actor.getClass().getContainerStore(actor);
@@ -95,5 +167,6 @@ namespace MWWorld
         MWRender::Animation* anim = world->getAnimation(target);
         if (anim != nullptr)
             anim->harvest(target);
+#endif
     }
 }

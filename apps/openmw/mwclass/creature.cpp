@@ -48,6 +48,10 @@
 #include "../mwrender/objects.hpp"
 #include "../mwrender/renderinginterface.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/MechanicsHelper.hpp"
+#endif
+
 #include "../mwgui/tooltips.hpp"
 
 #include "classmodel.hpp"
@@ -275,21 +279,43 @@ namespace MWClass
         MWMechanics::applyFatigueLoss(ptr, weapon, attackStrength);
 
         if (victim.isEmpty())
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            MechanicsHelper::queueLocalMeleeAttack(
+                ptr, MWWorld::Ptr(), weapon, attackStrength, type, false, false, 0.f, false, hitPosition, false);
+#endif
             return; // Didn't hit anything
+        }
 
         const MWWorld::Class& othercls = victim.getClass();
         MWMechanics::CreatureStats& otherstats = othercls.getCreatureStats(victim);
         if (otherstats.isDead()) // Can't hit dead actors
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            MechanicsHelper::queueLocalMeleeAttack(
+                ptr, MWWorld::Ptr(), weapon, attackStrength, type, false, false, 0.f, false, hitPosition, false);
+#endif
             return;
+        }
 
         if (!MWMechanics::isInMeleeReach(ptr, victim, MWMechanics::getMeleeWeaponReach(ptr, weapon)))
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            MechanicsHelper::queueLocalMeleeAttack(
+                ptr, MWWorld::Ptr(), weapon, attackStrength, type, false, false, 0.f, false, hitPosition, false);
+#endif
             return;
+        }
 
         if (!success)
         {
             MWBase::Environment::get().getLuaManager()->onHit(ptr, victim, weapon, MWWorld::Ptr(), type, attackStrength,
                 0.0f, false, hitPosition, false, MWMechanics::DamageSourceType::Melee);
             MWMechanics::reduceWeaponCondition(0.f, false, weapon, ptr);
+#ifdef BUILD_TES3MP_CLIENT
+            MechanicsHelper::queueLocalMeleeAttack(
+                ptr, victim, weapon, attackStrength, type, true, false, 0.f, false, hitPosition, false);
+#endif
             return;
         }
 
@@ -314,6 +340,7 @@ namespace MWClass
 
         float damage = min + (max - min) * attackStrength;
         bool healthdmg = true;
+        bool appliedWeaponEnchantment = false;
         if (!weapon.isEmpty())
         {
             const unsigned char* attack = nullptr;
@@ -332,7 +359,7 @@ namespace MWClass
             }
 
             // Apply "On hit" enchanted weapons
-            MWMechanics::applyOnStrikeEnchantment(ptr, victim, weapon, hitPosition);
+            appliedWeaponEnchantment = MWMechanics::applyOnStrikeEnchantment(ptr, victim, weapon, hitPosition);
         }
         else if (isBipedal(ptr))
         {
@@ -341,10 +368,17 @@ namespace MWClass
 
         MWMechanics::applyElementalShields(ptr, victim);
 
-        if (MWMechanics::blockMeleeAttack(ptr, victim, weapon, damage, attackStrength))
+        const bool blocked = MWMechanics::blockMeleeAttack(ptr, victim, weapon, damage, attackStrength);
+        if (blocked)
             damage = 0;
 
         MWMechanics::diseaseContact(victim, ptr);
+
+#ifdef BUILD_TES3MP_CLIENT
+        MechanicsHelper::queueLocalMeleeAttack(
+            ptr, victim, weapon, attackStrength, type, true, true, damage, blocked, hitPosition,
+            appliedWeaponEnchantment);
+#endif
 
         MWBase::Environment::get().getLuaManager()->onHit(ptr, victim, weapon, MWWorld::Ptr(), type, attackStrength,
             damage, healthdmg, hitPosition, true, MWMechanics::DamageSourceType::Melee);
@@ -452,6 +486,10 @@ namespace MWClass
                     stats.setKnockedDown(true);
                 else
                     stats.setHitRecovery(true); // Is this supposed to always occur?
+
+#ifdef BUILD_TES3MP_CLIENT
+                MechanicsHelper::finalizeLocalAttackReaction(attacker, ptr);
+#endif
             }
         }
     }

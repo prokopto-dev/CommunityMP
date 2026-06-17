@@ -333,6 +333,12 @@ namespace MWWorld
         void respawn();
         ///< Check mLastRespawn and respawn references if necessary. This is a no-op if the cell is not loaded.
 
+        void clearMovementLinks();
+        ///< Remove cross-cell movement links before discarding this cell store.
+
+        void deregisterPointers();
+        ///< Remove all references owned by this cell store from the world pointer registry.
+
         CellStore* getOriginCell(const Ptr& object) const;
 
         Ptr getPtr(ESM::RefId id);

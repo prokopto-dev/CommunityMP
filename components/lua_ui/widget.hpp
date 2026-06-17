@@ -23,6 +23,13 @@ namespace LuaUi
     {
     public:
         using Warnings = std::vector<std::string>;
+        class DeferredFocusEventScope
+        {
+        public:
+            DeferredFocusEventScope();
+            ~DeferredFocusEventScope();
+        };
+
         WidgetExtension();
 
         virtual ~WidgetExtension() = default;
@@ -31,6 +38,9 @@ namespace LuaUi
         void initialize(lua_State* lua, MyGUI::Widget* self, bool isRoot);
         // must be called after before destroying the underlying MyGUI::Widget
         virtual void deinitialize();
+        void fireFocusLossIfFocused();
+        static void flushDeferredFocusEvents();
+        static void clearDeferredFocusEvents();
 
         MyGUI::Widget* widget() const { return mWidget; }
 
@@ -114,6 +124,7 @@ namespace LuaUi
         }
 
         void triggerEvent(std::string_view name, sol::object argument) const;
+        void propagateFocusEvent(std::string_view name) const;
         template <class ArgFactory>
         void propagateEvent(std::string_view name, const ArgFactory& argumentFactory) const
         {
@@ -160,6 +171,7 @@ namespace LuaUi
 
         bool mPropagateEvents;
         bool mVisible; // used to implement updateVisible
+        bool mFocused = false;
 
     private:
         // use lua_State* instead of sol::state_view because MyGUI requires a default constructor
@@ -176,6 +188,16 @@ namespace LuaUi
         WidgetExtension* mParent;
         bool mTemplateChild;
         bool mElementRoot;
+
+        struct DeferredFocusCallback;
+        struct DeferredFocusEvent;
+
+        static int sDeferredFocusEventDepth;
+        static std::vector<DeferredFocusEvent> sDeferredFocusEvents;
+
+        static bool shouldDeferFocusEvents();
+        static void beginDeferredFocusEvents();
+        static void endDeferredFocusEvents();
 
         void attach(WidgetExtension* ext);
         void attachTemplate(WidgetExtension* ext);

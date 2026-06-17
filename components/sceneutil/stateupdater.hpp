@@ -67,6 +67,8 @@ namespace SceneUtil
 
         void setWindSpeed(float windSpeed);
 
+        void setWindDirection(osg::Vec2f direction);
+
         void setPlayerPos(osg::Vec3f playerPos);
 
     private:
@@ -76,6 +78,7 @@ namespace SceneUtil
         float mSkyBlendingStartCoef = 0.f;
         osg::Vec3f mPlayerPos;
         osg::Vec2f mScreenRes;
+        osg::Vec2f mWindDirection = osg::Vec2f(1.0f, 1.0f);
     };
 
     class StateUpdater : public StateSetUpdater

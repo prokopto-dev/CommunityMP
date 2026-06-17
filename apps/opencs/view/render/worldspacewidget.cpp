@@ -35,6 +35,7 @@
 #include <osgViewer/View>
 
 #include <osgUtil/LineSegmentIntersector>
+#include <osgUtil/PolytopeIntersector>
 
 #include "../../model/world/idtable.hpp"
 #include "../../model/world/tablemimedata.hpp"
@@ -52,6 +53,7 @@
 #include "cameracontroller.hpp"
 #include "instancemode.hpp"
 #include "mask.hpp"
+#include "object.hpp"
 #include "pathgridmode.hpp"
 
 CSVRender::WorldspaceWidget::WorldspaceWidget(CSMDoc::Document& document, QWidget* parent)
@@ -172,7 +174,25 @@ void CSVRender::WorldspaceWidget::settingChanged(const CSMPrefs::Setting* settin
         SceneWidget::settingChanged(setting);
 }
 
-void CSVRender::WorldspaceWidget::useViewHint(const std::string& hint) {}
+void CSVRender::WorldspaceWidget::useViewHint(const std::string& hint)
+{
+    if (hint.rfind("r:", 0) == 0)
+        selectReferenceById(hint.substr(2));
+}
+
+bool CSVRender::WorldspaceWidget::selectReferenceById(const std::string& referenceId)
+{
+    CSVRender::Object* object = getObjectByReferenceId(referenceId);
+    if (object == nullptr)
+        return false;
+
+    clearSelection(Mask_Reference);
+    object->setSelected(true);
+    mSelectionMarker->addToSelectionHistory(object->getReferenceId(), false);
+    mSelectionMarker->updateSelectionMarker(object->getReferenceId());
+    flagAsModified();
+    return true;
+}
 
 void CSVRender::WorldspaceWidget::selectDefaultNavigationMode()
 {
@@ -393,23 +413,73 @@ const CSMDoc::Document& CSVRender::WorldspaceWidget::getDocument() const
 }
 
 template <typename Tag>
-std::optional<CSVRender::WorldspaceHitResult> CSVRender::WorldspaceWidget::checkTag(
-    const osgUtil::LineSegmentIntersector::Intersection& intersection) const
+std::optional<CSVRender::WorldspaceHitResult> CSVRender::WorldspaceWidget::checkTagAtWorldPos(
+    const osg::NodePath& nodePath, const osg::Vec3d& worldPos) const
 {
-    for (auto* node : intersection.nodePath)
+    for (auto* node : nodePath)
     {
         if (auto* tag = dynamic_cast<Tag*>(node->getUserData()))
         {
-            WorldspaceHitResult hit = { true, tag, 0, 0, 0, intersection.getWorldIntersectPoint() };
-            if (intersection.indexList.size() >= 3)
-            {
-                hit.index0 = intersection.indexList[0];
-                hit.index1 = intersection.indexList[1];
-                hit.index2 = intersection.indexList[2];
-            }
-            return hit;
+            return WorldspaceHitResult{ true, tag, 0, 0, 0, worldPos };
         }
     }
+
+    return std::nullopt;
+}
+
+template <typename Tag>
+std::optional<CSVRender::WorldspaceHitResult> CSVRender::WorldspaceWidget::checkTag(
+    const osgUtil::LineSegmentIntersector::Intersection& intersection) const
+{
+    auto hit = checkTagAtWorldPos<Tag>(intersection.nodePath, intersection.getWorldIntersectPoint());
+    if (hit && intersection.indexList.size() >= 3)
+    {
+        hit->index0 = intersection.indexList[0];
+        hit->index1 = intersection.indexList[1];
+        hit->index2 = intersection.indexList[2];
+    }
+
+    return hit;
+}
+
+std::optional<CSVRender::WorldspaceHitResult> CSVRender::WorldspaceWidget::mousePickMarker(
+    const QPoint& localPos, unsigned int interactionMask) const
+{
+    if (!(interactionMask & Mask_Reference))
+        return std::nullopt;
+
+    constexpr double markerPickRadius = 6.0;
+    const double pixelRatio = devicePixelRatio();
+    const double x = localPos.x() * pixelRatio;
+    const double y = height() * pixelRatio - localPos.y() * pixelRatio;
+    const double radius = markerPickRadius * pixelRatio;
+
+    osg::ref_ptr<osgUtil::PolytopeIntersector> intersector(new osgUtil::PolytopeIntersector(
+        osgUtil::Intersector::WINDOW, x - radius, y - radius, x + radius, y + radius));
+
+    intersector->setIntersectionLimit(osgUtil::PolytopeIntersector::NO_LIMIT);
+    osgUtil::IntersectionVisitor visitor(intersector);
+
+    visitor.setTraversalMask(interactionMask);
+
+    mView->getCamera()->accept(visitor);
+
+    for (const auto& intersection : intersector->getIntersections())
+    {
+        osg::Vec3d worldPos = intersection.localIntersectionPoint;
+        if (intersection.matrix.valid())
+            worldPos = worldPos * *intersection.matrix;
+
+        const auto markerHit = checkTagAtWorldPos<ObjectMarkerTag>(intersection.nodePath, worldPos);
+        if (!markerHit)
+            continue;
+
+        if (mSelectionMarker->hitBehindMarker(markerHit->worldPos, mView->getCamera()))
+            continue;
+
+        return markerHit;
+    }
+
     return std::nullopt;
 }
 
@@ -436,6 +506,9 @@ std::tuple<osg::Vec3d, osg::Vec3d, osg::Vec3d> CSVRender::WorldspaceWidget::getS
 CSVRender::WorldspaceHitResult CSVRender::WorldspaceWidget::mousePick(
     const QPoint& localPos, unsigned int interactionMask) const
 {
+    if (const auto markerHit = mousePickMarker(localPos, interactionMask))
+        return *markerHit;
+
     auto [start, end, direction] = getStartEndDirection(localPos.x(), localPos.y());
 
     // Get intersection

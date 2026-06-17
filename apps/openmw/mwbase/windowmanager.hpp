@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -98,6 +99,15 @@ namespace SFO
 
 namespace MWBase
 {
+    struct LoginCredentials
+    {
+        std::string accountName;
+        std::string accountPassword;
+        std::string serverPassword;
+        bool rememberCredentials = false;
+        bool useRememberedAccountPasswordHash = false;
+    };
+
     /// \brief Interface for widnow manager (implemented in MWGui)
     class WindowManager : public SDLUtil::WindowListener
     {
@@ -195,6 +205,9 @@ namespace MWBase
         virtual void getMousePosition(int& x, int& y) = 0;
         virtual void getMousePosition(float& x, float& y) = 0;
         virtual void setDragDrop(bool dragDrop) = 0;
+        virtual bool isDragDropActive() const = 0;
+        virtual void setItemDragDropEnabled(bool enabled) = 0;
+        virtual bool isItemDragDropEnabled() const = 0;
         virtual bool getWorldMouseOver() = 0;
 
         virtual float getScalingFactor() const = 0;
@@ -242,6 +255,8 @@ namespace MWBase
 
         virtual void addVisitedLocation(const std::string& name, int x, int y) = 0;
 
+        virtual void setGlobalMapImage(int x, int y, const std::vector<char>& imageData) = 0;
+
         /// Hides dialog and schedules dialog to be deleted.
         virtual void removeDialog(std::unique_ptr<MWGui::Layout>&& dialog) = 0;
 
@@ -260,6 +275,13 @@ namespace MWBase
         virtual void removeStaticMessageBox() = 0;
         virtual void interactiveMessageBox(std::string_view message, const std::vector<std::string>& buttons = {},
             bool block = false, int defaultFocus = -1)
+            = 0;
+        virtual std::optional<std::string> promptTextInput(std::string_view label, std::string_view note,
+            const std::string& initialText = {}, bool password = false)
+            = 0;
+        virtual std::optional<LoginCredentials> promptLoginCredentials(std::string_view serverEndpoint,
+            const std::string& initialAccountName = {}, const std::string& initialServerPassword = {},
+            bool rememberCredentials = false, bool hasRememberedAccountPasswordHash = false)
             = 0;
 
         /// returns the index of the pressed button or -1 if no button was pressed
@@ -368,6 +390,7 @@ namespace MWBase
         void windowResized(int x, int y) override = 0;
         void windowClosed() override = 0;
         virtual bool isWindowVisible() const = 0;
+        virtual bool isWindowFocused() const = 0;
 
         virtual void watchActor(const MWWorld::Ptr& ptr) = 0;
         virtual MWWorld::Ptr getWatchedActor() const = 0;
@@ -406,6 +429,7 @@ namespace MWBase
         virtual const std::vector<MWGui::GuiMode>& getGuiModeStack() const = 0;
         virtual void setDisabledByLua(std::string_view windowId, bool disabled) = 0;
         virtual bool isWindowVisible(std::string_view windowId) const = 0;
+        virtual std::optional<std::string> getWindowLayer(std::string_view windowId) const = 0;
         virtual std::vector<std::string_view> getAllWindowIds() const = 0;
         virtual std::vector<std::string_view> getAllowedWindowIds(MWGui::GuiMode mode) const = 0;
     };

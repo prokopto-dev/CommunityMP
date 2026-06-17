@@ -25,6 +25,10 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "../mwrender/bonegroup.hpp"
 #include "../mwrender/postprocessor.hpp"
 
@@ -36,6 +40,7 @@
 #include "../mwworld/worldmodel.hpp"
 
 #include "luabindings.hpp"
+#include "dialogueinfo.hpp"
 #include "playerscripts.hpp"
 #include "types/types.hpp"
 #include "userdataserializer.hpp"
@@ -62,6 +67,15 @@ namespace MWLua
             if (scripts == nullptr)
                 Log(Debug::Warning) << "Found local Lua script that outlived its object";
             return scripts;
+        }
+
+        bool isWorldEffectivelyPaused(const MWWorld::DateTimeManager& timeManager)
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            if (mwmp::Main::shouldRunWorldWhilePaused())
+                return false;
+#endif
+            return timeManager.isPaused();
         }
     }
 
@@ -211,11 +225,19 @@ namespace MWLua
         mLuaEvents.addLocalEvent({ getId(target), name, std::move(binary) });
     }
 
-    void LuaManager::update()
+    bool LuaManager::gc()
     {
         if (const int steps = Settings::lua().mGcStepsPerFrame; steps > 0)
+        {
             lua_gc(mLua.unsafeState(), LUA_GCSTEP, steps);
+            return true;
+        }
 
+        return false;
+    }
+
+    void LuaManager::update()
+    {
         if (mPlayer.isEmpty())
             return; // The game is not started yet.
 
@@ -249,7 +271,7 @@ namespace MWLua
         mLuaEvents.finalizeEventBatch();
 
         MWWorld::DateTimeManager& timeManager = *MWBase::Environment::get().getWorld()->getTimeManager();
-        if (!timeManager.isPaused())
+        if (!isWorldEffectivelyPaused(timeManager))
         {
             mMenuScripts.processTimers(timeManager.getSimulationTime(), timeManager.getGameTime());
             mGlobalScripts.processTimers(timeManager.getSimulationTime(), timeManager.getGameTime());
@@ -268,7 +290,7 @@ namespace MWLua
 
             // Run engine handlers
             mEngineEvents.callEngineHandlers();
-            bool isPaused = timeManager.isPaused();
+            bool isPaused = isWorldEffectivelyPaused(timeManager);
 
             float frameDuration = MWBase::Environment::get().getFrameDuration();
             for (const LuaUtil::ScriptsContainerWeakPtr& ptr : mActiveLocalScripts)
@@ -337,9 +359,9 @@ namespace MWLua
             }
             mInputEvents.clear();
             mLuaEvents.callMenuEventHandlers();
-            float frameDuration = MWBase::Environment::get().getWorld()->getTimeManager()->isPaused()
-                ? 0.f
-                : MWBase::Environment::get().getFrameDuration();
+            MWWorld::DateTimeManager& timeManager = *MWBase::Environment::get().getWorld()->getTimeManager();
+            float frameDuration
+                = isWorldEffectivelyPaused(timeManager) ? 0.f : MWBase::Environment::get().getFrameDuration();
             mInputActions.update(frameDuration);
             mMenuScripts.onFrame(frameDuration);
             if (playerScripts)
@@ -372,14 +394,18 @@ namespace MWLua
 
     void LuaManager::applyDelayedActions()
     {
-        BoolScopeGuard applyingGuard(mApplyingDelayedActions);
-        for (DelayedAction& action : mActionQueue)
-            action.apply();
-        mActionQueue.clear();
+        {
+            BoolScopeGuard applyingGuard(mApplyingDelayedActions);
+            for (DelayedAction& action : mActionQueue)
+                action.apply();
+            mActionQueue.clear();
 
-        if (mTeleportPlayerAction)
-            mTeleportPlayerAction->apply();
-        mTeleportPlayerAction.reset();
+            if (mTeleportPlayerAction)
+                mTeleportPlayerAction->apply();
+            mTeleportPlayerAction.reset();
+        }
+
+        LuaUi::flushDeferredFocusEvents();
     }
 
     void LuaManager::clear()
@@ -514,6 +540,7 @@ namespace MWLua
                 data["type"] = "topic";
             else if (record.mType == ESM::Dialogue::Type::Voice)
                 data["type"] = "voice";
+            data["info"] = DialogueInfo(record, info);
             data["infoId"] = info.mId.serializeText();
             data["recordId"] = record.mId.serializeText();
             sendLocalEvent(mPlayer, "DialogueResponse", data);
@@ -583,15 +610,23 @@ namespace MWLua
         mEngineEvents.addToQueue(EngineEvents::OnSkillUse{ getId(actor), skillId.serializeText(), useType, scale });
     }
 
+    void LuaManager::skillUseFailed(const MWWorld::Ptr& actor, ESM::RefId skillId, int useType, float scale)
+    {
+        mEngineEvents.addToQueue(
+            EngineEvents::OnSkillUseFailed{ getId(actor), skillId.serializeText(), useType, scale });
+    }
+
     void LuaManager::skillLevelUp(const MWWorld::Ptr& actor, ESM::RefId skillId, std::string_view source)
     {
         mEngineEvents.addToQueue(
             EngineEvents::OnSkillLevelUp{ getId(actor), skillId.serializeText(), std::string(source) });
     }
 
-    void LuaManager::jailTimeServed(const MWWorld::Ptr& actor, int days)
+    void LuaManager::jailTimeServed(
+        const MWWorld::Ptr& actor, int days, bool preventSkillIncreases, std::string_view messageOverride)
     {
-        mEngineEvents.addToQueue(EngineEvents::OnJailTimeServed{ getId(actor), days });
+        mEngineEvents.addToQueue(EngineEvents::OnJailTimeServed{
+            getId(actor), days, preventSkillIncreases, std::string(messageOverride) });
     }
 
     void LuaManager::onHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, const MWWorld::Ptr& weapon,

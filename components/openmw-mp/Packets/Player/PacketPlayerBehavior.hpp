@@ -1,0 +1,17 @@
+#ifndef OPENMW_PACKETPLAYERBEHAVIOR_HPP
+#define OPENMW_PACKETPLAYERBEHAVIOR_HPP
+
+#include <components/openmw-mp/Packets/Player/PlayerPacket.hpp>
+
+namespace mwmp
+{
+    class PacketPlayerBehavior : public PlayerPacket
+    {
+    public:
+        PacketPlayerBehavior();
+
+        virtual void Packet(PacketStream *newBitstream, bool send);
+    };
+}
+
+#endif //OPENMW_PACKETPLAYERBEHAVIOR_HPP

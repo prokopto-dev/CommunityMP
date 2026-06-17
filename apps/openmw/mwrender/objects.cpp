@@ -58,6 +58,7 @@ namespace MWRender
         cellnode->addChild(insert);
 
         insert->getOrCreateUserDataContainer()->addUserObject(new PtrHolder(ptr));
+        insert->setUserValue("refId", ptr.getCellRef().getRefId().toDebugString());
 
         const float* f = ptr.getRefData().getPosition().pos;
 

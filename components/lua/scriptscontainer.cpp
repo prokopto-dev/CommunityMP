@@ -232,6 +232,8 @@ namespace LuaUtil
             removeInterface(scriptId, script);
         mRemovedScriptsMemoryUsage[scriptId] = script.mStats.mMemoryUsage;
         data.mScripts.erase(scriptIter);
+        removeTimers(data.mSimulationTimersQueue, scriptId);
+        removeTimers(data.mGameTimersQueue, scriptId);
         for (auto& [_, handlers] : mEngineHandlers)
             removeHandler(handlers->mList, scriptId);
         for (auto& [_, handlers] : data.mEventHandlers)
@@ -345,6 +347,15 @@ namespace LuaUtil
         list.erase(
             std::remove_if(list.begin(), list.end(), [scriptId](const Handler& h) { return h.mScriptId == scriptId; }),
             list.end());
+    }
+
+    void ScriptsContainer::removeTimers(std::vector<Timer>& timerQueue, int scriptId)
+    {
+        timerQueue.erase(
+            std::remove_if(timerQueue.begin(), timerQueue.end(),
+                [scriptId](const Timer& timer) { return timer.mScriptId == scriptId; }),
+            timerQueue.end());
+        std::make_heap(timerQueue.begin(), timerQueue.end());
     }
 
     void ScriptsContainer::receiveEvent(std::string_view eventName, std::string_view eventData)

@@ -972,7 +972,7 @@ void Launcher::DataFilesPage::addArchivesFromDir(const QString& path)
     QStringList archiveFilter{ "*.bsa", "*.ba2" };
     QDir dir(path);
 
-    std::unordered_set<VFS::Path::Normalized, VFS::Path::Hash> archives;
+    std::unordered_set<VFS::Path::Normalized> archives;
     for (int i = 0; i < ui.archiveListWidget->count(); ++i)
         archives.insert(VFS::Path::normalizedFromQString(ui.archiveListWidget->item(i)->text()));
 

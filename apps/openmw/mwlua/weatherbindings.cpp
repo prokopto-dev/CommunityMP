@@ -275,6 +275,8 @@ namespace MWLua
         api["getCurrentSunPercentage"] = overloadWeatherGetter(&MWBase::World::getSunPercentage);
         api["getCurrentWindSpeed"] = overloadWeatherGetter(&MWBase::World::getWindSpeed);
         api["getCurrentStormDirection"] = overloadWeatherGetter(&MWBase::World::getStormDirection);
+        api["getMasserPhase"] = []() { return MWBase::Environment::get().getWorld()->getMasserPhase(); };
+        api["getSecundaPhase"] = []() { return MWBase::Environment::get().getWorld()->getSecundaPhase(); };
 
         return LuaUtil::makeReadOnly(api);
     }

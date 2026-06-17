@@ -1,5 +1,7 @@
 #include "nifloader.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <string_view>
 
@@ -118,6 +120,74 @@ namespace
         return false;
     }
 
+    class AuthoredBoundingSphereCallback : public osg::Node::ComputeBoundingSphereCallback
+    {
+    public:
+        explicit AuthoredBoundingSphereCallback(const osg::BoundingSphere& bound)
+            : mBound(bound)
+        {
+        }
+
+        osg::BoundingSphere computeBound(const osg::Node&) const override { return mBound; }
+
+    private:
+        osg::BoundingSphere mBound;
+    };
+
+    bool isFinite(const osg::Vec3f& value)
+    {
+        return std::isfinite(value.x()) && std::isfinite(value.y()) && std::isfinite(value.z());
+    }
+
+    bool isUsableAuthoredBound(const osg::BoundingSpheref& bound)
+    {
+        return bound.valid() && std::isfinite(bound.radius()) && isFinite(bound.center());
+    }
+
+    bool enclosesVertices(const osg::BoundingSpheref& bound, const std::vector<osg::Vec3f>& vertices)
+    {
+        const float radius = bound.radius();
+        const float tolerance = std::max(1.f, radius) * 1e-4f;
+        const float toleratedRadiusSquared = (radius + tolerance) * (radius + tolerance);
+
+        for (const osg::Vec3f& vertex : vertices)
+        {
+            if (!isFinite(vertex) || (vertex - bound.center()).length2() > toleratedRadiusSquared)
+                return false;
+        }
+
+        return true;
+    }
+
+    bool shouldUseAuthoredGeometryBound(
+        const Nif::NiAVObject* nifNode, bool hasAnimatedParents, bool loadedGeometry, bool isAnimated)
+    {
+        if (!loadedGeometry || isAnimated || hasAnimatedParents || !nifNode->mController.empty())
+            return false;
+
+        if (!isTypeNiGeometry(nifNode->mRecordType))
+            return false;
+
+        const Nif::NiGeometry* geometry = static_cast<const Nif::NiGeometry*>(nifNode);
+        if (!geometry->mSkin.empty() || geometry->mData.empty())
+            return false;
+
+        const Nif::NiGeometryData* data = geometry->mData.getPtr();
+        return isUsableAuthoredBound(data->mBoundingSphere) && enclosesVertices(data->mBoundingSphere, data->mVertices);
+    }
+
+    void applyAuthoredGeometryBound(const Nif::NiAVObject* nifNode, osg::Node& node)
+    {
+        const Nif::NiGeometry* geometry = static_cast<const Nif::NiGeometry*>(nifNode);
+        osg::BoundingSpheref bound = geometry->mData.getPtr()->mBoundingSphere;
+        SceneUtil::transformBoundingSphere(nifNode->mTransform.toMatrix(), bound);
+        if (!isUsableAuthoredBound(bound))
+            return;
+
+        node.setComputeBoundingSphereCallback(
+            new AuthoredBoundingSphereCallback(osg::BoundingSphere(bound.center(), bound.radius())));
+    }
+
     // Collect all properties affecting the given drawable that should be handled on drawable basis rather than on the
     // node hierarchy above it.
     void collectDrawableProperties(
@@ -149,9 +219,24 @@ namespace
     class BillboardCallback : public SceneUtil::NodeCallback<BillboardCallback, osg::Node*, osgUtil::CullVisitor*>
     {
     public:
+        enum Mode
+        {
+            AlwaysFaceCamera = 0,
+            RotateAboutUp = 1,
+            RigidFaceCamera = 2,
+            AlwaysFaceCenter = 3,
+            RigidFaceCenter = 4,
+        };
+
         BillboardCallback() {}
+        explicit BillboardCallback(int mode)
+            : mMode(mode)
+        {
+        }
+
         BillboardCallback(const BillboardCallback& copy, const osg::CopyOp& copyop)
             : SceneUtil::NodeCallback<BillboardCallback, osg::Node*, osgUtil::CullVisitor*>(copy, copyop)
+            , mMode(copy.mMode)
         {
         }
 
@@ -161,18 +246,25 @@ namespace
         {
             osg::Matrix modelView = *cv->getModelViewMatrix();
 
-            // attempt to preserve scale
-            double mag[3];
-            for (int i = 0; i < 3; ++i)
+            switch (mMode)
             {
-                mag[i] = std::sqrt(modelView(0, i) * modelView(0, i) + modelView(1, i) * modelView(1, i)
-                    + modelView(2, i) * modelView(2, i));
+                case RotateAboutUp:
+                    rotateAboutUp(modelView);
+                    break;
+                case RigidFaceCamera:
+                    rigidFaceCamera(modelView);
+                    break;
+                case AlwaysFaceCenter:
+                    alwaysFaceCamera(modelView, directionToCamera(modelView));
+                    break;
+                case RigidFaceCenter:
+                    rigidFaceCenter(modelView);
+                    break;
+                case AlwaysFaceCamera:
+                default:
+                    alwaysFaceCamera(modelView, osg::Vec3d(0, 0, 1));
+                    break;
             }
-
-            modelView.setRotate(osg::Quat());
-            modelView(0, 0) = mag[0];
-            modelView(1, 1) = mag[1];
-            modelView(2, 2) = mag[2];
 
             cv->pushModelViewMatrix(new osg::RefMatrix(modelView), osg::Transform::RELATIVE_RF);
 
@@ -180,6 +272,100 @@ namespace
 
             cv->popModelViewMatrix();
         }
+
+    private:
+        static double axisLength(const osg::Matrix& modelView, int axis)
+        {
+            return std::sqrt(modelView(0, axis) * modelView(0, axis) + modelView(1, axis) * modelView(1, axis)
+                + modelView(2, axis) * modelView(2, axis));
+        }
+
+        static osg::Vec3d getAxis(const osg::Matrix& modelView, int axis, osg::Vec3d fallback)
+        {
+            osg::Vec3d result(modelView(0, axis), modelView(1, axis), modelView(2, axis));
+            if (result.normalize() == 0.0)
+                return fallback;
+            return result;
+        }
+
+        static osg::Vec3d normalizedOr(osg::Vec3d value, osg::Vec3d fallback)
+        {
+            if (value.normalize() == 0.0)
+                return fallback;
+            return value;
+        }
+
+        static osg::Vec3d directionToCamera(const osg::Matrix& modelView)
+        {
+            return normalizedOr(-modelView.getTrans(), osg::Vec3d(0, 0, 1));
+        }
+
+        static void setAxis(osg::Matrix& modelView, int axis, osg::Vec3d value)
+        {
+            modelView(0, axis) = value.x();
+            modelView(1, axis) = value.y();
+            modelView(2, axis) = value.z();
+        }
+
+        static void rotateAxes(osg::Matrix& modelView, const osg::Quat& rotation)
+        {
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                osg::Vec3d value(modelView(0, axis), modelView(1, axis), modelView(2, axis));
+                setAxis(modelView, axis, rotation * value);
+            }
+        }
+
+        static void alwaysFaceCamera(osg::Matrix& modelView, osg::Vec3d target)
+        {
+            target = normalizedOr(target, osg::Vec3d(0, 0, 1));
+            const osg::Vec3d normal = getAxis(modelView, 2, target);
+
+            osg::Quat correction;
+            correction.makeRotate(normal, target);
+            rotateAxes(modelView, correction);
+        }
+
+        static void rotateAboutUp(osg::Matrix& modelView)
+        {
+            const osg::Vec3d up = getAxis(modelView, 1, osg::Vec3d(0, 1, 0));
+            osg::Vec3d normal = getAxis(modelView, 2, osg::Vec3d(0, 0, 1));
+            osg::Vec3d target(0, 0, 1);
+
+            normal -= up * (normal * up);
+            target -= up * (target * up);
+
+            normal = normalizedOr(normal, osg::Vec3d(0, 0, 1));
+            target = normalizedOr(target, normal);
+
+            const double sinAngle = up * (normal ^ target);
+            const double cosAngle = normal * target;
+            rotateAxes(modelView, osg::Quat(std::atan2(sinAngle, cosAngle), up));
+        }
+
+        static void setRigidAxes(osg::Matrix& modelView, osg::Vec3d x, osg::Vec3d y, osg::Vec3d z)
+        {
+            setAxis(modelView, 0, x * axisLength(modelView, 0));
+            setAxis(modelView, 1, y * axisLength(modelView, 1));
+            setAxis(modelView, 2, z * axisLength(modelView, 2));
+        }
+
+        static void rigidFaceCamera(osg::Matrix& modelView)
+        {
+            setRigidAxes(modelView, osg::Vec3d(1, 0, 0), osg::Vec3d(0, 1, 0), osg::Vec3d(0, 0, 1));
+        }
+
+        static void rigidFaceCenter(osg::Matrix& modelView)
+        {
+            const osg::Vec3d z = directionToCamera(modelView);
+            osg::Vec3d y = osg::Vec3d(0, 1, 0) - z * (osg::Vec3d(0, 1, 0) * z);
+            y = normalizedOr(y, osg::Vec3d(0, 0, 1) - z * (osg::Vec3d(0, 0, 1) * z));
+            y = normalizedOr(y, osg::Vec3d(0, 1, 0));
+            osg::Vec3d x = normalizedOr(y ^ z, osg::Vec3d(1, 0, 0));
+            setRigidAxes(modelView, x, y, z);
+        }
+
+        int mMode = AlwaysFaceCamera;
     };
 
     void extractTextKeys(const Nif::NiTextKeyExtraData* tk, SceneUtil::TextKeyMap& textkeys)
@@ -660,11 +846,16 @@ namespace NifOsg
             if (args.mRootNode && Misc::StringUtils::ciEqual(nifNode->mName, "Bounding Box"))
                 return nullptr;
 
+            // NiSortAdjustNode state is local to the authored subtree; siblings must keep their previous context.
+            const Nif::NiSortAdjustNode* const previousPushedSorter = mPushedSorter;
+            const Nif::NiSortAdjustNode* const previousLastAppliedNoInheritSorter = mLastAppliedNoInheritSorter;
+
             osg::ref_ptr<osg::Group> node = createNode(nifNode);
 
             if (nifNode->mRecordType == Nif::RC_NiBillboardNode)
             {
-                node->addCullCallback(new BillboardCallback);
+                const Nif::NiBillboardNode* billboardNode = static_cast<const Nif::NiBillboardNode*>(nifNode);
+                node->addCullCallback(new BillboardCallback(billboardNode->mMode));
             }
 
             node->setName(nifNode->mName);
@@ -793,6 +984,7 @@ namespace NifOsg
             const bool isNiGeometry = isTypeNiGeometry(nifNode->mRecordType);
             const bool isBSGeometry = isTypeBSGeometry(nifNode->mRecordType);
             const bool isGeometry = isNiGeometry || isBSGeometry;
+            bool loadedGeometry = false;
 
             if (isGeometry && !args.mSkipMeshes)
             {
@@ -811,10 +1003,13 @@ namespace NifOsg
                 }
                 if (!skip)
                 {
+                    const unsigned int childCount = node->getNumChildren();
                     if (isNiGeometry)
                         handleNiGeometry(nifNode, parent, node, composite, args.mBoundTextures, args.mAnimFlags);
                     else // isBSGeometry
                         handleBSGeometry(nifNode, parent, node, composite, args.mBoundTextures, args.mAnimFlags);
+
+                    loadedGeometry = node->getNumChildren() > childCount;
 
                     if (!nifNode->mController.empty())
                         handleMeshControllers(nifNode, node, composite, args.mBoundTextures, args.mAnimFlags);
@@ -838,8 +1033,11 @@ namespace NifOsg
             }
 
             bool isAnimated = false;
+            const bool hasAnimatedParents = args.mHasAnimatedParents;
             handleNodeControllers(nifNode, node, args.mAnimFlags, isAnimated);
-            args.mHasAnimatedParents |= isAnimated;
+            if (shouldUseAuthoredGeometryBound(nifNode, hasAnimatedParents, loadedGeometry, isAnimated))
+                applyAuthoredGeometryBound(nifNode, *node);
+            args.mHasAnimatedParents = hasAnimatedParents || isAnimated;
             // Make sure empty nodes and animated shapes are not optimized away so the physics system can find them.
             if (isAnimated || (args.mHasAnimatedParents && ((args.mSkipMeshes || args.mHasMarkers) || isGeometry)))
                 node->setDataVariance(osg::Object::DYNAMIC);
@@ -899,6 +1097,9 @@ namespace NifOsg
 
             if (nifNode->mRecordType == Nif::RC_NiFltAnimationNode)
                 activateSequenceNode(currentNode, nifNode);
+
+            mPushedSorter = previousPushedSorter;
+            mLastAppliedNoInheritSorter = previousLastAppliedNoInheritSorter;
 
             return node;
         }

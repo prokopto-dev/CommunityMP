@@ -19,7 +19,9 @@
 
 #include "character.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <unordered_set>
 
 #include <components/esm/records.hpp>
@@ -48,6 +50,15 @@
 #include "../mwworld/player.hpp"
 #include "../mwworld/spellcaststate.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/CellController.hpp"
+#include "../mwmp/LocalActor.hpp"
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/MechanicsHelper.hpp"
+#include "../mwmp/PlayerList.hpp"
+#endif
+
 #include "actorutil.hpp"
 #include "aicombataction.hpp"
 #include "creaturestats.hpp"
@@ -59,6 +70,14 @@
 
 namespace
 {
+#ifdef BUILD_TES3MP_CLIENT
+    bool isDedicatedMultiplayerProxy(const MWWorld::Ptr& ptr)
+    {
+        return mwmp::Main::isInitialized()
+            && (mwmp::PlayerList::isDedicatedPlayer(ptr)
+                || mwmp::Main::get().getCellController()->isDedicatedActor(ptr));
+    }
+#endif
 
     std::string_view getBestAttack(const ESM::Weapon* weapon)
     {
@@ -891,6 +910,20 @@ namespace MWMechanics
             || (mAnimation && !mAnimation->hasAnimation(deathStateToAnimGroup(mDeathState))))
             mDeathState = chooseRandomDeathState();
 
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::isInitialized())
+        {
+            if (mPtr == getPlayer())
+                mwmp::Main::get().getLocalPlayer()->sendDeath(static_cast<char>(mDeathState));
+            else if (!mPtr.getClass().getCreatureStats(mPtr).isDeathAnimationFinished()
+                && mwmp::Main::get().getCellController()->isLocalActor(mPtr))
+            {
+                if (mwmp::LocalActor* localActor = mwmp::Main::get().getCellController()->getLocalActor(mPtr))
+                    localActor->sendDeath(static_cast<char>(mDeathState));
+            }
+        }
+#endif
+
         // Do not interrupt scripted animation by death
         if (!mAnimation || isScriptedAnimPlaying())
             return;
@@ -1167,8 +1200,14 @@ namespace MWMechanics
         // type.
         else if (groupname == "spellcast" && action == mAttackType + " release")
         {
+            const ESM::RefId& selectedSpell = mPtr.getClass().getCreatureStats(mPtr).getSpells().getSelectedSpell();
             if (mCanCast)
                 MWBase::Environment::get().getWorld()->castSpell(mPtr, mCastingScriptedSpell);
+#ifdef BUILD_TES3MP_CLIENT
+            else if (!selectedSpell.empty())
+                MechanicsHelper::queueLocalCastRelease(
+                    mPtr, MWWorld::Ptr(), static_cast<char>(mwmp::Cast::REGULAR), selectedSpell, false, false);
+#endif
             mCastingScriptedSpell = false;
             mCanCast = false;
         }
@@ -1584,6 +1623,11 @@ namespace MWMechanics
                     // insufficient magicka. Used up powers are exempt from this from some reason.
                     else if (!spellid.empty() && spellCastResult != MWWorld::SpellCastState::PowerAlreadyUsed)
                     {
+#ifdef BUILD_TES3MP_CLIENT
+                        if (!isMagicItem)
+                            MechanicsHelper::queueLocalCastStart(mPtr, spellid);
+#endif
+
                         world->breakInvisibility(mPtr);
                         MWMechanics::CastSpell cast(mPtr, {}, false, mCastingScriptedSpell);
 
@@ -1634,6 +1678,11 @@ namespace MWMechanics
                                 if (mCanCast)
                                     world->castSpell(mPtr,
                                         mCastingScriptedSpell); // No "release" text key to use, so cast immediately
+#ifdef BUILD_TES3MP_CLIENT
+                                else if (!isMagicItem)
+                                    MechanicsHelper::queueLocalCastRelease(mPtr, MWWorld::Ptr(),
+                                        static_cast<char>(mwmp::Cast::REGULAR), spellid, false, false);
+#endif
                                 mCastingScriptedSpell = false;
                                 mCanCast = false;
                             }
@@ -1706,6 +1755,14 @@ namespace MWMechanics
                     }
 
                     mUpperBodyState = UpperBodyState::AttackWindUp;
+
+#ifdef BUILD_TES3MP_CLIENT
+                    MechanicsHelper::queueLocalAttackStart(
+                        mPtr, weapclass == ESM::WeaponType::Ranged || weapclass == ESM::WeaponType::Thrown,
+                        weapclass == ESM::WeaponType::Ranged || weapclass == ESM::WeaponType::Thrown
+                            ? std::string("shoot")
+                            : mAttackType);
+#endif
 
                     // Reset the attack results when the attack starts.
                     // Strictly speaking this should probably be done when the attack ends,
@@ -1977,6 +2034,11 @@ namespace MWMechanics
         bool isPlayer = mPtr == MWMechanics::getPlayer();
         bool isFirstPersonPlayer = isPlayer && MWBase::Environment::get().getWorld()->isFirstPerson();
         bool godmode = isPlayer && MWBase::Environment::get().getWorld()->getGodModeState();
+#ifdef BUILD_TES3MP_CLIENT
+        const bool dedicatedMultiplayerProxy = isDedicatedMultiplayerProxy(mPtr);
+#else
+        constexpr bool dedicatedMultiplayerProxy = false;
+#endif
 
         float scale = mPtr.getCellRef().getScale();
 
@@ -2194,6 +2256,8 @@ namespace MWMechanics
             bool wasInJump = mInJump;
             mInJump = false;
             const float jumpHeight = cls.getJump(mPtr);
+            const bool forceNetworkJumpAnimation = dedicatedMultiplayerProxy
+                && stats.getMovementFlag(MWMechanics::CreatureStats::Flag_ForceJump) && !inwater && !flying && solid;
             if (jumpHeight <= 0.f || sneak || inwater || flying || !solid)
             {
                 vec.z() = 0.f;
@@ -2204,8 +2268,14 @@ namespace MWMechanics
 
             if (!inwater && !flying && solid)
             {
+                if (forceNetworkJumpAnimation)
+                {
+                    mInJump = true;
+                    jumpstate = JumpState_InAir;
+                    vec.z() = 0.f;
+                }
                 // In the air (either getting up —ascending part of jump— or falling).
-                if (!onground)
+                else if (!onground)
                 {
                     mInJump = true;
                     jumpstate = JumpState_InAir;
@@ -2368,7 +2438,8 @@ namespace MWMechanics
             if (movestate != CharState_None)
             {
                 clearAnimQueue();
-                jumpstate = JumpState_None;
+                if (!forceNetworkJumpAnimation)
+                    jumpstate = JumpState_None;
             }
 
             updateAnimQueue();
@@ -2409,12 +2480,12 @@ namespace MWMechanics
 
             if (!mSkipAnim)
             {
-                if (!isKnockedDown() && !isKnockedOut())
+                if (!dedicatedMultiplayerProxy && !isKnockedDown() && !isKnockedOut())
                 {
                     if (rot != osg::Vec3f())
                         world->rotateObject(mPtr, rot, true);
                 }
-                else // avoid z-rotating for knockdown
+                else if (!dedicatedMultiplayerProxy) // avoid z-rotating for knockdown
                 {
                     if (rot.x() != 0 && rot.y() != 0)
                     {
@@ -2502,6 +2573,8 @@ namespace MWMechanics
 
             movement.x() *= scale;
             movement.y() *= scale;
+            if (dedicatedMultiplayerProxy)
+                movement = osg::Vec3f();
             world->queueMovement(mPtr, movement);
         }
 
@@ -2978,6 +3051,64 @@ namespace MWMechanics
     void CharacterController::setAIAttackType(std::string_view attackType)
     {
         mAttackType = attackType;
+    }
+
+    void CharacterController::replayAttackStart(std::string_view attackType)
+    {
+        if (!mAnimation)
+            return;
+
+        if (attackType.empty())
+            attackType = mAttackType;
+
+        if (attackType.empty())
+            return;
+
+        mAttackType = attackType;
+        mPtr.getClass().getCreatureStats(mPtr).setAttackType(attackType);
+        setAttackingOrSpell(true);
+        updateWeaponState();
+    }
+
+    void CharacterController::replayAttackRelease(std::string_view attackType, float attackStrength)
+    {
+        if (!mAnimation)
+            return;
+
+        if (attackType.empty())
+            attackType = mAttackType;
+
+        if (attackType.empty())
+            return;
+
+        mAttackType = attackType;
+        mPtr.getClass().getCreatureStats(mPtr).setAttackType(attackType);
+
+        if (mUpperBodyState <= UpperBodyState::WeaponEquipped || mUpperBodyState == UpperBodyState::Equipping
+            || mUpperBodyState == UpperBodyState::Unequipping)
+        {
+            if (!getAttackingOrSpell())
+                setAttackingOrSpell(true);
+            updateWeaponState();
+
+            if (mUpperBodyState == UpperBodyState::Equipping || mUpperBodyState == UpperBodyState::Unequipping)
+            {
+                if (!mCurrentWeapon.empty())
+                    mAnimation->disable(mCurrentWeapon);
+
+                mUpperBodyState = mWeaponType != ESM::Weapon::None ? UpperBodyState::WeaponEquipped
+                                                                   : UpperBodyState::None;
+            }
+
+            if (mUpperBodyState == UpperBodyState::WeaponEquipped)
+                updateWeaponState();
+        }
+
+        if (std::isfinite(attackStrength))
+            mAttackStrength = std::clamp(attackStrength, 0.f, 1.f);
+
+        setAttackingOrSpell(false);
+        updateWeaponState();
     }
 
     std::string_view CharacterController::getRandomAttackType()

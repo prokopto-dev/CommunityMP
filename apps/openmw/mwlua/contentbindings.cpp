@@ -2,18 +2,25 @@
 
 #include <components/esm3/loadacti.hpp>
 #include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadbook.hpp>
+#include <components/esm3/loadclot.hpp>
+#include <components/esm3/loadcont.hpp>
+#include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loaddoor.hpp>
 #include <components/esm3/loadench.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadligh.hpp>
 #include <components/esm3/loadlock.hpp>
 #include <components/esm3/loadmisc.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadprob.hpp>
 #include <components/esm3/loadrepa.hpp>
 #include <components/esm3/loadsoun.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/loadstat.hpp>
+#include <components/esm3/loadweap.hpp>
 #include <components/fallback/fallback.hpp>
 #include <components/lua/util.hpp>
 
@@ -258,6 +265,22 @@ namespace MWLua
                 });
         }
 
+        sol::table initApparatusBindings(sol::state_view& lua, MWWorld::Store<ESM::Apparatus>& store)
+        {
+            addRecordStoreBindings<ESM::Apparatus>(lua, &MWLua::tableToApparatus);
+            addMutableApparatusType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::Apparatus>{ store };
+            api["TYPE"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, int>(lua,
+                {
+                    { "MortarPestle", ESM::Apparatus::MortarPestle },
+                    { "Alembic", ESM::Apparatus::Alembic },
+                    { "Calcinator", ESM::Apparatus::Calcinator },
+                    { "Retort", ESM::Apparatus::Retort },
+                }));
+            return LuaUtil::makeReadOnly(api);
+        }
+
         sol::table initActivatorBindings(sol::state_view& lua, MWWorld::Store<ESM::Activator>& store)
         {
             addRecordStoreBindings<ESM::Activator>(lua, &MWLua::tableToActivator);
@@ -267,12 +290,82 @@ namespace MWLua
             return LuaUtil::makeReadOnly(api);
         }
 
+        sol::table initArmorBindings(sol::state_view& lua, MWWorld::Store<ESM::Armor>& store)
+        {
+            addRecordStoreBindings<ESM::Armor>(lua, &MWLua::tableToArmor);
+            addMutableArmorType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::Armor>{ store };
+            api["TYPE"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, int>(lua,
+                {
+                    { "Helmet", ESM::Armor::Helmet },
+                    { "Cuirass", ESM::Armor::Cuirass },
+                    { "LPauldron", ESM::Armor::LPauldron },
+                    { "RPauldron", ESM::Armor::RPauldron },
+                    { "Greaves", ESM::Armor::Greaves },
+                    { "Boots", ESM::Armor::Boots },
+                    { "LGauntlet", ESM::Armor::LGauntlet },
+                    { "RGauntlet", ESM::Armor::RGauntlet },
+                    { "Shield", ESM::Armor::Shield },
+                    { "LBracer", ESM::Armor::LBracer },
+                    { "RBracer", ESM::Armor::RBracer },
+                }));
+            return LuaUtil::makeReadOnly(api);
+        }
+
         sol::table initBookBindings(sol::state_view& lua, MWWorld::Store<ESM::Book>& store)
         {
             addRecordStoreBindings<ESM::Book>(lua, &MWLua::tableToBook);
             addMutableBookType(lua);
             sol::table api(lua, sol::create);
             api["records"] = MutableStore<ESM::Book>{ store };
+            return LuaUtil::makeReadOnly(api);
+        }
+
+        sol::table initClothingBindings(sol::state_view& lua, MWWorld::Store<ESM::Clothing>& store)
+        {
+            addRecordStoreBindings<ESM::Clothing>(lua, &MWLua::tableToClothing);
+            addMutableClothingType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::Clothing>{ store };
+            api["TYPE"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, int>(lua,
+                {
+                    { "Amulet", ESM::Clothing::Amulet },
+                    { "Belt", ESM::Clothing::Belt },
+                    { "LGlove", ESM::Clothing::LGlove },
+                    { "Pants", ESM::Clothing::Pants },
+                    { "RGlove", ESM::Clothing::RGlove },
+                    { "Ring", ESM::Clothing::Ring },
+                    { "Robe", ESM::Clothing::Robe },
+                    { "Shirt", ESM::Clothing::Shirt },
+                    { "Shoes", ESM::Clothing::Shoes },
+                    { "Skirt", ESM::Clothing::Skirt },
+                }));
+            return LuaUtil::makeReadOnly(api);
+        }
+
+        sol::table initContainerBindings(sol::state_view& lua, MWWorld::Store<ESM::Container>& store)
+        {
+            addRecordStoreBindings<ESM::Container>(lua, &MWLua::tableToContainer);
+            addMutableContainerType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::Container>{ store };
+            return LuaUtil::makeReadOnly(api);
+        }
+
+        sol::table initCreatureBindings(sol::state_view& lua, MWWorld::Store<ESM::Creature>& store)
+        {
+            addRecordStoreBindings<ESM::Creature>(lua, &MWLua::tableToCreature);
+            addMutableCreatureType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::Creature>{ store };
+            api["TYPE"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, int>(lua,
+                {
+                    { "Creatures", ESM::Creature::Creatures },
+                    { "Daedra", ESM::Creature::Daedra },
+                    { "Undead", ESM::Creature::Undead },
+                    { "Humanoid", ESM::Creature::Humanoid },
+                }));
             return LuaUtil::makeReadOnly(api);
         }
 
@@ -359,6 +452,15 @@ namespace MWLua
             return LuaUtil::makeReadOnly(api);
         }
 
+        sol::table initNpcBindings(sol::state_view& lua, MWWorld::Store<ESM::NPC>& store)
+        {
+            addRecordStoreBindings<ESM::NPC>(lua, &MWLua::tableToNPC);
+            addMutableNpcType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::NPC>{ store };
+            return LuaUtil::makeReadOnly(api);
+        }
+
         sol::table initPotionBindings(sol::state_view& lua, MWWorld::Store<ESM::Potion>& store)
         {
             addRecordStoreBindings<ESM::Potion>(lua, &MWLua::tableToPotion);
@@ -383,6 +485,32 @@ namespace MWLua
             addMutableRepairType(lua);
             sol::table api(lua, sol::create);
             api["records"] = MutableStore<ESM::Repair>{ store };
+            return LuaUtil::makeReadOnly(api);
+        }
+
+        sol::table initWeaponBindings(sol::state_view& lua, MWWorld::Store<ESM::Weapon>& store)
+        {
+            addRecordStoreBindings<ESM::Weapon>(lua, &MWLua::tableToWeapon);
+            addMutableWeaponType(lua);
+            sol::table api(lua, sol::create);
+            api["records"] = MutableStore<ESM::Weapon>{ store };
+            api["TYPE"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, int>(lua,
+                {
+                    { "ShortBladeOneHand", ESM::Weapon::ShortBladeOneHand },
+                    { "LongBladeOneHand", ESM::Weapon::LongBladeOneHand },
+                    { "LongBladeTwoHand", ESM::Weapon::LongBladeTwoHand },
+                    { "BluntOneHand", ESM::Weapon::BluntOneHand },
+                    { "BluntTwoClose", ESM::Weapon::BluntTwoClose },
+                    { "BluntTwoWide", ESM::Weapon::BluntTwoWide },
+                    { "SpearTwoWide", ESM::Weapon::SpearTwoWide },
+                    { "AxeOneHand", ESM::Weapon::AxeOneHand },
+                    { "AxeTwoHand", ESM::Weapon::AxeTwoHand },
+                    { "MarksmanBow", ESM::Weapon::MarksmanBow },
+                    { "MarksmanCrossbow", ESM::Weapon::MarksmanCrossbow },
+                    { "MarksmanThrown", ESM::Weapon::MarksmanThrown },
+                    { "Arrow", ESM::Weapon::Arrow },
+                    { "Bolt", ESM::Weapon::Bolt },
+                }));
             return LuaUtil::makeReadOnly(api);
         }
 
@@ -430,7 +558,12 @@ namespace MWLua
         sol::table api(lua, sol::create);
         MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
         api["activators"] = initActivatorBindings(lua, esmStore.getWritable<ESM::Activator>());
+        api["apparatuses"] = initApparatusBindings(lua, esmStore.getWritable<ESM::Apparatus>());
+        api["armors"] = initArmorBindings(lua, esmStore.getWritable<ESM::Armor>());
         api["books"] = initBookBindings(lua, esmStore.getWritable<ESM::Book>());
+        api["clothing"] = initClothingBindings(lua, esmStore.getWritable<ESM::Clothing>());
+        api["containers"] = initContainerBindings(lua, esmStore.getWritable<ESM::Container>());
+        api["creatures"] = initCreatureBindings(lua, esmStore.getWritable<ESM::Creature>());
         api["doors"] = initDoorBindings(lua, esmStore.getWritable<ESM::Door>());
         api["enchantments"] = initEnchantmentBindings(lua, esmStore.getWritable<ESM::Enchantment>());
         api["gameSettings"] = initGameSettingBindings(lua, esmStore.getWritable<ESM::GameSetting>());
@@ -440,12 +573,14 @@ namespace MWLua
         api["lockpicks"] = initLockpickBindings(lua, esmStore.getWritable<ESM::Lockpick>());
         api["magicEffects"] = initMagicEffectBindings(lua, esmStore.getWritable<ESM::MagicEffect>());
         api["miscs"] = initMiscBindings(lua, esmStore.getWritable<ESM::Miscellaneous>());
+        api["npcs"] = initNpcBindings(lua, esmStore.getWritable<ESM::NPC>());
         api["potions"] = initPotionBindings(lua, esmStore.getWritable<ESM::Potion>());
         api["probes"] = initProbeBindings(lua, esmStore.getWritable<ESM::Probe>());
         api["repairs"] = initRepairBindings(lua, esmStore.getWritable<ESM::Repair>());
         api["spells"] = initSpellBindings(lua, esmStore.getWritable<ESM::Spell>());
         api["statics"] = initStaticBindings(lua, esmStore.getWritable<ESM::Static>());
         api["sounds"] = initSoundBindings(lua, esmStore.getWritable<ESM::Sound>());
+        api["weapons"] = initWeaponBindings(lua, esmStore.getWritable<ESM::Weapon>());
         api["RANGE"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, ESM::RangeType>(lua,
             {
                 { "Self", ESM::RT_Self },

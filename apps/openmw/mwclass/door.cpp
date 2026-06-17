@@ -13,7 +13,7 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
-#include "../mwphysics/physicssystem.hpp"
+#include "../mwphysics/iphysicsbackend.hpp"
 #include "../mwworld/actiondoor.hpp"
 #include "../mwworld/actionteleport.hpp"
 #include "../mwworld/actiontrap.hpp"
@@ -33,6 +33,11 @@
 #include "../mwrender/vismask.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
+#include "../mwmp/Main.hpp"
+#endif
 
 #include "classmodel.hpp"
 #include "nameorid.hpp"
@@ -64,7 +69,7 @@ namespace MWClass
     }
 
     void Door::insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         insertObjectPhysics(ptr, model, rotation, physics);
 
@@ -80,7 +85,7 @@ namespace MWClass
     }
 
     void Door::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
-        MWPhysics::PhysicsSystem& physics) const
+        MWPhysics::IPhysicsBackend& physics) const
     {
         physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::CollisionType_Door);
     }
@@ -192,6 +197,13 @@ namespace MWClass
                 }
                 else
                 {
+#ifdef BUILD_TES3MP_CLIENT
+                    if (actor == MWMechanics::getPlayer() && mwmp::Main::isInitialized())
+                    {
+                        if (mwmp::LocalPlayer* localPlayer = mwmp::Main::get().getLocalPlayer())
+                            localPlayer->queueCellChangeReason(mwmp::CELL_CHANGE_REASON_DOOR);
+                    }
+#endif
                     std::unique_ptr<MWWorld::Action> action = std::make_unique<MWWorld::ActionTeleport>(
                         ptr.getCellRef().getDestCell(), ptr.getCellRef().getDoorDest(), true);
                     action->setSound(openSound);

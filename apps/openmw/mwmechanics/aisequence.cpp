@@ -24,6 +24,17 @@
 
 namespace MWMechanics
 {
+    namespace
+    {
+        bool hasNonActorCombatTarget(const AiPackage& package)
+        {
+            if (package.getTypeId() != AiPackageTypeId::Combat)
+                return false;
+
+            const MWWorld::Ptr target = package.getTarget();
+            return !target.isEmpty() && !target.getClass().isActor();
+        }
+    }
 
     void AiSequence::copy(const AiSequence& sequence)
     {
@@ -205,6 +216,11 @@ namespace MWMechanics
         }
     }
 
+    void AiSequence::removeInvalidCombatPackages()
+    {
+        erasePackagesIf([](const auto& package) { return hasNonActorCombatTarget(*package); });
+    }
+
     void AiSequence::stopCombat()
     {
         removePackagesById(AiPackageTypeId::Combat);
@@ -257,6 +273,8 @@ namespace MWMechanics
             mResetFriendlyHits = false;
         }
 
+        removeInvalidCombatPackages();
+
         if (mPackages.empty())
         {
             mLastAiPackage = AiPackageTypeId::None;
@@ -288,8 +306,8 @@ namespace MWMechanics
 
                 MWWorld::Ptr target = (*it)->getTarget();
 
-                // target disappeared (e.g. summoned creatures)
-                if (target.isEmpty())
+                // target disappeared (e.g. summoned creatures) or was loaded from invalid script state
+                if (target.isEmpty() || !target.getClass().isActor())
                 {
                     it = erase(it);
                 }
@@ -600,6 +618,8 @@ namespace MWMechanics
                 continue;
             if (hasTarget && sequence.mActorIdConverter)
                 sequence.mActorIdConverter->convert(package->mTargetActor, package->mTargetActor.mIndex);
+            if (hasNonActorCombatTarget(*package))
+                continue;
 
             onPackageAdded(*package);
             mPackages.push_back(std::move(package));

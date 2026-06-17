@@ -23,12 +23,12 @@
              </Widget>
         </Widget>
         <!-- The list of topics -->
-        <Widget type="MWList" skin="MW_SimpleList" position="398 31 166 328" name="TopicsList" align="Right VStretch">
+        <Widget type="MWList" skin="MW_DialogueTopicsList" position="398 31 166 328" name="TopicsList" align="Right VStretch">
         </Widget>
 
         <!-- The Goodbye button -->
         <Widget type="Button" skin="MW_Button" position="398 366 166 23" name="ByeButton" align="Right Bottom">
-            <Property key="Caption" value="#{sGoodbye}"/>
+            <Property key="Caption" value="#{Interface:Goodbye}"/>
         </Widget>
     </Widget>
 </MyGUI>

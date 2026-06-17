@@ -152,6 +152,43 @@ void MWWorld::WorldModel::clear()
     mIdCacheIndex = 0;
 }
 
+bool MWWorld::WorldModel::resetCellStore(CellStore& cellStore)
+{
+    auto it = mCells.find(cellStore.getCell()->getId());
+    if (it == mCells.end() || &it->second != &cellStore)
+    {
+        it = std::find_if(mCells.begin(), mCells.end(),
+            [&cellStore](auto& entry) { return &entry.second == &cellStore; });
+    }
+
+    if (it == mCells.end())
+        return false;
+
+    CellStore& storedCell = it->second;
+    storedCell.clearMovementLinks();
+    storedCell.deregisterPointers();
+
+    if (storedCell.isExterior())
+    {
+        mExteriors.erase(ESM::ExteriorCellLocation(storedCell.getCell()->getGridX(), storedCell.getCell()->getGridY(),
+            storedCell.getCell()->getWorldSpace()));
+    }
+    else
+        mInteriors.erase(std::string(storedCell.getCell()->getNameId()));
+
+    for (auto& [id, cachedCell] : mIdCache)
+    {
+        if (cachedCell == &storedCell)
+        {
+            id = ESM::RefId();
+            cachedCell = nullptr;
+        }
+    }
+
+    mCells.erase(it);
+    return true;
+}
+
 MWWorld::Ptr MWWorld::WorldModel::getPtrAndCache(const ESM::RefId& name, CellStore& cellStore)
 {
     Ptr ptr = cellStore.getPtr(name);

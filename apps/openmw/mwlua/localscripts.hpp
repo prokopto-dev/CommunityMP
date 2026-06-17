@@ -104,11 +104,18 @@ namespace MWLua
         {
             callEngineHandlers(mOnSkillUse, skillId, useType, scale);
         }
+        void onSkillUseFailed(std::string_view skillId, int useType, float scale)
+        {
+            callEngineHandlers(mOnSkillUseFailed, skillId, useType, scale);
+        }
         void onSkillLevelUp(std::string_view skillId, std::string_view source)
         {
             callEngineHandlers(mOnSkillLevelUp, skillId, source);
         }
-        void onJailTimeServed(int days) { callEngineHandlers(mOnJailTimeServed, days); }
+        void onJailTimeServed(int days, bool preventSkillIncreases, const std::string& messageOverride)
+        {
+            callEngineHandlers(mOnJailTimeServed, days, preventSkillIncreases, messageOverride);
+        }
 
         void applyStatsCache();
 
@@ -138,6 +145,7 @@ namespace MWLua
         EngineHandlerList mOnPlayAnimationHandlers{ "_onPlayAnimation" };
         EngineHandlerList mOnAnimationEndedHandlers{ "_onAnimationEnded" };
         EngineHandlerList mOnSkillUse{ "_onSkillUse" };
+        EngineHandlerList mOnSkillUseFailed{ "_onSkillUseFailed" };
         EngineHandlerList mOnSkillLevelUp{ "_onSkillLevelUp" };
         EngineHandlerList mOnJailTimeServed{ "_onJailTimeServed" };
     };

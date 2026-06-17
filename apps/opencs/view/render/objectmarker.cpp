@@ -3,8 +3,10 @@
 #include <QFile>
 
 #include <osg/ClipPlane>
+#include <osg/GL>
 #include <osg/Material>
 #include <osg/PositionAttitudeTransform>
+#include <osg/StateAttribute>
 #include <osgUtil/CullVisitor>
 
 #include <components/resource/resourcesystem.hpp>
@@ -97,10 +99,12 @@ namespace CSVRender
         auto markerData = file.readAll();
 
         mResourceSystem->getSceneManager()->loadSelectionMarker(mBaseNode, markerData.data(), markerData.size());
-        mResourceSystem->getSceneManager()->recreateShaders(mBaseNode);
+        mResourceSystem->getSceneManager()->recreateShaders(mBaseNode, "debug");
 
         osg::ref_ptr<osg::StateSet> baseNodeState = mBaseNode->getOrCreateStateSet();
         baseNodeState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+        baseNodeState->setMode(
+            GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED | osg::StateAttribute::OVERRIDE);
         baseNodeState->setRenderBinDetails(1000, "RenderBin");
 
         FindMaterialVisitor matMapper(mMarkerNodes);

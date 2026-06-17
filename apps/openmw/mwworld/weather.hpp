@@ -310,6 +310,8 @@ namespace MWWorld
          */
         void changeWeather(const ESM::RefId& regionID, const unsigned int weatherID);
         void changeWeather(const ESM::RefId& regionID, const ESM::RefId& weatherID);
+        void setWeatherState(const ESM::RefId& regionID, int currentWeather, int nextWeather, int queuedWeather,
+            float transitionFactor, bool force);
         void modRegion(const ESM::RefId& regionID, std::span<const uint8_t> chances);
         std::span<const uint8_t> getRegionChances(const ESM::RefId& regionID) const;
         void playerTeleported(const ESM::RefId& playerRegion, bool isExterior);
@@ -351,6 +353,8 @@ namespace MWWorld
         }
 
         int getNextWeatherID() const { return mNextWeather; }
+
+        int getQueuedWeatherID() const { return mQueuedWeather; }
 
         float getTransitionFactor() const { return mTransitionFactor; }
 

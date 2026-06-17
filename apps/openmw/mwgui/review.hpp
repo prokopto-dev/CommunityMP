@@ -1,14 +1,37 @@
 #ifndef MWGUI_REVIEW_H
 #define MWGUI_REVIEW_H
 
+#include "avatarpreview.hpp"
 #include "widgets.hpp"
 #include "windowbase.hpp"
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadclas.hpp>
 
+#include <memory>
+
 namespace ESM
 {
     struct Spell;
+}
+
+namespace MWRender
+{
+    class RaceSelectionPreview;
+}
+
+namespace MyGUI
+{
+    class ITexture;
+}
+
+namespace osg
+{
+    class Group;
+}
+
+namespace Resource
+{
+    class ResourceSystem;
 }
 
 namespace MWGui
@@ -24,7 +47,8 @@ namespace MWGui
             BIRTHSIGN_DIALOG
         };
 
-        ReviewDialog();
+        ReviewDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
+        ~ReviewDialog() override;
 
         bool exit() override { return false; }
 
@@ -87,6 +111,7 @@ namespace MWGui
 
         MyGUI::TextBox *mNameWidget, *mRaceWidget, *mClassWidget, *mBirthSignWidget;
         MyGUI::ScrollView* mSkillView;
+        MyGUI::ImageBox* mAvatarPreviewImage;
 
         Widgets::MWDynamicStatPtr mHealth, mMagicka, mFatigue;
 
@@ -101,6 +126,9 @@ namespace MWGui
         std::vector<MyGUI::Widget*> mSkillWidgets; //< Skills and other information
 
         bool mUpdateSkillArea;
+        AvatarPreviewController mAvatarPreviewController;
+        std::unique_ptr<MWRender::RaceSelectionPreview> mAvatarPreview;
+        std::unique_ptr<MyGUI::ITexture> mAvatarPreviewTexture;
 
         // 0 = Name, 1 = Race, 2 = Class, 3 = BirthSign, 4 = Back, 5 = OK
         std::vector<MyGUI::Button*> mButtons;

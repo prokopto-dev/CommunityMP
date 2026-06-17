@@ -1,8 +1,6 @@
 #ifndef INISETTINGS_HPP
 #define INISETTINGS_HPP
 
-#include <fstream>
-
 #include <QHash>
 #include <QVariant>
 

@@ -233,7 +233,7 @@ namespace MWRender
         TechniqueList mQueuedTemplates;
         TechniqueList mInternalTechniques;
 
-        std::unordered_set<VFS::Path::Normalized, VFS::Path::Hash, std::equal_to<>> mTechniqueFiles;
+        std::unordered_set<VFS::Path::Normalized> mTechniqueFiles;
 
         RenderingManager& mRendering;
         osgViewer::Viewer* mViewer;

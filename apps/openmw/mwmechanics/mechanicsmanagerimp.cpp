@@ -605,6 +605,11 @@ namespace MWMechanics
         return mActors.countDeaths(id);
     }
 
+    void MechanicsManager::setDeaths(const ESM::RefId& id, int count)
+    {
+        mActors.setDeaths(id, count);
+    }
+
     void MechanicsManager::getPersuasionDispositionChange(
         const MWWorld::Ptr& npc, PersuasionType type, bool& success, int& tempChange, int& permChange)
     {
@@ -760,6 +765,19 @@ namespace MWMechanics
             mActors.forceStateUpdate(ptr);
     }
 
+    void MechanicsManager::replayAttackStart(const MWWorld::Ptr& ptr, std::string_view attackType)
+    {
+        if (ptr.getClass().isActor())
+            mActors.replayAttackStart(ptr, attackType);
+    }
+
+    void MechanicsManager::replayAttackRelease(
+        const MWWorld::Ptr& ptr, std::string_view attackType, float attackStrength)
+    {
+        if (ptr.getClass().isActor())
+            mActors.replayAttackRelease(ptr, attackType, attackStrength);
+    }
+
     bool MechanicsManager::playAnimationGroup(
         const MWWorld::Ptr& ptr, std::string_view groupName, int mode, uint32_t number, bool scripted)
     {
@@ -856,7 +874,6 @@ namespace MWMechanics
         mUpdatePlayer = true;
         mClassSelected = true;
         mRaceSelected = true;
-        mAI = true;
     }
 
     namespace

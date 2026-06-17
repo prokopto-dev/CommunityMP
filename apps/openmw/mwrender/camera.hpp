@@ -3,6 +3,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 #include <osg/Matrix>
 #include <osg/Vec3>
@@ -68,9 +69,12 @@ namespace MWRender
         float getExtraPitch() const { return mExtraPitch; }
         float getExtraYaw() const { return mExtraYaw; }
         float getExtraRoll() const { return mExtraRoll; }
-        void setExtraPitch(float angle) { mExtraPitch = angle; }
-        void setExtraYaw(float angle) { mExtraYaw = angle; }
-        void setExtraRoll(float angle) { mExtraRoll = angle; }
+        void setExtraPitch(float angle);
+        void setExtraYaw(float angle);
+        void setExtraRoll(float angle);
+        void setAdditiveExtraPitch(float angle, std::string identifier);
+        void setAdditiveExtraYaw(float angle, std::string identifier);
+        void setAdditiveExtraRoll(float angle, std::string identifier);
 
         osg::Quat getOrient() const;
 
@@ -104,7 +108,8 @@ namespace MWRender
 
         void allowCharacterDeferredRotation(bool v) { mDeferredRotationAllowed = v; }
         void calculateDeferredRotation();
-        void setFirstPersonOffset(const osg::Vec3f& v) { mFirstPersonOffset = v; }
+        void setFirstPersonOffset(const osg::Vec3f& v);
+        void setAdditiveFirstPersonOffset(const osg::Vec3f& v, std::string identifier);
         osg::Vec3f getFirstPersonOffset() const { return mFirstPersonOffset; }
 
         int getCollisionType() const { return mCollisionType; }
@@ -138,6 +143,10 @@ namespace MWRender
         float mHeight;
         float mPitch, mYaw, mRoll;
         float mExtraPitch = 0, mExtraYaw = 0, mExtraRoll = 0;
+        float mExtraPitchBase = 0, mExtraYawBase = 0, mExtraRollBase = 0;
+        std::unordered_map<std::string, float> mAdditiveExtraPitch;
+        std::unordered_map<std::string, float> mAdditiveExtraYaw;
+        std::unordered_map<std::string, float> mAdditiveExtraRoll;
         bool mLockPitch = false, mLockYaw = false;
         osg::Vec3d mPosition;
         osg::Matrixf mViewMatrix;
@@ -146,6 +155,8 @@ namespace MWRender
         float mCameraDistance, mPreferredCameraDistance;
 
         osg::Vec3f mFirstPersonOffset{ 0, 0, 0 };
+        osg::Vec3f mFirstPersonOffsetBase{ 0, 0, 0 };
+        std::unordered_map<std::string, osg::Vec3f> mAdditiveFirstPersonOffset;
 
         osg::Vec2d mFocalPointCurrentOffset;
         osg::Vec2d mFocalPointTargetOffset;
@@ -163,6 +174,10 @@ namespace MWRender
         osg::Vec3d calculateTrackedPosition() const;
         osg::Vec3d calculateFirstPersonPosition(const osg::Vec3d& trackedPosition) const;
         osg::Vec3d getFocalPointOffset() const;
+        float getAdditiveAngleSum(const std::unordered_map<std::string, float>& addends) const;
+        osg::Vec3f getAdditiveFirstPersonOffsetSum() const;
+        void updateExtraAngles();
+        void updateFirstPersonOffset();
         void updateFocalPointOffset(float duration);
         void updatePosition();
 

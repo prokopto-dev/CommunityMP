@@ -10,6 +10,7 @@
 #include <components/esm/vector3.hpp>
 
 #include "refnum.hpp"
+#include "timestamp.hpp"
 
 namespace ESM
 {
@@ -133,6 +134,8 @@ namespace ESM
         struct AiCombat : AiPackage
         {
             ESM::RefNum mTargetActor;
+            ESM::TimeStamp mStartTime;
+            bool mHasStartTime = false;
 
             void load(ESMReader& esm);
             void save(ESMWriter& esm) const;

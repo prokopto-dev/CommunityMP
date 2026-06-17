@@ -11,6 +11,7 @@
 #include "../mwbase/world.hpp"
 
 #include "creaturestats.hpp"
+#include "actorutil.hpp"
 #include "spellutil.hpp"
 
 namespace MWMechanics
@@ -55,6 +56,7 @@ namespace MWMechanics
         MWBase::Environment::get().getMechanicsManager()->unlockAttempted(mActor, lock);
 
         resultSound = "Open Lock Fail";
+        bool success = false;
         if (x <= 0)
             resultMessage = "#{sLockImpossible}";
         else
@@ -66,10 +68,14 @@ namespace MWMechanics
                 resultMessage = "#{sLockSuccess}";
                 resultSound = "Open Lock";
                 mActor.getClass().skillUsageSucceeded(mActor, ESM::Skill::Security, ESM::Skill::Security_PickLock);
+                success = true;
             }
             else
                 resultMessage = "#{sLockFail}";
         }
+
+        if (!success && mActor == getPlayer())
+            mActor.getClass().skillUsageFailed(mActor, ESM::Skill::Security, ESM::Skill::Security_PickLock);
 
         lockpick.getCellRef().setCharge(--uses);
         if (!uses)
@@ -105,6 +111,7 @@ namespace MWMechanics
         MWBase::Environment::get().getMechanicsManager()->unlockAttempted(mActor, trap);
 
         resultSound = "Disarm Trap Fail";
+        bool success = false;
         if (x <= 0)
             resultMessage = "#{sTrapImpossible}";
         else
@@ -117,10 +124,14 @@ namespace MWMechanics
                 resultSound = "Disarm Trap";
                 resultMessage = "#{sTrapSuccess}";
                 mActor.getClass().skillUsageSucceeded(mActor, ESM::Skill::Security, ESM::Skill::Security_DisarmTrap);
+                success = true;
             }
             else
                 resultMessage = "#{sTrapFail}";
         }
+
+        if (!success && mActor == getPlayer())
+            mActor.getClass().skillUsageFailed(mActor, ESM::Skill::Security, ESM::Skill::Security_DisarmTrap);
 
         probe.getCellRef().setCharge(--uses);
         if (!uses)

@@ -98,6 +98,13 @@ namespace MWLua
         api["_showInteractiveMessage"] = [windowManager](std::string_view message, sol::optional<sol::table>) {
             windowManager->interactiveMessageBox(message, { "#{Interface:OK}" });
         };
+        api["isDragDropActive"] = [windowManager]() { return windowManager->isDragDropActive(); };
+        api["setNativeItemDragDropEnabled"] = [luaManager = context.mLuaManager](bool enabled) {
+            luaManager->addAction(
+                [enabled] { MWBase::Environment::get().getWindowManager()->setItemDragDropEnabled(enabled); },
+                "Set native item drag-and-drop enabled");
+        };
+        api["isNativeItemDragDropEnabled"] = [windowManager]() { return windowManager->isItemDragDropEnabled(); };
         api["CONSOLE_COLOR"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string, Misc::Color>(lua,
             {
                 { "Default", Misc::Color::fromHex(MWBase::WindowManager::sConsoleColor_Default.substr(1)) },
@@ -292,6 +299,12 @@ namespace MWLua
               };
         api["_isWindowVisible"]
             = [windowManager](std::string_view window) { return windowManager->isWindowVisible(window); };
+        api["_getLayerForWindow"]
+            = [windowManager](std::string_view window) -> sol::optional<std::string> {
+              if (std::optional<std::string> layer = windowManager->getWindowLayer(window))
+                  return *layer;
+              return sol::nullopt;
+          };
 
         // TODO
         // api["_showMouseCursor"] = [](bool) {};
@@ -322,6 +335,8 @@ namespace MWLua
             uiElement["destroy"] = [luaManager = context.mLuaManager](const std::shared_ptr<LuaUi::Element>& element) {
                 if (element->mState == LuaUi::Element::Destroyed)
                     return;
+                if (element->mRoot != nullptr)
+                    element->mRoot->fireFocusLossIfFocused();
                 luaManager->addAction([element] { LuaUi::Element::erase(element.get()); }, "Destroy UI");
                 element->mState = LuaUi::Element::Destroy;
             };

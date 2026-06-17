@@ -54,6 +54,11 @@
 #include <components/settings/shadermanager.hpp>
 #include <components/settings/values.hpp>
 
+#ifdef BUILD_TES3MP_CLIENT
+#include <components/openmw-mp/Branding.hpp>
+#include <components/openmw-mp/ClientSettings.hpp>
+#endif
+
 #include "mwinput/inputmanagerimp.hpp"
 
 #include "mwgui/windowmanagerimp.hpp"
@@ -63,6 +68,9 @@
 
 #include "mwscript/interpretercontext.hpp"
 #include "mwscript/scriptmanagerimp.hpp"
+
+#include "mwmp/Main.hpp"
+#include "mwmp/ScriptController.hpp"
 
 #include "mwsound/constants.hpp"
 #include "mwsound/soundmanagerimp.hpp"
@@ -82,6 +90,12 @@
 #include "mwmechanics/mechanicsmanagerimp.hpp"
 
 #include "mwstate/statemanagerimp.hpp"
+
+#ifdef BUILD_TES3MP_CLIENT
+#include "mwmp/GUIController.hpp"
+#include "mwmp/LocalPlayer.hpp"
+#include "mwmp/Main.hpp"
+#endif
 
 #include "profile.hpp"
 
@@ -172,6 +186,7 @@ namespace
         for (osg::Camera* camera : cameras)
             camera->getStats()->report(stream, frameNumber);
     }
+
 }
 
 void OMW::Engine::executeLocalScripts()
@@ -183,6 +198,11 @@ void OMW::Engine::executeLocalScripts()
     while (localScripts.getNext(script))
     {
         MWScript::InterpreterContext interpreterContext(&script.second.getRefData().getLocals(), script.second);
+        const std::string scriptName = script.first.serializeText();
+        if (mwmp::Main::isInitialized() && mwmp::Main::isValidPacketScript(scriptName))
+            interpreterContext.sendPackets = true;
+        interpreterContext.trackContextType(ScriptController::ScriptLocal);
+        interpreterContext.trackCurrentScriptName(scriptName);
         mScriptManager->run(script.first, interpreterContext);
     }
 }
@@ -200,7 +220,11 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
         // update input
         {
             ScopedProfile<UserStatsType::Input> profile(frameStart, frameNumber, *timer, *stats);
-            mInputManager->update(frametime, false);
+            bool disableControls = false;
+#ifdef BUILD_TES3MP_CLIENT
+            disableControls = mwmp::Main::isInitialized() && !mwmp::Main::get().getLocalPlayer()->isLoggedIn();
+#endif
+            mInputManager->update(frametime, disableControls);
         }
 
         // When the window is minimized, pause the game. Currently this *has* to be here to work around a MyGUI bug.
@@ -237,6 +261,10 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
         }
 
         bool paused = mWorld->getTimeManager()->isPaused();
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::shouldRunWorldWhilePaused())
+            paused = false;
+#endif
 
         {
             ScopedProfile<UserStatsType::Script> profile(frameStart, frameNumber, *timer, *stats);
@@ -278,7 +306,11 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
             if (mStateManager->getState() == MWBase::StateManager::State_Running)
             {
                 MWWorld::Ptr player = mWorld->getPlayerPtr();
-                if (!paused && player.getClass().getCreatureStats(player).isDead())
+                if (!paused && player.getClass().getCreatureStats(player).isDead()
+#ifdef BUILD_TES3MP_CLIENT
+                    && !mwmp::Main::isInitialized()
+#endif
+                )
                     mStateManager->endGame();
             }
         }
@@ -308,6 +340,11 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
             ScopedProfile<UserStatsType::Gui> profile(frameStart, frameNumber, *timer, *stats);
             mWindowManager->update(frametime);
         }
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::isInitialized())
+            mwmp::Main::frame(frametime);
+#endif
     }
     catch (const std::exception& e)
     {
@@ -337,6 +374,9 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
         stats->setAttribute(frameNumber, "StringRefId Count", static_cast<double>(ESM::StringRefId::totalCount()));
     }
 
+    // These viewer/focus updates do not execute Lua scripts, so a threaded build can spend this time on Lua GC.
+    mLuaWorker->gc(frameStart, frameNumber, *stats);
+
     mStereoManager->updateSettings(Settings::camera().mNearClip, Settings::camera().mViewingDistance);
 
     mViewer->eventTraversal();
@@ -347,6 +387,8 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
         ScopedProfile<UserStatsType::Focus> profile(frameStart, frameNumber, *timer, *stats);
         mWorld->updateFocusObject();
     }
+
+    mLuaWorker->finishGc(frameStart, frameNumber, *stats);
 
     // if there is a separate Lua thread, it starts the update now
     mLuaWorker->allowUpdate(frameStart, frameNumber, *stats);
@@ -398,6 +440,14 @@ OMW::Engine::Engine(Files::ConfigurationManager& configurationManager)
 
 OMW::Engine::~Engine()
 {
+#ifdef BUILD_TES3MP_CLIENT
+    if (mwmp::Main::isInitialized())
+    {
+        mwmp::Main::get().getGUIController()->cleanUp();
+        mwmp::Main::destroy();
+    }
+#endif
+
     if (mScreenCaptureOperation != nullptr)
     {
         mScreenCaptureOperation->stop();
@@ -540,7 +590,13 @@ void OMW::Engine::createWindow()
     {
         while (!mWindow)
         {
-            mWindow = SDL_CreateWindow("OpenMW", posX, posY, width, height, flags);
+            mWindow = SDL_CreateWindow(
+#ifdef BUILD_TES3MP_CLIENT
+                mwmp::Branding::productName,
+#else
+                "OpenMW",
+#endif
+                posX, posY, width, height, flags);
             if (!mWindow)
             {
                 // Try with a lower AA
@@ -698,7 +754,11 @@ void OMW::Engine::createWindow()
 void OMW::Engine::setWindowIcon()
 {
     std::ifstream windowIconStream;
+#ifdef BUILD_TES3MP_CLIENT
+    const auto windowIcon = mResDir / "tes3mp_logo.png";
+#else
     const auto windowIcon = mResDir / "openmw.png";
+#endif
     windowIconStream.open(windowIcon, std::ios_base::in | std::ios_base::binary);
     if (windowIconStream.fail())
         Log(Debug::Error) << "Error: Failed to open " << windowIcon;
@@ -897,10 +957,16 @@ void OMW::Engine::prepareEngine()
     {
         using namespace std::chrono_literals;
         while (dataLoading.wait_for(50ms) != std::future_status::ready)
+        {
             asyncListener.update();
+            mInputManager->update(0.f, true, true);
+        }
         dataLoading.get();
     }
     listener->loadingOff();
+
+    if (mStateManager->hasQuitRequest())
+        return;
 
     mWorld->init(mMaxRecastLogLevel, mViewer, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
     mEnvironment.setWorldScene(mWorld->getWorldScene());
@@ -960,6 +1026,9 @@ void OMW::Engine::go()
 
     prepareEngine();
 
+    if (mStateManager->hasQuitRequest())
+        return;
+
 #ifdef _WIN32
     const auto* statsFile = _wgetenv(L"OPENMW_OSG_STATS_FILE");
 #else
@@ -994,28 +1063,46 @@ void OMW::Engine::go()
     if (stats.is_open())
         Resource::collectStatistics(*mViewer);
 
+    bool skipDefaultGameStart = false;
+
+#ifdef BUILD_TES3MP_CLIENT
+    if (!mwmp::Main::init(mContentFiles, mFileCollections))
+        return;
+
+    if (mwmp::Main::isInitialized())
+    {
+        mwmp::Main::postInit();
+        skipDefaultGameStart = true;
+    }
+
+    mSkipMenu = true;
+#endif
+
     // Start the game
-    if (!mSaveGameFile.empty())
+    if (!skipDefaultGameStart)
     {
-        mStateManager->loadGame(mSaveGameFile);
-    }
-    else if (!mSkipMenu)
-    {
-        // start in main menu
-        mWindowManager->pushGuiMode(MWGui::GM_MainMenu);
+        if (!mSaveGameFile.empty())
+        {
+            mStateManager->loadGame(mSaveGameFile);
+        }
+        else if (!mSkipMenu)
+        {
+            // start in main menu
+            mWindowManager->pushGuiMode(MWGui::GM_MainMenu);
 
-        if (mVFS->exists(MWSound::titleMusic))
-            mSoundManager->streamMusic(MWSound::titleMusic, MWSound::MusicType::Normal);
+            if (mVFS->exists(MWSound::titleMusic))
+                mSoundManager->streamMusic(MWSound::titleMusic, MWSound::MusicType::Normal);
+            else
+                Log(Debug::Warning) << "Title music not found";
+
+            std::string_view logo = Fallback::Map::getString("Movies_Morrowind_Logo");
+            if (!logo.empty())
+                mWindowManager->playVideo(logo, /*allowSkipping*/ true, /*overrideSounds*/ false);
+        }
         else
-            Log(Debug::Warning) << "Title music not found";
-
-        std::string_view logo = Fallback::Map::getString("Movies_Morrowind_Logo");
-        if (!logo.empty())
-            mWindowManager->playVideo(logo, /*allowSkipping*/ true, /*overrideSounds*/ false);
-    }
-    else
-    {
-        mStateManager->newGame(!mNewGame);
+        {
+            mStateManager->newGame(!mNewGame);
+        }
     }
 
     if (!mStartupScript.empty() && mStateManager->getState() == MWState::StateManager::State_Running)
@@ -1025,10 +1112,26 @@ void OMW::Engine::go()
 
     // Start the main rendering loop
     MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
-    Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(mEnvironment.getFrameRateLimit());
+    const auto getFrameRateLimit = [this] {
+        const float frameRateLimit = mEnvironment.getFrameRateLimit();
+        const float focusLossFrameRateLimit = Settings::video().mFramerateLimitOnFocusLoss;
+        if (focusLossFrameRateLimit > 0.0f && !mWindowManager->isWindowFocused()
+            && (frameRateLimit <= 0.0f || focusLossFrameRateLimit < frameRateLimit))
+            return focusLossFrameRateLimit;
+        return frameRateLimit;
+    };
+    float frameRateLimit = getFrameRateLimit();
+    Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(frameRateLimit);
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));
     while (!mViewer->done() && !mStateManager->hasQuitRequest())
     {
+        const float effectiveFrameRateLimit = getFrameRateLimit();
+        if (effectiveFrameRateLimit != frameRateLimit)
+        {
+            frameRateLimit = effectiveFrameRateLimit;
+            frameRateLimiter = Misc::makeFrameRateLimiter(frameRateLimit);
+        }
+
         const double dt = std::chrono::duration_cast<std::chrono::duration<double>>(
                               std::min(frameRateLimiter.getLastFrameDuration(), maxSimulationInterval))
                               .count()
@@ -1044,7 +1147,12 @@ void OMW::Engine::go()
             continue;
         }
         timeManager.updateIsPaused();
-        if (!timeManager.isPaused())
+        bool advanceSimulationTime = !timeManager.isPaused();
+#ifdef BUILD_TES3MP_CLIENT
+        if (mwmp::Main::shouldRunWorldWhilePaused())
+            advanceSimulationTime = true;
+#endif
+        if (advanceSimulationTime)
         {
             timeManager.setSimulationTime(timeManager.getSimulationTime() + dt);
             timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + dt);
@@ -1069,6 +1177,10 @@ void OMW::Engine::go()
     }
 
     mLuaWorker->join();
+
+#ifdef BUILD_TES3MP_CLIENT
+    mwmp::ClientSettings::removeUserSettingsFromRuntimeStore(mCfgMgr);
+#endif
 
     // Save user settings
     Settings::Manager::saveUser(mCfgMgr.getUserConfigPath() / "settings.cfg");

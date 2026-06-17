@@ -106,6 +106,8 @@ namespace MWMechanics
         void flagAsUsed(const ESM::RefId& id);
         ///< @note Id must be lower-case
 
+        void clearUsedIds();
+
         bool hasBeenUsed(const ESM::RefId& id) const;
         ///< @note Id must be lower-case
 

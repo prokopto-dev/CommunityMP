@@ -101,6 +101,8 @@ namespace
 
 namespace MWLua
 {
+    ESM::Sound tableToSound(const sol::table& rec);
+
     namespace
     {
         template <class T>
@@ -273,6 +275,7 @@ namespace MWLua
         };
 
         addRecordFunctionBinding<ESM::Sound>(api, context);
+        api["createRecordDraft"] = tableToSound;
 
         // Sound record
         addUserType<ESM::Sound>(lua, "ESM3_Sound");

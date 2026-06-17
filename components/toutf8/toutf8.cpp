@@ -47,9 +47,27 @@ using namespace ToUTF8;
 
 namespace
 {
+    constexpr unsigned char sReplacementGlyph = '?';
+
     std::string_view::iterator skipAscii(std::string_view input)
     {
         return std::find_if(input.begin(), input.end(), [](unsigned char v) { return v == 0 || v >= 128; });
+    }
+
+    bool isUtf8Continuation(unsigned char value)
+    {
+        return (value & 0xc0) == 0x80;
+    }
+
+    int getUtf8SequenceLength(unsigned char value)
+    {
+        if (value >= 0xc2 && value <= 0xdf)
+            return 2;
+        if (value >= 0xe0 && value <= 0xef)
+            return 3;
+        if (value >= 0xf0 && value <= 0xf4)
+            return 4;
+        return 1;
     }
 
     std::span<const signed char> getTranslationArray(FromType sourceEncoding)
@@ -243,36 +261,44 @@ std::pair<std::size_t, bool> StatelessUtf8Encoder::getLengthLegacyEnc(std::strin
         return { it - input.begin(), true };
 
     std::size_t len = it - input.begin();
-    std::size_t symbolLen = 0;
 
     do
     {
-        symbolLen += 1;
-        // Find the translated length of this character in the
-        // lookup table.
-        switch (static_cast<unsigned char>(*it))
+        const int symbolLen = getUtf8SequenceLength(static_cast<unsigned char>(*it));
+        if (symbolLen == 1)
         {
-            case 0xe2:
-                symbolLen -= 2;
-                break;
-            case 0xc2:
-            case 0xcb:
-            case 0xc4:
-            case 0xc6:
-            case 0xc3:
-            case 0xd0:
-            case 0xd1:
-            case 0xd2:
-            case 0xc5:
-                symbolLen -= 1;
-                break;
-            default:
-                len += symbolLen;
-                symbolLen = 0;
-                break;
+            ++len;
+            ++it;
+            continue;
         }
 
-        ++it;
+        auto sequenceEnd = it;
+        bool incomplete = false;
+        bool invalid = false;
+        for (int i = 1; i < symbolLen; ++i)
+        {
+            ++sequenceEnd;
+            if (sequenceEnd == input.end() || *sequenceEnd == 0)
+            {
+                incomplete = true;
+                break;
+            }
+            if (!isUtf8Continuation(static_cast<unsigned char>(*sequenceEnd)))
+            {
+                invalid = true;
+                break;
+            }
+        }
+
+        if (incomplete)
+            break;
+
+        ++len;
+
+        if (invalid)
+            ++it;
+        else
+            it += symbolLen;
     } while (it != input.end() && *it != 0);
 
     return { len, false };
@@ -289,57 +315,53 @@ void StatelessUtf8Encoder::copyFromArrayLegacyEnc(
         return;
     }
 
-    int len = 1;
-    switch (ch)
-    {
-        case 0xe2:
-            len = 3;
-            break;
-        case 0xc2:
-        case 0xcb:
-        case 0xc4:
-        case 0xc6:
-        case 0xc3:
-        case 0xd0:
-        case 0xd1:
-        case 0xd2:
-        case 0xc5:
-            len = 2;
-            break;
-    }
-
-    if (len == 1) // There is no 1 length utf-8 glyph that is not 0x20 (empty space)
+    const int len = getUtf8SequenceLength(ch);
+    if (len == 1)
     {
         *(out++) = ch;
         return;
     }
 
-    if (chp == end)
-        return;
-
-    unsigned char ch2 = *(chp++);
-    unsigned char ch3 = '\0';
-    if (len == 3)
+    auto sequenceStart = chp - 1;
+    auto sequenceEnd = sequenceStart;
+    for (int i = 1; i < len; ++i)
     {
-        if (chp == end)
-            return;
-        ch3 = *(chp++);
-    }
-
-    for (int i = 128; i < 256; i++)
-    {
-        unsigned char b1 = mTranslationArray[i * 6 + 1], b2 = mTranslationArray[i * 6 + 2],
-                      b3 = mTranslationArray[i * 6 + 3];
-        if (b1 == ch && b2 == ch2 && (len != 3 || b3 == ch3))
+        ++sequenceEnd;
+        if (sequenceEnd == end || *sequenceEnd == 0)
         {
-            *(out++) = (char)i;
+            chp = sequenceEnd;
+            return;
+        }
+        if (!isUtf8Continuation(static_cast<unsigned char>(*sequenceEnd)))
+        {
+            *(out++) = ch;
             return;
         }
     }
 
-    Log(Debug::Info) << "Could not find glyph " << std::hex << (int)ch << " " << (int)ch2 << " " << (int)ch3;
+    unsigned char ch2 = static_cast<unsigned char>(sequenceStart[1]);
+    unsigned char ch3 = len >= 3 ? static_cast<unsigned char>(sequenceStart[2]) : '\0';
+    unsigned char ch4 = len >= 4 ? static_cast<unsigned char>(sequenceStart[3]) : '\0';
+    chp = sequenceStart + len;
 
-    *(out++) = ch; // Could not find glyph, just put whatever
+    if (len <= 3)
+    {
+        for (int i = 128; i < 256; i++)
+        {
+            unsigned char b1 = mTranslationArray[i * 6 + 1], b2 = mTranslationArray[i * 6 + 2],
+                          b3 = mTranslationArray[i * 6 + 3];
+            if (b1 == ch && b2 == ch2 && (len != 3 || b3 == ch3))
+            {
+                *(out++) = (char)i;
+                return;
+            }
+        }
+    }
+
+    Log(Debug::Info) << "Could not find glyph " << std::hex << static_cast<int>(ch) << " " << static_cast<int>(ch2)
+                     << " " << static_cast<int>(ch3) << " " << static_cast<int>(ch4);
+
+    *(out++) = sReplacementGlyph;
 }
 
 Utf8Encoder::Utf8Encoder(FromType sourceEncoding)

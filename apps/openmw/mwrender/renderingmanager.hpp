@@ -183,8 +183,8 @@ namespace MWRender
 
         /// Return the object under the mouse cursor / crosshair position, given by nX and nY normalized screen
         /// coordinates, where (0,0) is the top left corner.
-        RayResult castCameraToViewportRay(
-            const float nX, const float nY, float maxDistance, bool ignorePlayer, bool ignoreActors = false);
+        RayResult castCameraToViewportRay(const float nX, const float nY, float maxDistance, bool ignorePlayer,
+            bool ignoreActors = false, bool ignoreTerrain = false);
 
         /// Get normalized screen coordinates of the bounding box's summit, where (0,0) is the top left corner
         osg::Vec2f getScreenCoords(const osg::BoundingBox& bb);
@@ -286,6 +286,8 @@ namespace MWRender
         }
         osg::Vec2f getProjectionOffset() const { return mProjectionOffset; }
 
+        osg::Group* getRootNode() { return mRootNode.get(); }
+
     private:
         void updateTextureFiltering();
         void updateAmbient();
@@ -309,7 +311,8 @@ namespace MWRender
         const bool mSkyBlending;
 
         osg::ref_ptr<osgUtil::IntersectionVisitor> getIntersectionVisitor(osgUtil::Intersector* intersector,
-            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList = {});
+            bool ignorePlayer, bool ignoreActors, bool ignoreTerrain = false,
+            std::span<const MWWorld::Ptr> ignoreList = {});
 
         osg::ref_ptr<IntersectionVisitorWithIgnoreList> mIntersectionVisitor;
 

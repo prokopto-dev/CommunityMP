@@ -39,12 +39,12 @@ namespace MWWorld
     }
 
     void Class::insertObject(
-        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::PhysicsSystem& physics) const
+        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::IPhysicsBackend& physics) const
     {
     }
 
     void Class::insertObjectPhysics(
-        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::PhysicsSystem& physics) const
+        const Ptr& ptr, const std::string& mesh, const osg::Quat& rotation, MWPhysics::IPhysicsBackend& physics) const
     {
     }
 
@@ -54,6 +54,11 @@ namespace MWWorld
     }
 
     void Class::skillUsageSucceeded(const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor) const
+    {
+        throw std::runtime_error("class does not represent an actor");
+    }
+
+    void Class::skillUsageFailed(const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor) const
     {
         throw std::runtime_error("class does not represent an actor");
     }

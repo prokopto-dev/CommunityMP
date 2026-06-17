@@ -75,6 +75,8 @@ namespace CSVWorld
 
         void useHint(const std::string& hint) override;
 
+        void switchToIdAndUseHint(const std::string& id, const std::string& hint);
+
         void setStatusBar(bool show) override;
 
     public slots:
