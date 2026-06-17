@@ -11,6 +11,7 @@
 #include <MyGUI_UString.h>
 
 #include <components/esm/records.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/l10n/manager.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/settings/values.hpp>
@@ -194,10 +195,28 @@ namespace MWGui
                 {
                     std::pair<ItemModel::ModelIndex, ItemModel*> pair
                         = *focus->getUserData<std::pair<ItemModel::ModelIndex, ItemModel*>>();
-                    mFocusObject = pair.second->getItem(pair.first).mBase;
-                    bool isAllowedToUse = pair.second->allowedToUseItems();
-                    tooltipSize = getToolTipViaPtr(
-                        static_cast<int>(pair.second->getItem(pair.first).mCount), false, !isAllowedToUse);
+
+                    ItemModel* model = pair.second;
+                    if (model == nullptr || pair.first < 0 || static_cast<size_t>(pair.first) >= model->getItemCount())
+                        return;
+
+                    ItemStack item;
+                    try
+                    {
+                        item = model->getItem(pair.first);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        Log(Debug::Warning) << "Skipping stale item-model tooltip: " << e.what();
+                        return;
+                    }
+
+                    if (item.mBase.isEmpty() || item.mCount == 0)
+                        return;
+
+                    mFocusObject = item.mBase;
+                    bool isAllowedToUse = model->allowedToUseItems();
+                    tooltipSize = getToolTipViaPtr(static_cast<int>(item.mCount), false, !isAllowedToUse);
                 }
                 else if (type == "ToolTipInfo")
                 {
@@ -364,19 +383,27 @@ namespace MWGui
 
         MyGUI::IntSize tooltipSize;
 
-        const MWWorld::Class& object = mFocusObject.getClass();
-        if (!object.hasToolTip(mFocusObject))
+        try
         {
-            mDynamicToolTipBox->setVisible(false);
-        }
-        else
-        {
-            mDynamicToolTipBox->setVisible(true);
+            const MWWorld::Class& object = mFocusObject.getClass();
+            if (!object.hasToolTip(mFocusObject))
+            {
+                mDynamicToolTipBox->setVisible(false);
+            }
+            else
+            {
+                mDynamicToolTipBox->setVisible(true);
 
-            ToolTipInfo info = object.getToolTipInfo(mFocusObject, count);
-            if (!image)
-                info.icon.clear();
-            tooltipSize = createToolTip(info, isOwned);
+                ToolTipInfo info = object.getToolTipInfo(mFocusObject, count);
+                if (!image)
+                    info.icon.clear();
+                tooltipSize = createToolTip(info, isOwned);
+            }
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Skipping invalid tooltip target: " << e.what();
+            mDynamicToolTipBox->setVisible(false);
         }
 
         return tooltipSize;

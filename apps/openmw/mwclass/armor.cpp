@@ -26,10 +26,20 @@
 #include "../mwrender/objects.hpp"
 #include "../mwrender/renderinginterface.hpp"
 
+#include "../mwgui/mode.hpp"
 #include "../mwgui/tooltips.hpp"
 
 #include "classmodel.hpp"
 #include "nameorid.hpp"
+
+namespace
+{
+    bool canUseArmorLuaInterface(bool useLuaInterfaceIfAvailable)
+    {
+        return useLuaInterfaceIfAvailable
+            && !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Barter);
+    }
+}
 
 namespace MWClass
 {
@@ -115,7 +125,7 @@ namespace MWClass
     {
         // We don't actually need an actor as such. We just need an object that has
         // lua scripts and the Combat interface.
-        if (useLuaInterfaceIfAvailable)
+        if (canUseArmorLuaInterface(useLuaInterfaceIfAvailable))
         {
             // In this interface call, both objects are effectively const, so stripping Const from the ConstPtr is fine.
             MWWorld::Ptr mutablePtr(
@@ -314,7 +324,9 @@ namespace MWClass
     float Armor::getSkillAdjustedArmorRating(
         const MWWorld::ConstPtr& ptr, const MWWorld::Ptr& actor, bool useLuaInterfaceIfAvailable) const
     {
-        if (useLuaInterfaceIfAvailable && actor == MWMechanics::getPlayer())
+        const bool useLuaArmorInterface = canUseArmorLuaInterface(useLuaInterfaceIfAvailable);
+
+        if (useLuaArmorInterface && actor == MWMechanics::getPlayer())
         {
             // In this interface call, both objects are effectively const, so stripping Const from the ConstPtr is fine.
             MWWorld::Ptr mutablePtr(
@@ -329,7 +341,7 @@ namespace MWClass
 
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
-        const ESM::RefId armorSkillType = getEquipmentSkill(ptr, useLuaInterfaceIfAvailable);
+        const ESM::RefId armorSkillType = getEquipmentSkill(ptr, useLuaArmorInterface);
         float armorSkill = actor.getClass().getSkill(actor, armorSkillType);
 
         int iBaseArmorSkill = MWBase::Environment::get()

@@ -1,6 +1,7 @@
 #include "containeritemmodel.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 
 #include <components/debug/debuglog.hpp>
 
@@ -51,9 +52,22 @@ namespace MWGui
         mItemSources.reserve(itemSources.size());
         for (const MWWorld::Ptr& source : itemSources)
         {
-            MWWorld::ContainerStore& store = source.getClass().getContainerStore(source);
-            mItemSources.emplace_back(source, store.resolveTemporarily());
+            if (source.isEmpty())
+                continue;
+
+            try
+            {
+                MWWorld::ContainerStore& store = source.getClass().getContainerStore(source);
+                mItemSources.emplace_back(source, store.resolveTemporarily());
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Skipping invalid trade item source: " << e.what();
+            }
         }
+
+        if (mItemSources.empty())
+            throw std::runtime_error("No valid item sources supplied to ContainerItemModel");
     }
 
     ContainerItemModel::ContainerItemModel(const MWWorld::Ptr& source)
@@ -116,6 +130,48 @@ namespace MWGui
         }
 
         return MWWorld::Ptr();
+    }
+
+    std::vector<ContainerItemModel::ItemSource> ContainerItemModel::getItemSources(
+        const MWWorld::Ptr& item, int count) const
+    {
+        std::vector<ItemSource> sources;
+
+        if (item.isEmpty() || count <= 0)
+            return sources;
+
+        int remaining = count;
+
+        for (const auto& source : mItemSources)
+        {
+            try
+            {
+                MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+
+                for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
+                {
+                    if (!stacks(*it, item))
+                        continue;
+
+                    const int available = it->getCellRef().getCount();
+                    if (available <= 0)
+                        continue;
+
+                    const int sourceCount = std::min(remaining, available);
+                    sources.push_back({ source.first, *it, sourceCount });
+                    remaining -= sourceCount;
+
+                    if (remaining <= 0)
+                        return sources;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Skipping invalid trade item source while resolving barter stack: " << e.what();
+            }
+        }
+
+        return sources;
     }
 
     MWWorld::Ptr ContainerItemModel::addItem(const ItemStack& item, size_t count, bool allowAutoEquip)
@@ -183,29 +239,67 @@ namespace MWGui
         mItems.clear();
         for (auto& source : mItemSources)
         {
-            MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
-
-            for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
+            try
             {
-                try
+                MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+
+                for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
                 {
-                    if (!(*it).getClass().showsInInventory(*it))
+                    try
+                    {
+                        if (!(*it).getClass().showsInInventory(*it))
+                            continue;
+                    }
+                    catch (const std::exception& e)
+                    {
+                        Log(Debug::Warning) << "Skipping invalid container item "
+                                            << it->getCellRef().getRefId().serializeText() << ": " << e.what();
                         continue;
+                    }
+
+                    bool found = false;
+                    for (ItemStack& itemStack : mItems)
+                    {
+                        if (stacks(*it, itemStack.mBase))
+                        {
+                            // we already have an item stack of this kind, add to it
+                            itemStack.mCount += it->getCellRef().getCount();
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        // no stack yet, create one
+                        ItemStack newItem(*it, this, it->getCellRef().getCount());
+                        mItems.push_back(newItem);
+                    }
                 }
-                catch (const std::exception& e)
-                {
-                    Log(Debug::Warning) << "Skipping invalid container item "
-                                        << it->getCellRef().getRefId().serializeText() << ": " << e.what();
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Skipping invalid container item source while updating model: " << e.what();
+            }
+        }
+        for (MWWorld::Ptr& source : mWorldItems)
+        {
+            if (source.isEmpty())
+                continue;
+
+            try
+            {
+                const int count = source.getCellRef().getCount();
+                if (count <= 0)
                     continue;
-                }
 
                 bool found = false;
                 for (ItemStack& itemStack : mItems)
                 {
-                    if (stacks(*it, itemStack.mBase))
+                    if (stacks(source, itemStack.mBase))
                     {
                         // we already have an item stack of this kind, add to it
-                        itemStack.mCount += it->getCellRef().getCount();
+                        itemStack.mCount += count;
                         found = true;
                         break;
                     }
@@ -214,30 +308,13 @@ namespace MWGui
                 if (!found)
                 {
                     // no stack yet, create one
-                    ItemStack newItem(*it, this, it->getCellRef().getCount());
+                    ItemStack newItem(source, this, count);
                     mItems.push_back(newItem);
                 }
             }
-        }
-        for (MWWorld::Ptr& source : mWorldItems)
-        {
-            bool found = false;
-            for (ItemStack& itemStack : mItems)
+            catch (const std::exception& e)
             {
-                if (stacks(source, itemStack.mBase))
-                {
-                    // we already have an item stack of this kind, add to it
-                    itemStack.mCount += source.getCellRef().getCount();
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found)
-            {
-                // no stack yet, create one
-                ItemStack newItem(source, this, source.getCellRef().getCount());
-                mItems.push_back(newItem);
+                Log(Debug::Warning) << "Skipping invalid world barter item source: " << e.what();
             }
         }
     }

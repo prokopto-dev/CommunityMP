@@ -2522,9 +2522,15 @@ eventHandler.OnContainer = function(pid, cellDescription)
             if loadedCell ~= nil then
                 if subAction == enumerations.containerSub.LOCK_RELEASE then
                     local releasedCount = 0
+                    local lockKind = "container"
+
+                    if packetOrigin == enumerations.packetOrigin.CLIENT_DIALOGUE then
+                        lockKind = "barter"
+                    end
 
                     for _, object in pairs(objects) do
-                        releasedCount = releasedCount + loadedCell:ReleaseObjectInteractionLock(pid, object.uniqueIndex)
+                        releasedCount = releasedCount + loadedCell:ReleaseObjectInteractionLock(pid,
+                            object.uniqueIndex, lockKind)
                     end
 
                     local failedDialogueBarterTransaction = getFailedDialogueBarterTransaction(pid)
@@ -2541,7 +2547,7 @@ eventHandler.OnContainer = function(pid, cellDescription)
                         end
                     end
 
-                    tes3mp.LogMessage(enumerations.log.INFO, "Released " .. releasedCount ..
+                    tes3mp.LogMessage(enumerations.log.INFO, "Released " .. releasedCount .. " " .. lockKind ..
                         " object interaction locks for " .. logicHandler.GetChatName(pid) .. " in " .. cellDescription)
                 else
                     local accepted, ownerPid, lockedUniqueIndex, lockedObject =

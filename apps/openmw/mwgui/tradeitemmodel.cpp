@@ -119,13 +119,27 @@ namespace MWGui
         auto update = [](std::vector<ItemStack>& list) {
             for (auto it = list.begin(); it != list.end();)
             {
-                size_t actualCount = it->mBase.getCellRef().getCount();
-                if (actualCount < it->mCount)
-                    it->mCount = actualCount;
-                if (it->mCount == 0)
+                if (it->mBase.isEmpty())
+                {
                     it = list.erase(it);
-                else
-                    ++it;
+                    continue;
+                }
+
+                try
+                {
+                    size_t actualCount = it->mBase.getCellRef().getCount();
+                    if (actualCount < it->mCount)
+                        it->mCount = actualCount;
+                    if (it->mCount == 0)
+                        it = list.erase(it);
+                    else
+                        ++it;
+                }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << "Dropping invalid borrowed barter item: " << e.what();
+                    it = list.erase(it);
+                }
             }
         };
 
@@ -219,7 +233,12 @@ namespace MWGui
                 if (itemStack.mBase == item.mBase)
                 {
                     if (item.mCount < itemStack.mCount)
-                        throw std::runtime_error("Lent more items than present");
+                    {
+                        Log(Debug::Warning) << "Clamping stale borrowed barter stack for "
+                                            << item.mBase.getCellRef().getRefId().serializeText() << " from "
+                                            << itemStack.mCount << " to " << item.mCount;
+                        itemStack.mCount = item.mCount;
+                    }
                     item.mCount -= itemStack.mCount;
                 }
             }

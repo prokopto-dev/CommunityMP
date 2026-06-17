@@ -8,6 +8,7 @@
 
 #include <cmath>
 
+#include <components/debug/debuglog.hpp>
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/format.hpp>
 #include <components/widgets/numericeditbox.hpp>
@@ -173,6 +174,28 @@ namespace
         return !refId.empty() && refId.find("$dynamic") == std::string::npos && std::isfinite(enchantmentCharge);
     }
 
+    bool appendTes3mpBarterItemSnapshot(std::vector<Tes3mpBarterItemSnapshot>& snapshots,
+        const MWWorld::Ptr& container, const MWWorld::Ptr& item, int count)
+    {
+        if (container.isEmpty() || !container.isInCell() || item.isEmpty() || count <= 0)
+            return false;
+
+        const std::string refId = item.getCellRef().getRefId().serializeText();
+        const double enchantmentCharge = item.getCellRef().getEnchantmentCharge();
+        if (!canSnapshotTes3mpBarterItem(refId, enchantmentCharge))
+            return false;
+
+        Tes3mpBarterItemSnapshot snapshot;
+        snapshot.mContainer = container;
+        snapshot.mRefId = refId;
+        snapshot.mCount = count;
+        snapshot.mCharge = item.getCellRef().getCharge();
+        snapshot.mEnchantmentCharge = enchantmentCharge;
+        snapshot.mSoul = item.getCellRef().getSoul().serializeText();
+        snapshots.push_back(snapshot);
+        return true;
+    }
+
     MWWorld::Ptr getTes3mpBarterItemSource(const MWGui::ItemStack& item, const MWWorld::Ptr& fallbackContainer)
     {
         if (item.mCreator != nullptr)
@@ -200,22 +223,32 @@ namespace
             if (item.mBase.isEmpty() || count <= 0)
                 continue;
 
-            const std::string refId = item.mBase.getCellRef().getRefId().serializeText();
-            const double enchantmentCharge = item.mBase.getCellRef().getEnchantmentCharge();
-            if (!canSnapshotTes3mpBarterItem(refId, enchantmentCharge))
-                continue;
+            int remaining = count;
 
-            Tes3mpBarterItemSnapshot snapshot;
-            snapshot.mContainer = getTes3mpBarterItemSource(item, fallbackContainer);
-            if (snapshot.mContainer.isEmpty() || !snapshot.mContainer.isInCell())
-                continue;
+            if (item.mCreator != nullptr)
+            {
+                if (const auto* containerModel = dynamic_cast<const MWGui::ContainerItemModel*>(item.mCreator))
+                {
+                    const std::vector<MWGui::ContainerItemModel::ItemSource> itemSources
+                        = containerModel->getItemSources(item.mBase, count);
 
-            snapshot.mRefId = refId;
-            snapshot.mCount = count;
-            snapshot.mCharge = item.mBase.getCellRef().getCharge();
-            snapshot.mEnchantmentCharge = enchantmentCharge;
-            snapshot.mSoul = item.mBase.getCellRef().getSoul().serializeText();
-            snapshots.push_back(snapshot);
+                    for (const MWGui::ContainerItemModel::ItemSource& source : itemSources)
+                    {
+                        if (appendTes3mpBarterItemSnapshot(snapshots, source.mContainer, source.mItem, source.mCount))
+                            remaining -= source.mCount;
+                    }
+
+                    if (remaining <= 0)
+                        continue;
+
+                    if (remaining != count)
+                        Log(Debug::Warning) << "CommunityMP barter: only resolved " << (count - remaining) << " of "
+                                            << count << " item(s) from merchant source containers";
+                }
+            }
+
+            appendTes3mpBarterItemSnapshot(
+                snapshots, getTes3mpBarterItemSource(item, fallbackContainer), item.mBase, remaining);
         }
 
         return snapshots;
@@ -338,6 +371,7 @@ namespace MWGui
         , mCurrentBalance(0)
         , mCurrentMerchantOffer(0)
         , mUpdateNextFrame(false)
+        , mTes3mpBarterSessionOpen(false)
     {
         getWidget(mFilterAll, "AllButton");
         getWidget(mFilterWeapon, "WeaponButton");
@@ -412,6 +446,20 @@ namespace MWGui
     {
         if (actor.isEmpty() || !actor.getClass().isActor())
             throw std::runtime_error("Invalid argument in TradeWindow::setPtr");
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (mTes3mpBarterSessionOpen && !mPtr.isEmpty() && mPtr != actor)
+        {
+            Log(Debug::Warning) << "CommunityMP barter: releasing previous merchant before switching sessions";
+            sendTes3mpBarterLockRelease(mPtr);
+            mTes3mpBarterSessionOpen = false;
+        }
+
+        Log(Debug::Info) << "CommunityMP barter: opening merchant "
+                         << actor.getCellRef().getRefId().serializeText() << " "
+                         << actor.getCellRef().getRefNum().mIndex << "-" << 0;
+#endif
+
         mPtr = actor;
 
         mCurrentBalance = 0;
@@ -420,10 +468,29 @@ namespace MWGui
         std::vector<MWWorld::Ptr> itemSources;
         // Important: actor goes first, so purchased items come out of the actor's pocket first
         itemSources.push_back(actor);
-        MWBase::Environment::get().getWorld()->getContainersOwnedBy(actor, itemSources);
+        try
+        {
+            MWBase::Environment::get().getWorld()->getContainersOwnedBy(actor, itemSources);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "CommunityMP barter: failed to collect merchant-owned containers: " << e.what();
+        }
 
         std::vector<MWWorld::Ptr> worldItems;
-        MWBase::Environment::get().getWorld()->getItemsOwnedBy(actor, worldItems);
+        try
+        {
+            MWBase::Environment::get().getWorld()->getItemsOwnedBy(actor, worldItems);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "CommunityMP barter: failed to collect merchant-owned loose items: " << e.what();
+        }
+
+#ifdef BUILD_TES3MP_CLIENT
+        Log(Debug::Info) << "CommunityMP barter: item sources=" << itemSources.size()
+                         << ", loose items=" << worldItems.size();
+#endif
 
         auto tradeModel
             = std::make_unique<TradeItemModel>(std::make_unique<ContainerItemModel>(itemSources, worldItems), mPtr);
@@ -439,6 +506,12 @@ namespace MWGui
 
         onFilterChanged(mFilterAll);
         mFilterEdit->setCaption({});
+
+#ifdef BUILD_TES3MP_CLIENT
+        mTes3mpBarterSessionOpen = true;
+        Log(Debug::Info) << "CommunityMP barter: open complete with " << mTradeModel->getItemCount()
+                         << " visible merchant item stacks";
+#endif
 
         // Cycle to the buy window if it's not active.
         if (Settings::gui().mControllerMenus && !mActiveControllerWindow)
@@ -843,23 +916,43 @@ namespace MWGui
         const std::vector<ItemStack>& playerBorrowed = playerTradeModel->getItemsBorrowedToUs();
         for (const ItemStack& itemStack : playerBorrowed)
         {
-            const int basePrice = getEffectiveValue(itemStack.mBase, static_cast<int>(itemStack.mCount));
-            const int cap
-                = static_cast<int>(std::max(1.f, 0.75f * basePrice)); // Minimum buying price -- 75% of the base
-            const int buyingPrice
-                = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, basePrice, true);
-            merchantOffer -= std::max(cap, buyingPrice);
+            try
+            {
+                if (itemStack.mBase.isEmpty() || itemStack.mCount == 0)
+                    continue;
+
+                const int basePrice = getEffectiveValue(itemStack.mBase, static_cast<int>(itemStack.mCount));
+                const int cap
+                    = static_cast<int>(std::max(1.f, 0.75f * basePrice)); // Minimum buying price -- 75% of the base
+                const int buyingPrice
+                    = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, basePrice, true);
+                merchantOffer -= std::max(cap, buyingPrice);
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Skipping invalid player-bought barter item while pricing offer: " << e.what();
+            }
         }
 
         const std::vector<ItemStack>& merchantBorrowed = mTradeModel->getItemsBorrowedToUs();
         for (const ItemStack& itemStack : merchantBorrowed)
         {
-            const int basePrice = getEffectiveValue(itemStack.mBase, static_cast<int>(itemStack.mCount));
-            const int cap
-                = static_cast<int>(std::max(1.f, 0.75f * basePrice)); // Maximum selling price -- 75% of the base
-            const int sellingPrice
-                = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, basePrice, false);
-            merchantOffer += mPtr.getClass().isNpc() ? std::min(cap, sellingPrice) : sellingPrice;
+            try
+            {
+                if (itemStack.mBase.isEmpty() || itemStack.mCount == 0)
+                    continue;
+
+                const int basePrice = getEffectiveValue(itemStack.mBase, static_cast<int>(itemStack.mCount));
+                const int cap
+                    = static_cast<int>(std::max(1.f, 0.75f * basePrice)); // Maximum selling price -- 75% of the base
+                const int sellingPrice
+                    = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, basePrice, false);
+                merchantOffer += mPtr.getClass().isNpc() ? std::min(cap, sellingPrice) : sellingPrice;
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Skipping invalid merchant-bought barter item while pricing offer: " << e.what();
+            }
         }
 
         int diff = merchantOffer - mCurrentMerchantOffer;
@@ -888,6 +981,7 @@ namespace MWGui
         mItemView->setModel(nullptr);
         mTradeModel = nullptr;
         mSortModel = nullptr;
+        mTes3mpBarterSessionOpen = false;
     }
 
     void TradeWindow::onClose()
@@ -896,8 +990,14 @@ namespace MWGui
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Barter))
             return;
 #ifdef BUILD_TES3MP_CLIENT
-        if (!mPtr.isEmpty())
+        if (mTes3mpBarterSessionOpen && !mPtr.isEmpty())
+        {
+            Log(Debug::Info) << "CommunityMP barter: releasing merchant "
+                             << mPtr.getCellRef().getRefId().serializeText() << " "
+                             << mPtr.getCellRef().getRefNum().mIndex << "-" << 0;
             sendTes3mpBarterLockRelease(mPtr);
+            mTes3mpBarterSessionOpen = false;
+        }
 #endif
         resetReference();
     }

@@ -465,6 +465,7 @@ namespace MWGui
 
     void InventoryWindow::sellItem(MyGUI::Widget* /*sender*/, std::size_t count)
     {
+        const bool selectedWasEquipped = mTradeModel->getItem(mSelectedItem).mType == ItemStack::Type_Equipped;
         ensureSelectedItemUnequipped(static_cast<int>(count));
         const ItemStack& item = mTradeModel->getItem(mSelectedItem);
         const ESM::RefId& sound = item.mBase.getClass().getUpSoundId(item.mBase);
@@ -484,7 +485,13 @@ namespace MWGui
         }
 
         mItemView->update();
-        notifyContentChanged();
+
+        // Barter preview only borrows items between UI models. Do not run the full inventory/magic/Lua refresh until
+        // a trade is actually accepted, unless we really changed equipment by unequipping the selected item.
+        if (!mTrading || selectedWasEquipped)
+            notifyContentChanged();
+        else
+            updateEncumbranceBar();
     }
 
     void InventoryWindow::dropItem(MyGUI::Widget* sender, size_t count)

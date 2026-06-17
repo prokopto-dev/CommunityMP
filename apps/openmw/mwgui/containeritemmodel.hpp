@@ -32,7 +32,15 @@ namespace MWGui
         ModelIndex getIndex(const ItemStack& item) override;
         size_t getItemCount() override;
 
+        struct ItemSource
+        {
+            MWWorld::Ptr mContainer;
+            MWWorld::Ptr mItem;
+            int mCount = 0;
+        };
+
         MWWorld::Ptr getItemSource(const MWWorld::Ptr& item) const;
+        std::vector<ItemSource> getItemSources(const MWWorld::Ptr& item, int count) const;
 
         void update() override;
 

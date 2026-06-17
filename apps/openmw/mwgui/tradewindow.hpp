@@ -86,6 +86,7 @@ namespace MWGui
         int mCurrentMerchantOffer;
 
         bool mUpdateNextFrame;
+        bool mTes3mpBarterSessionOpen;
 
         void updateOffer();
 
