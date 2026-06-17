@@ -36,11 +36,25 @@ namespace mwmp
         bool hasPosition = false;
     };
 
+    struct CommunityMpClientStateObservation
+    {
+        std::uint16_t schemaVersion = 0;
+        std::uint32_t sequence = 0;
+        std::string kind;
+        std::string objectId;
+        double simulationTime = 0.0;
+        int releaseQuestStage = 0;
+        std::chrono::steady_clock::time_point receivedAt;
+        bool releaseJournalRecovered = false;
+        bool releaseTopicsApplied = false;
+    };
+
     class CommunityMpClientLuaEventHandler
     {
     public:
         static bool handlePlayerEvent(Player& player);
         static std::optional<CommunityMpPlayerObservation> getLatestLocationObservation(PacketGuid guid);
+        static std::optional<CommunityMpClientStateObservation> getLatestStateObservation(PacketGuid guid);
         static std::optional<CommunityMpPlayerObservation> getLatestObservation(PacketGuid guid);
         static void clearPlayer(PacketGuid guid);
     };

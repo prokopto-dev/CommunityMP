@@ -16,15 +16,21 @@ namespace
     std::mutex sObservationMutex;
     std::map<mwmp::PacketGuid, std::uint32_t> sLastClientLuaEventSequences;
     std::map<mwmp::PacketGuid, mwmp::CommunityMpPlayerObservation> sLatestLocationObservations;
+    std::map<mwmp::PacketGuid, mwmp::CommunityMpClientStateObservation> sLatestStateObservations;
 
     bool isObservationKind(const std::string& kind)
     {
-        return kind == "hello" || kind == "cell_changed" || kind == "teleported";
+        return kind == "hello" || kind == "cell_changed" || kind == "teleported" || kind == "chargen_release";
     }
 
     bool isLocationObservationKind(const std::string& kind)
     {
         return kind == "cell_changed" || kind == "teleported";
+    }
+
+    bool isStateObservationKind(const std::string& kind)
+    {
+        return kind == "chargen_release";
     }
 
     std::string readString(const YAML::Node& node)
@@ -75,6 +81,27 @@ namespace
         catch (const YAML::Exception&)
         {
             return false;
+        }
+    }
+
+    int readInt(const YAML::Node& node, bool* valid = nullptr)
+    {
+        if (valid != nullptr)
+            *valid = false;
+
+        if (!node || !node.IsScalar())
+            return 0;
+
+        try
+        {
+            const int value = node.as<int>();
+            if (valid != nullptr)
+                *valid = true;
+            return value;
+        }
+        catch (const YAML::Exception&)
+        {
+            return 0;
         }
     }
 
@@ -131,6 +158,21 @@ namespace
         return observation;
     }
 
+    mwmp::CommunityMpClientStateObservation parseStateObservation(Player& player, const YAML::Node& root)
+    {
+        mwmp::CommunityMpClientStateObservation observation;
+        observation.schemaVersion = readSchemaVersion(root["schema"]);
+        observation.sequence = player.luaEvent.sequence;
+        observation.receivedAt = std::chrono::steady_clock::now();
+        observation.kind = readString(root["kind"]);
+        observation.objectId = readString(root["objectId"]);
+        observation.simulationTime = readDouble(root["time"]);
+        observation.releaseQuestStage = readInt(root["releaseQuestStage"]);
+        observation.releaseJournalRecovered = readBool(root["releaseJournalRecovered"]);
+        observation.releaseTopicsApplied = readBool(root["releaseTopicsApplied"]);
+        return observation;
+    }
+
     bool hasAcceptedSequence(Player& player)
     {
         std::lock_guard lock(sObservationMutex);
@@ -147,6 +189,12 @@ namespace
     {
         std::lock_guard lock(sObservationMutex);
         sLatestLocationObservations[player.guid] = std::move(observation);
+    }
+
+    void storeStateObservation(Player& player, mwmp::CommunityMpClientStateObservation observation)
+    {
+        std::lock_guard lock(sObservationMutex);
+        sLatestStateObservations[player.guid] = std::move(observation);
     }
 }
 
@@ -205,6 +253,16 @@ namespace mwmp
                 player.npc.mName.c_str(), player.luaEvent.eventName.c_str(), observation.cellKey.c_str(),
                 observation.positionX, observation.positionY, observation.positionZ);
         }
+        else if (isStateObservationKind(observation.kind))
+        {
+            CommunityMpClientStateObservation stateObservation = parseStateObservation(player, root);
+            storeStateObservation(player, stateObservation);
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
+                "Stored CommunityMP Lua state observation from %s: kind=%s questStage=%i journalRecovered=%s topicsApplied=%s",
+                player.npc.mName.c_str(), stateObservation.kind.c_str(), stateObservation.releaseQuestStage,
+                stateObservation.releaseJournalRecovered ? "yes" : "no",
+                stateObservation.releaseTopicsApplied ? "yes" : "no");
+        }
 
         if (player.luaEvent.eventName == "hello")
         {
@@ -230,6 +288,17 @@ namespace mwmp
         return observation->second;
     }
 
+    std::optional<CommunityMpClientStateObservation> CommunityMpClientLuaEventHandler::getLatestStateObservation(
+        PacketGuid guid)
+    {
+        std::lock_guard lock(sObservationMutex);
+        const auto observation = sLatestStateObservations.find(guid);
+        if (observation == sLatestStateObservations.end())
+            return std::nullopt;
+
+        return observation->second;
+    }
+
     std::optional<CommunityMpPlayerObservation> CommunityMpClientLuaEventHandler::getLatestObservation(PacketGuid guid)
     {
         return getLatestLocationObservation(guid);
@@ -240,5 +309,6 @@ namespace mwmp
         std::lock_guard lock(sObservationMutex);
         sLastClientLuaEventSequences.erase(guid);
         sLatestLocationObservations.erase(guid);
+        sLatestStateObservations.erase(guid);
     }
 }

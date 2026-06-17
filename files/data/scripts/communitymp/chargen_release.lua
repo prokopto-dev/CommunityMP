@@ -28,6 +28,30 @@ local elapsed = 0
 local readySince = nil
 local verified = false
 local sentJournalRecovery = false
+local sentReleaseObservation = false
+
+local function jsonString(value)
+    value = tostring(value or '')
+    value = value:gsub('\\', '\\\\')
+    value = value:gsub('"', '\\"')
+    value = value:gsub('\b', '\\b')
+    value = value:gsub('\f', '\\f')
+    value = value:gsub('\n', '\\n')
+    value = value:gsub('\r', '\\r')
+    value = value:gsub('\t', '\\t')
+    return '"' .. value .. '"'
+end
+
+local function jsonNumber(value)
+    if type(value) ~= 'number' then
+        return 'null'
+    end
+    return tostring(value)
+end
+
+local function jsonBool(value)
+    return value and 'true' or 'false'
+end
 
 local function getReleaseQuest()
     local okQuests, quests = pcall(Player.quests, self)
@@ -60,25 +84,53 @@ end
 
 local function ensureReleaseJournal()
     local quest = getReleaseQuest()
-    if quest == nil or getQuestStage(quest) >= releaseQuestStage then
-        return true
+    local stage = getQuestStage(quest)
+    if quest == nil or stage >= releaseQuestStage then
+        return true, false, stage
     end
 
     if sentJournalRecovery then
-        return false
+        return false, true, stage
     end
 
     sentJournalRecovery = true
     pcall(function()
         quest:addJournalEntry(releaseQuestStage)
     end)
-    return false
+    return false, true, stage
 end
 
 local function ensureReleaseTopics()
     for _, topic in ipairs(releaseTopics) do
         pcall(Player.addTopic, self, topic)
     end
+
+    return true
+end
+
+local function sendReleaseObservation(journalRecovered, topicsApplied, questStage)
+    if sentReleaseObservation then
+        return true
+    end
+
+    if type(communitymp.sendPlayerEvent) ~= 'function' then
+        return false
+    end
+
+    local payload = table.concat({
+        '{',
+        '"schema":', tostring(communitymp.BRIDGE_SCHEMA_VERSION), ',',
+        '"kind":"chargen_release",',
+        '"time":', jsonNumber(core.getSimulationTime()), ',',
+        '"objectId":', jsonString(self.id), ',',
+        '"releaseQuestStage":', jsonNumber(questStage), ',',
+        '"releaseJournalRecovered":', jsonBool(journalRecovered), ',',
+        '"releaseTopicsApplied":', jsonBool(topicsApplied),
+        '}',
+    })
+
+    sentReleaseObservation = communitymp.sendPlayerEvent('communitymp.player', 'chargen_release', payload)
+    return sentReleaseObservation
 end
 
 local function canVerifyReleaseState()
@@ -101,9 +153,10 @@ local function verifyReleaseState()
         return
     end
 
-    local journalPresent = ensureReleaseJournal()
-    ensureReleaseTopics()
-    verified = journalPresent or sentJournalRecovery
+    local journalPresent, journalRecovered, questStage = ensureReleaseJournal()
+    local topicsApplied = ensureReleaseTopics()
+    local releaseObservationSent = sendReleaseObservation(journalRecovered, topicsApplied, questStage)
+    verified = (journalPresent or journalRecovered) and releaseObservationSent
 end
 
 return {
