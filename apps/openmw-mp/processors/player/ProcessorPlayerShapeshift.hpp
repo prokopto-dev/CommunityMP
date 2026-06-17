@@ -19,7 +19,7 @@ namespace mwmp
 
             player.sendToLoaded(&packet);
 
-            Script::Call<Script::CallbackIdentity("OnPlayerShapeshift")>(player.getId());
+            ServerEvents::playerEvent("OnPlayerShapeshift", player.getId());
         }
     };
 }

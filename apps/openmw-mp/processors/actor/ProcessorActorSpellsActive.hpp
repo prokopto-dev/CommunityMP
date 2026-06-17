@@ -24,7 +24,7 @@ namespace mwmp
                 if (!filterActorListToKnownLiveActors(serverCell, actorList, false))
                     return;
 
-                Script::Call<Script::CallbackIdentity("OnActorSpellsActive")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorEvent("OnActorSpellsActive", player.getId(), actorList.cell.getDescription().c_str());
 
                 serverCell->sendToLoaded(&packet, &actorList);
             }

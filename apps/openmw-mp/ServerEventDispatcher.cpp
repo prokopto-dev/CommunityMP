@@ -137,6 +137,76 @@ namespace mwmp::ServerEvents
             Script::Call<Script::CallbackIdentity("OnCellDeletion")>(cellDescription);
     }
 
+    void playerEvent(const char* eventName, unsigned short playerId)
+    {
+        const std::string eventNameString = safeString(eventName);
+        if (dispatchRuntimeEvent(eventNameString, { SimulationRuntimeEventArgument::integer(playerId) }))
+            return;
+
+#define FALLBACK_PLAYER_EVENT(callbackName) \
+    if (eventNameString == #callbackName) \
+    { \
+        Script::Call<Script::CallbackIdentity(#callbackName)>(playerId); \
+        return; \
+    }
+
+        FALLBACK_PLAYER_EVENT(OnClientScriptGlobal)
+        FALLBACK_PLAYER_EVENT(OnPlayerAttribute)
+        FALLBACK_PLAYER_EVENT(OnPlayerBook)
+        FALLBACK_PLAYER_EVENT(OnPlayerBounty)
+        FALLBACK_PLAYER_EVENT(OnPlayerCharClass)
+        FALLBACK_PLAYER_EVENT(OnPlayerCooldowns)
+        FALLBACK_PLAYER_EVENT(OnPlayerDisposition)
+        FALLBACK_PLAYER_EVENT(OnPlayerEquipment)
+        FALLBACK_PLAYER_EVENT(OnPlayerFaction)
+        FALLBACK_PLAYER_EVENT(OnPlayerInput)
+        FALLBACK_PLAYER_EVENT(OnPlayerInventory)
+        FALLBACK_PLAYER_EVENT(OnPlayerItemUse)
+        FALLBACK_PLAYER_EVENT(OnPlayerJournal)
+        FALLBACK_PLAYER_EVENT(OnPlayerLevel)
+        FALLBACK_PLAYER_EVENT(OnPlayerMiscellaneous)
+        FALLBACK_PLAYER_EVENT(OnPlayerQuickKeys)
+        FALLBACK_PLAYER_EVENT(OnPlayerReputation)
+        FALLBACK_PLAYER_EVENT(OnPlayerRest)
+        FALLBACK_PLAYER_EVENT(OnPlayerResurrect)
+        FALLBACK_PLAYER_EVENT(OnPlayerShapeshift)
+        FALLBACK_PLAYER_EVENT(OnPlayerSkill)
+        FALLBACK_PLAYER_EVENT(OnPlayerSpellbook)
+        FALLBACK_PLAYER_EVENT(OnPlayerSpellsActive)
+        FALLBACK_PLAYER_EVENT(OnPlayerTopic)
+        FALLBACK_PLAYER_EVENT(OnRecordDynamic)
+        FALLBACK_PLAYER_EVENT(OnWorldKillCount)
+        FALLBACK_PLAYER_EVENT(OnWorldMap)
+        FALLBACK_PLAYER_EVENT(OnWorldWeather)
+
+#undef FALLBACK_PLAYER_EVENT
+    }
+
+    void actorEvent(const char* eventName, unsigned short playerId, const char* cellDescription)
+    {
+        const std::string eventNameString = safeString(eventName);
+        if (dispatchRuntimeEvent(eventNameString,
+                { SimulationRuntimeEventArgument::integer(playerId),
+                    SimulationRuntimeEventArgument::string(safeString(cellDescription)) }))
+            return;
+
+#define FALLBACK_ACTOR_EVENT(callbackName) \
+    if (eventNameString == #callbackName) \
+    { \
+        Script::Call<Script::CallbackIdentity(#callbackName)>(playerId, cellDescription); \
+        return; \
+    }
+
+        FALLBACK_ACTOR_EVENT(OnActorAI)
+        FALLBACK_ACTOR_EVENT(OnActorDeath)
+        FALLBACK_ACTOR_EVENT(OnActorEquipment)
+        FALLBACK_ACTOR_EVENT(OnActorList)
+        FALLBACK_ACTOR_EVENT(OnActorSpellsActive)
+        FALLBACK_ACTOR_EVENT(OnActorTest)
+
+#undef FALLBACK_ACTOR_EVENT
+    }
+
     void objectEvent(const char* eventName, unsigned short playerId, const char* cellDescription)
     {
         const std::string eventNameString = safeString(eventName);

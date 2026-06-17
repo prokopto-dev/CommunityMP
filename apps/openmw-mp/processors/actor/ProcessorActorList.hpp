@@ -39,7 +39,7 @@ namespace mwmp
 
             serverCell->readActorList(packetID, &actorList);
             serverCell->sendToLoaded(&packet, &actorList);
-            Script::Call<Script::CallbackIdentity("OnActorList")>(player.getId(), actorList.cell.getDescription().c_str());
+            ServerEvents::actorEvent("OnActorList", player.getId(), actorList.cell.getDescription().c_str());
         }
     };
 }

@@ -19,7 +19,7 @@ namespace mwmp
 
             player.sendToLoaded(&packet);
 
-            Script::Call<Script::CallbackIdentity("OnPlayerDisposition")>(player.getId());
+            ServerEvents::playerEvent("OnPlayerDisposition", player.getId());
         }
     };
 }

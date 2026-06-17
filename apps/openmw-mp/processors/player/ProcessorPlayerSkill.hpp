@@ -20,7 +20,7 @@ namespace mwmp
                 //myPacket->Send(player, true);
                 player.sendToLoaded(&packet);
 
-                Script::Call<Script::CallbackIdentity("OnPlayerSkill")>(player.getId());
+                ServerEvents::playerEvent("OnPlayerSkill", player.getId());
             }
         }
     };

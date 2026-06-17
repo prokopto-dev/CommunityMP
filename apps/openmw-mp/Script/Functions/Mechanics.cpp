@@ -6,6 +6,7 @@
 
 #include <apps/openmw-mp/Script/Script.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
+#include <apps/openmw-mp/ServerEventDispatcher.hpp>
 #include <apps/openmw-mp/ServerNetworking.hpp>
 
 #include <algorithm>
@@ -353,7 +354,7 @@ void MechanicsFunctions::Resurrect(unsigned short pid, unsigned int type) noexce
     packet->Send(false);
     player->sendToLoaded(packet);
 
-    Script::Call<Script::CallbackIdentity("OnPlayerResurrect")>(player->getId());
+    mwmp::ServerEvents::playerEvent("OnPlayerResurrect", player->getId());
 }
 
 // All methods below are deprecated versions of methods from above

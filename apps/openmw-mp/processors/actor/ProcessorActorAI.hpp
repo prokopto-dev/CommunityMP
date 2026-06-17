@@ -25,7 +25,7 @@ namespace mwmp
                 if (!ServerNetworking::getPtr()->getServerSimulation().acceptActorAiSnapshot(actorList, *serverCell))
                     return;
 
-                Script::Call<Script::CallbackIdentity("OnActorAI")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorEvent("OnActorAI", player.getId(), actorList.cell.getDescription().c_str());
             }
         }
     };

@@ -18,7 +18,7 @@ namespace mwmp
         {
             DEBUG_PRINTF(strPacketID.c_str());
 
-            Script::Call<Script::CallbackIdentity("OnPlayerCharClass")>(player.getId());
+            ServerEvents::playerEvent("OnPlayerCharClass", player.getId());
         }
     };
 }

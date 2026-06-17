@@ -28,7 +28,7 @@ namespace mwmp
             }
 
             if (serverCell != nullptr && serverCell->hasAuthority(actorList.guid))
-                Script::Call<Script::CallbackIdentity("OnActorTest")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorEvent("OnActorTest", player.getId(), actorList.cell.getDescription().c_str());
         }
     };
 }

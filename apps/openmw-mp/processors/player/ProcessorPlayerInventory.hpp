@@ -29,7 +29,7 @@ namespace mwmp
                 return;
             }
 
-            Script::Call<Script::CallbackIdentity("OnPlayerInventory")>(player.getId());
+            ServerEvents::playerEvent("OnPlayerInventory", player.getId());
         }
     };
 }

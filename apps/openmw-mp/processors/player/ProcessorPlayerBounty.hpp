@@ -15,7 +15,7 @@ namespace mwmp
 
         void Do(PlayerPacket &packet, Player &player) override
         {
-            Script::Call<Script::CallbackIdentity("OnPlayerBounty")>(player.getId());
+            ServerEvents::playerEvent("OnPlayerBounty", player.getId());
         }
     };
 }

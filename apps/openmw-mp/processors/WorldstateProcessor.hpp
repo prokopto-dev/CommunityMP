@@ -6,6 +6,7 @@
 #include <components/openmw-mp/Packets/Worldstate/WorldstatePacket.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include "Player.hpp"
+#include "ServerEventDispatcher.hpp"
 
 namespace mwmp
 {

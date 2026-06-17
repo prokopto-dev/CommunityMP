@@ -23,6 +23,8 @@ namespace mwmp::ServerEvents
     void cellUnload(unsigned short playerId, const char* cellDescription);
     void cellDeletion(const char* cellDescription);
 
+    void playerEvent(const char* eventName, unsigned short playerId);
+    void actorEvent(const char* eventName, unsigned short playerId, const char* cellDescription);
     void objectEvent(const char* eventName, unsigned short playerId, const char* cellDescription);
 }
 

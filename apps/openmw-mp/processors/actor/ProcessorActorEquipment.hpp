@@ -26,7 +26,7 @@ namespace mwmp
 
                 serverCell->readActorList(packetID, &actorList);
 
-                Script::Call<Script::CallbackIdentity("OnActorEquipment")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorEvent("OnActorEquipment", player.getId(), actorList.cell.getDescription().c_str());
 
                 serverCell->sendToLoaded(&packet, &actorList);
             }

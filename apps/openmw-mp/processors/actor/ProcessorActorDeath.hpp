@@ -25,7 +25,7 @@ namespace mwmp
                     return;
 
                 serverCell->readActorList(packetID, &actorList);
-                Script::Call<Script::CallbackIdentity("OnActorDeath")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorEvent("OnActorDeath", player.getId(), actorList.cell.getDescription().c_str());
 
                 serverCell->sendToLoaded(&packet, &actorList);
             }

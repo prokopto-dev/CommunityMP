@@ -5,6 +5,7 @@
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include "Player.hpp"
+#include "ServerEventDispatcher.hpp"
 
 namespace mwmp
 {
