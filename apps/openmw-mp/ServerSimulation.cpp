@@ -268,22 +268,118 @@ namespace
             || observation.cellName == cell.mName;
     }
 
-    bool freshLuaObservationConfirmsCell(const Player& player, const ESM::Cell& cell)
+    enum class LuaObservationCellStatus
     {
-        const std::optional<mwmp::CommunityMpPlayerObservation> observation
-            = mwmp::CommunityMpClientLuaEventHandler::getLatestLocationObservation(player.guid);
-        if (!observation)
-            return false;
+        Confirmed,
+        Missing,
+        WrongKind,
+        Stale,
+        Mismatch,
+    };
 
-        if (observation->kind != "cell_changed" && observation->kind != "teleported")
-            return false;
+    struct LuaObservationCellCheck
+    {
+        LuaObservationCellStatus status = LuaObservationCellStatus::Missing;
+        std::optional<mwmp::CommunityMpPlayerObservation> observation;
+        double ageSeconds = 0.0;
+    };
+
+    const char* luaObservationCellStatusName(LuaObservationCellStatus status)
+    {
+        switch (status)
+        {
+            case LuaObservationCellStatus::Confirmed:
+                return "confirmed";
+            case LuaObservationCellStatus::Missing:
+                return "missing";
+            case LuaObservationCellStatus::WrongKind:
+                return "wrong-kind";
+            case LuaObservationCellStatus::Stale:
+                return "stale";
+            case LuaObservationCellStatus::Mismatch:
+                return "mismatch";
+        }
+
+        return "unknown";
+    }
+
+    std::string describeLuaObservationCell(const mwmp::CommunityMpPlayerObservation& observation)
+    {
+        if (observation.isExterior)
+        {
+            if (observation.hasGrid)
+            {
+                return "exterior grid (" + std::to_string(static_cast<int>(std::lround(observation.gridX)))
+                    + ", " + std::to_string(static_cast<int>(std::lround(observation.gridY)))
+                    + ") key=" + observation.cellKey;
+            }
+
+            return "exterior key=" + observation.cellKey;
+        }
+
+        return "interior key=" + observation.cellKey + " id=" + observation.cellId
+            + " name=" + observation.cellName;
+    }
+
+    LuaObservationCellCheck checkFreshLuaObservationCell(const Player& player, const ESM::Cell& cell)
+    {
+        LuaObservationCellCheck check;
+        check.observation
+            = mwmp::CommunityMpClientLuaEventHandler::getLatestLocationObservation(player.guid);
+        if (!check.observation)
+            return check;
+
+        if (check.observation->kind != "cell_changed" && check.observation->kind != "teleported")
+        {
+            check.status = LuaObservationCellStatus::WrongKind;
+            return check;
+        }
 
         const auto now = std::chrono::steady_clock::now();
-        if (observation->receivedAt == std::chrono::steady_clock::time_point()
-            || now - observation->receivedAt > luaObservationFreshnessWindow)
-            return false;
+        if (check.observation->receivedAt != std::chrono::steady_clock::time_point())
+            check.ageSeconds = std::chrono::duration<double>(now - check.observation->receivedAt).count();
 
-        return observationMatchesCell(*observation, cell);
+        if (check.observation->receivedAt == std::chrono::steady_clock::time_point()
+            || now - check.observation->receivedAt > luaObservationFreshnessWindow)
+        {
+            check.status = LuaObservationCellStatus::Stale;
+            return check;
+        }
+
+        if (!observationMatchesCell(*check.observation, cell))
+        {
+            check.status = LuaObservationCellStatus::Mismatch;
+            return check;
+        }
+
+        check.status = LuaObservationCellStatus::Confirmed;
+        return check;
+    }
+
+    bool luaObservationConfirmsCell(const LuaObservationCellCheck& check)
+    {
+        return check.status == LuaObservationCellStatus::Confirmed;
+    }
+
+    void logLuaObservationCellCheckFailure(
+        const Player& player, const ESM::Cell& attemptedCell, const LuaObservationCellCheck& check)
+    {
+        if (check.observation)
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "OpenMW Lua observation did not confirm cell change for %s to %s: status=%s kind=%s age=%.3fs "
+                "observed=%s expectedKey=%s",
+                player.npc.mName.c_str(), attemptedCell.getDescription().c_str(),
+                luaObservationCellStatusName(check.status), check.observation->kind.c_str(), check.ageSeconds,
+                describeLuaObservationCell(*check.observation).c_str(), getCellSimulationKey(attemptedCell).c_str());
+        }
+        else
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "OpenMW Lua observation did not confirm cell change for %s to %s: status=%s expectedKey=%s",
+                player.npc.mName.c_str(), attemptedCell.getDescription().c_str(),
+                luaObservationCellStatusName(check.status), getCellSimulationKey(attemptedCell).c_str());
+        }
     }
 
     std::uint32_t mixWanderHash(std::uint32_t hash, std::uint32_t value)
@@ -1901,14 +1997,17 @@ namespace mwmp
 
         if (hasPreviousAcceptedCell && !isCellChangePlausibleFromAcceptedState(player, previousAcceptedCell))
         {
-            if (freshLuaObservationConfirmsCell(player, player.cell))
+            const LuaObservationCellCheck luaObservationCheck = checkFreshLuaObservationCell(player, player.cell);
+            if (luaObservationConfirmsCell(luaObservationCheck))
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                    "Accepting cell change for %s to %s using fresh OpenMW Lua observation",
-                    player.npc.mName.c_str(), player.cell.getDescription().c_str());
+                    "Accepting cell change for %s to %s using fresh OpenMW Lua observation: observed=%s",
+                    player.npc.mName.c_str(), player.cell.getDescription().c_str(),
+                    describeLuaObservationCell(*luaObservationCheck.observation).c_str());
             }
             else
             {
+                logLuaObservationCellCheckFailure(player, player.cell, luaObservationCheck);
                 sendAcceptedPlayerCellCorrection(player, packet, previousAcceptedCell);
                 return false;
             }
