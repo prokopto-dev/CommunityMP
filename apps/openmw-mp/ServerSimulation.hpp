@@ -118,6 +118,10 @@ namespace mwmp
         PacketGuid refreshShadowCellAuthority(const std::string& cellDescription, ShadowCellAuthorityState& state,
             const char* reason, PacketGuid preferredGuid = unassignedPacketGuid(),
             PacketGuid excludedGuid = unassignedPacketGuid());
+        void sendShadowCellAuthorityEvent(Player& player, const std::string& cellDescription,
+            const ShadowCellAuthorityState& state) const;
+        void broadcastShadowCellAuthorityEvent(
+            const std::string& cellDescription, const ShadowCellAuthorityState& state) const;
         void tickActors(float deltaSeconds);
     };
 }

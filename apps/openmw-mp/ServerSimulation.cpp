@@ -4,6 +4,7 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "Cell.hpp"
 #include "CellController.hpp"
 #include "CommunityMpClientLuaEventHandler.hpp"
+#include "CommunityMpLuaEventSender.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
@@ -75,6 +77,63 @@ namespace
         }
 
         return mwmp::packetGuidToString(guid);
+    }
+
+    void appendJsonString(std::string& result, std::string_view value)
+    {
+        constexpr char hex[] = "0123456789abcdef";
+
+        result.push_back('"');
+        for (const unsigned char c : value)
+        {
+            switch (c)
+            {
+                case '"':
+                    result += "\\\"";
+                    break;
+                case '\\':
+                    result += "\\\\";
+                    break;
+                case '\b':
+                    result += "\\b";
+                    break;
+                case '\f':
+                    result += "\\f";
+                    break;
+                case '\n':
+                    result += "\\n";
+                    break;
+                case '\r':
+                    result += "\\r";
+                    break;
+                case '\t':
+                    result += "\\t";
+                    break;
+                default:
+                    if (c < 0x20)
+                    {
+                        result += "\\u00";
+                        result.push_back(hex[(c >> 4) & 0x0f]);
+                        result.push_back(hex[c & 0x0f]);
+                    }
+                    else
+                        result.push_back(static_cast<char>(c));
+            }
+        }
+        result.push_back('"');
+    }
+
+    std::string jsonString(std::string_view value)
+    {
+        std::string result;
+        result.reserve(value.size() + 2);
+        appendJsonString(result, value);
+        return result;
+    }
+
+    const char* jsonBool(bool value)
+    {
+        return value ? "true" : "false";
     }
 
     std::string shadowAuthorityAuditName(std::optional<mwmp::PacketGuid> guid)
@@ -1340,6 +1399,8 @@ namespace mwmp
 
             if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
                 refreshShadowCellAuthority(it->first, state, "current authority disconnected", unassignedPacketGuid(), guid);
+            else
+                broadcastShadowCellAuthorityEvent(it->first, state);
 
             ++it;
         }
@@ -1373,6 +1434,8 @@ namespace mwmp
             const PacketGuid preferredGuid = hadVisitors ? mwmp::unassignedPacketGuid() : player->guid;
             refreshShadowCellAuthority(cellDescription, state, "cell authority was missing or stale", preferredGuid);
         }
+        else if (!wasVisitor)
+            sendShadowCellAuthorityEvent(*player, cellDescription, state);
     }
 
     void ServerSimulation::noteCellUnloadedByPlayer(unsigned short playerId, std::string cellDescription)
@@ -1402,6 +1465,8 @@ namespace mwmp
 
         if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
             refreshShadowCellAuthority(cellDescription, state, "current authority left", unassignedPacketGuid(), player->guid);
+        else
+            broadcastShadowCellAuthorityEvent(cellDescription, state);
     }
 
     void ServerSimulation::auditShadowCellAuthority(const std::string& cellDescription, const char* context) const
@@ -1511,7 +1576,10 @@ namespace mwmp
     {
         if (canAuthoritativelySimulateActors())
         {
+            const bool wasAssigned = mwmp::isPacketGuidAssigned(state.authority);
             state.authority = mwmp::unassignedPacketGuid();
+            if (wasAssigned)
+                broadcastShadowCellAuthorityEvent(cellDescription, state);
             return state.authority;
         }
 
@@ -1530,10 +1598,12 @@ namespace mwmp
                     cellDescription.c_str());
             }
             state.authority = mwmp::unassignedPacketGuid();
+            broadcastShadowCellAuthorityEvent(cellDescription, state);
             return state.authority;
         }
 
-        if (state.authority != newAuthority)
+        const bool authorityChanged = state.authority != newAuthority;
+        if (authorityChanged)
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                 "Assigning C++ shadow authority of cell %s to %s because %s",
@@ -1542,7 +1612,58 @@ namespace mwmp
         }
 
         state.authority = newAuthority;
+        if (authorityChanged)
+            broadcastShadowCellAuthorityEvent(cellDescription, state);
         return state.authority;
+    }
+
+    void ServerSimulation::sendShadowCellAuthorityEvent(Player& player, const std::string& cellDescription,
+        const ShadowCellAuthorityState& state) const
+    {
+        if (!player.isHandshaked() || player.getLoadState() != Player::POSTLOADED)
+            return;
+
+        const bool hasAuthority = mwmp::isPacketGuidAssigned(state.authority);
+        const bool isAuthority = hasAuthority && state.authority == player.guid;
+        const std::string authorityGuid = hasAuthority ? mwmp::packetGuidToString(state.authority) : "";
+        const std::string authorityName = hasAuthority ? shadowAuthorityName(state.authority) : "";
+
+        std::string payload;
+        payload.reserve(192 + cellDescription.size() + authorityGuid.size() + authorityName.size());
+        payload += "{\"schema\":";
+        payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
+        payload += ",\"kind\":\"cell_authority\",\"cellDescription\":";
+        payload += jsonString(cellDescription);
+        payload += ",\"authorityGuid\":";
+        payload += jsonString(authorityGuid);
+        payload += ",\"authorityName\":";
+        payload += jsonString(authorityName);
+        payload += ",\"isAuthority\":";
+        payload += jsonBool(isAuthority);
+        payload += ",\"visitorCount\":";
+        payload += std::to_string(state.visitors.size());
+        payload += ",\"serverActorAuthority\":";
+        payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += "}";
+
+        if (!CommunityMpLuaEventSender::sendToPlayer(
+                player, "communitymp.server", "cell_authority", std::move(payload)))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Failed to send C++ shadow authority event for cell %s to %s",
+                cellDescription.c_str(), player.npc.mName.c_str());
+        }
+    }
+
+    void ServerSimulation::broadcastShadowCellAuthorityEvent(
+        const std::string& cellDescription, const ShadowCellAuthorityState& state) const
+    {
+        for (PacketGuid visitorGuid : state.visitors)
+        {
+            Player* visitor = Players::getPlayer(visitorGuid);
+            if (visitor != nullptr)
+                sendShadowCellAuthorityEvent(*visitor, cellDescription, state);
+        }
     }
 
     bool ServerSimulation::acceptServerAuthoredPlayerState(Player& player, bool cellChangePacket)

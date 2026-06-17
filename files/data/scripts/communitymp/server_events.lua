@@ -9,6 +9,19 @@ end
 
 local allServerEventHandlers = {}
 local serverEventHandlersByName = {}
+local cellAuthorityByDescription = {}
+
+local function shallowCopy(value)
+    if type(value) ~= 'table' then
+        return value
+    end
+
+    local copy = {}
+    for key, entry in pairs(value) do
+        copy[key] = entry
+    end
+    return copy
+end
 
 local function addHandler(handlers, handler)
     if type(handler) ~= 'function' then
@@ -60,6 +73,13 @@ end
 local function dispatchServerEvent(event)
     decodePayload(event)
 
+    if event.serverEventName == 'cell_authority' and type(event.decodedPayload) == 'table' then
+        local cellDescription = event.decodedPayload.cellDescription
+        if type(cellDescription) == 'string' and cellDescription ~= '' then
+            cellAuthorityByDescription[cellDescription] = shallowCopy(event.decodedPayload)
+        end
+    end
+
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
     if not stop then
         auxUtil.callEventHandlers(allServerEventHandlers, event)
@@ -80,6 +100,13 @@ return {
         version = 1,
         addServerEventHandler = addServerEventHandler,
         addServerEventHandlerForName = addServerEventHandlerForName,
+        getCellAuthority = function(cellDescription)
+            return shallowCopy(cellAuthorityByDescription[cellDescription])
+        end,
+        isLocalCellAuthority = function(cellDescription)
+            local state = cellAuthorityByDescription[cellDescription]
+            return state ~= nil and state.isAuthority == true
+        end,
     },
     engineHandlers = {
         onUpdate = function()
