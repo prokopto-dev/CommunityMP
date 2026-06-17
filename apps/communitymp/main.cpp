@@ -221,7 +221,7 @@ namespace
         printLine(COMMUNITYMP_TEXT("Launcher options:"));
         printLine(COMMUNITYMP_TEXT("  --external-client           Run client mode using communitymp-client child process."));
         printLine(COMMUNITYMP_TEXT("  --external-server          Run server mode using communitymp-server child process."));
-        printLine(COMMUNITYMP_TEXT("  --print-target              Print the resolved child executable and exit."));
+        printLine(COMMUNITYMP_TEXT("  --print-target              Print the resolved mode invocation and exit."));
         printLine(COMMUNITYMP_TEXT("  --help                      Show this help."));
         printLine(COMMUNITYMP_TEXT(""));
         printLine(COMMUNITYMP_TEXT("Client and server modes run in-process by default."));
@@ -357,6 +357,33 @@ namespace
         identity = toLower(std::move(identity));
 #endif
         return toHex(hashNativeString(identity));
+    }
+
+    NativeString quotePrintableArgument(const NativeString& argument)
+    {
+        if (argument.empty())
+            return COMMUNITYMP_TEXT("\"\"");
+
+        if (argument.find_first_of(COMMUNITYMP_TEXT(" \t\n\v\"")) == NativeString::npos)
+            return argument;
+
+        NativeString result;
+        result.push_back(COMMUNITYMP_TEXT('"'));
+        for (const NativeChar c : argument)
+        {
+            if (c == COMMUNITYMP_TEXT('"'))
+                result.push_back(COMMUNITYMP_TEXT('\\'));
+            result.push_back(c);
+        }
+        result.push_back(COMMUNITYMP_TEXT('"'));
+        return result;
+    }
+
+    NativeString getInProcessInvocation(const std::filesystem::path& executablePath, Mode mode)
+    {
+        NativeString invocation = quotePrintableArgument(pathToNativeString(executablePath));
+        invocation += mode == Mode::Server ? COMMUNITYMP_TEXT(" --server") : COMMUNITYMP_TEXT(" --client");
+        return invocation;
     }
 
     class ModeLock
@@ -672,15 +699,16 @@ int main(int argc, char** argv)
             return 0;
         }
 
+        const bool runExternalChild = (arguments.mMode == Mode::Client && arguments.mExternalClient)
+            || (arguments.mMode == Mode::Server && arguments.mExternalServer);
+
         const std::filesystem::path targetPath = getTargetPath(executableDirectory, arguments.mMode);
         if (arguments.mPrintTarget)
         {
-            printLine(pathToNativeString(targetPath));
+            printLine(runExternalChild ? pathToNativeString(targetPath)
+                                       : getInProcessInvocation(executablePath, arguments.mMode));
             return 0;
         }
-
-        const bool runExternalChild = (arguments.mMode == Mode::Client && arguments.mExternalClient)
-            || (arguments.mMode == Mode::Server && arguments.mExternalServer);
 
         if (runExternalChild && !std::filesystem::exists(targetPath))
         {
