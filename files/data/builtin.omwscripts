@@ -30,6 +30,7 @@ NPC,CREATURE,PLAYER: scripts/omw/combat/interface.lua
 PLAYER: scripts/omw/ui.lua
 
 # CommunityMP bridge
+PLAYER: scripts/communitymp/chargen_release.lua
 PLAYER: scripts/communitymp/player_observer.lua
 PLAYER: scripts/communitymp/server_events.lua
 

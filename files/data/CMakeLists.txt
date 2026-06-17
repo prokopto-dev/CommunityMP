@@ -166,6 +166,9 @@ set(BUILTIN_DATA_FILES
     scripts/omw/input/actionbindings.lua
     scripts/omw/input/smoothmovement.lua
     scripts/omw/input/gamepadcontrols.lua
+    scripts/communitymp/chargen_release.lua
+    scripts/communitymp/player_observer.lua
+    scripts/communitymp/server_events.lua
     
     shaders/adjustments.omwfx
     shaders/bloomlinear.omwfx
