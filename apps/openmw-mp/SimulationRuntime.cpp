@@ -1,6 +1,14 @@
 #include "SimulationRuntime.hpp"
 
+#include <limits>
+#include <string>
+#include <string_view>
 #include <utility>
+
+#include <components/openmw-mp/Base/BasePlayer.hpp>
+
+#include "CommunityMpLuaEventSender.hpp"
+#include "Player.hpp"
 
 namespace
 {
@@ -16,6 +24,137 @@ namespace
         }
 
         return "unknown";
+    }
+
+    bool startsWith(std::string_view value, std::string_view prefix)
+    {
+        return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+    }
+
+    bool isPlayerScopedServerEvent(std::string_view eventName)
+    {
+        return startsWith(eventName, "OnPlayer")
+            || startsWith(eventName, "OnActor")
+            || startsWith(eventName, "OnObject")
+            || startsWith(eventName, "OnDoor")
+            || eventName == "OnGUIAction"
+            || eventName == "OnCellLoad"
+            || eventName == "OnCellUnload"
+            || eventName == "OnClientScriptGlobal"
+            || eventName == "OnClientScriptLocal"
+            || eventName == "OnConsoleCommand"
+            || eventName == "OnContainer"
+            || eventName == "OnRecordDynamic"
+            || eventName == "OnVideoPlay"
+            || eventName == "OnWorldKillCount"
+            || eventName == "OnWorldMap"
+            || eventName == "OnWorldWeather";
+    }
+
+    void appendJsonString(std::string& result, std::string_view value)
+    {
+        constexpr char hex[] = "0123456789abcdef";
+
+        result.push_back('"');
+        for (const unsigned char c : value)
+        {
+            switch (c)
+            {
+                case '"':
+                    result += "\\\"";
+                    break;
+                case '\\':
+                    result += "\\\\";
+                    break;
+                case '\b':
+                    result += "\\b";
+                    break;
+                case '\f':
+                    result += "\\f";
+                    break;
+                case '\n':
+                    result += "\\n";
+                    break;
+                case '\r':
+                    result += "\\r";
+                    break;
+                case '\t':
+                    result += "\\t";
+                    break;
+                default:
+                    if (c < 0x20)
+                    {
+                        result += "\\u00";
+                        result.push_back(hex[(c >> 4) & 0x0f]);
+                        result.push_back(hex[c & 0x0f]);
+                    }
+                    else
+                        result.push_back(static_cast<char>(c));
+            }
+        }
+        result.push_back('"');
+    }
+
+    void appendJsonArgument(std::string& result, const mwmp::SimulationRuntimeEventArgument& argument)
+    {
+        switch (argument.type)
+        {
+            case mwmp::SimulationRuntimeEventArgument::Type::Boolean:
+                result += argument.booleanValue ? "true" : "false";
+                break;
+            case mwmp::SimulationRuntimeEventArgument::Type::Integer:
+                result += std::to_string(argument.integerValue);
+                break;
+            case mwmp::SimulationRuntimeEventArgument::Type::String:
+                appendJsonString(result, argument.stringValue);
+                break;
+        }
+    }
+
+    std::string makeServerEventPayload(
+        std::string_view eventName, const mwmp::SimulationRuntimeEventArguments& arguments)
+    {
+        std::string payload;
+        payload.reserve(64 + eventName.size());
+        payload += "{\"schema\":1,\"eventName\":";
+        appendJsonString(payload, eventName);
+        payload += ",\"arguments\":[";
+
+        bool first = true;
+        for (const mwmp::SimulationRuntimeEventArgument& argument : arguments)
+        {
+            if (!first)
+                payload.push_back(',');
+            first = false;
+            appendJsonArgument(payload, argument);
+        }
+
+        payload += "]}";
+        return payload;
+    }
+
+    void mirrorPlayerScopedServerEvent(
+        std::string_view eventName, const mwmp::SimulationRuntimeEventArguments& arguments)
+    {
+        if (!isPlayerScopedServerEvent(eventName)
+            || arguments.empty()
+            || arguments.front().type != mwmp::SimulationRuntimeEventArgument::Type::Integer)
+            return;
+
+        const int playerId = arguments.front().integerValue;
+        if (playerId < 0 || playerId > std::numeric_limits<unsigned short>::max())
+            return;
+
+        Player* player = Players::getPlayer(static_cast<unsigned short>(playerId));
+        if (player == nullptr || !player->isHandshaked() || player->getLoadState() != Player::POSTLOADED)
+            return;
+
+        std::string payload = makeServerEventPayload(eventName, arguments);
+        if (payload.size() > mwmp::clientLuaEventMaxPayloadLength)
+            return;
+
+        static_cast<void>(mwmp::CommunityMpLuaEventSender::sendToPlayer(
+            *player, "communitymp.server", std::string(eventName), std::move(payload)));
     }
 
     mwmp::SimulationRuntimeCapabilities packetMirrorCapabilities()
@@ -117,8 +256,10 @@ namespace mwmp
     bool SimulationRuntime::dispatchServerEvent(
         std::string_view eventName, const SimulationRuntimeEventArguments& arguments)
     {
-        static_cast<void>(eventName);
-        static_cast<void>(arguments);
+        mirrorPlayerScopedServerEvent(eventName, arguments);
+
+        // This mirror is a migration bridge for the OpenMW LuaJIT side, not a
+        // claim that the runtime fully handled the old server Lua callback.
         return false;
     }
 
