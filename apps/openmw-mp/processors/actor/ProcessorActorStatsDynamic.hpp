@@ -3,6 +3,7 @@
 
 #include "../ActorProcessor.hpp"
 #include "ActorSequenceCoalescing.hpp"
+#include "apps/openmw-mp/ServerEventDispatcher.hpp"
 
 namespace mwmp
 {
@@ -25,7 +26,7 @@ namespace mwmp
                     return;
 
                 serverCell->readActorList(packetID, &actorList);
-                Script::Call<Script::CallbackIdentity("OnActorStatsDynamic")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorStatsDynamic(player.getId(), actorList.cell.getDescription().c_str());
                 serverCell->sendToLoaded(&packet, &actorList);
 
                 // Echo the normalized server-accepted stats back to the authority

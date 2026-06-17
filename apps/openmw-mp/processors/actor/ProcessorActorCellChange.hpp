@@ -3,6 +3,7 @@
 
 #include "../ActorProcessor.hpp"
 #include "ActorSequenceCoalescing.hpp"
+#include "apps/openmw-mp/ServerEventDispatcher.hpp"
 
 #include <cstdlib>
 
@@ -93,7 +94,7 @@ namespace mwmp
 
             if (isAccepted)
             {
-                Script::Call<Script::CallbackIdentity("OnActorCellChange")>(player.getId(), actorList.cell.getDescription().c_str());
+                ServerEvents::actorCellChange(player.getId(), actorList.cell.getDescription().c_str());
 
                 sendCellChangeToLoaded(packet, actorList);
             }

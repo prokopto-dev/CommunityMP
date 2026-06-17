@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERSTATS_DYNAMIC_HPP
 
 #include "../PlayerProcessor.hpp"
+#include "apps/openmw-mp/ServerEventDispatcher.hpp"
 
 namespace mwmp
 {
@@ -31,7 +32,7 @@ namespace mwmp
 
             player.sendToLoaded(&packet);
 
-            Script::Call<Script::CallbackIdentity("OnPlayerStatsDynamic")>(player.getId());
+            ServerEvents::playerStatsDynamic(player.getId());
         }
     };
 }

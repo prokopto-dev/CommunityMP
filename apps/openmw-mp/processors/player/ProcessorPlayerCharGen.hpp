@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERCHARGEN_HPP
 
 #include "../PlayerProcessor.hpp"
+#include "apps/openmw-mp/ServerEventDispatcher.hpp"
 
 namespace mwmp
 {
@@ -18,7 +19,7 @@ namespace mwmp
             DEBUG_PRINTF(strPacketID.c_str());
 
             if (player.charGenState.currentStage == player.charGenState.endStage)
-                Script::Call<Script::CallbackIdentity("OnPlayerEndCharGen")>(player.getId());
+                ServerEvents::playerEndCharGen(player.getId());
         }
     };
 }

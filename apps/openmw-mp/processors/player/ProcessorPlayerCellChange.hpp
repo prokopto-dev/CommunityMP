@@ -2,9 +2,9 @@
 #define OPENMW_PROCESSORPLAYERCELLCHANGE_HPP
 
 #include "../PlayerProcessor.hpp"
+#include "apps/openmw-mp/ServerEventDispatcher.hpp"
 #include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/ServerSimulation.hpp"
-#include "apps/openmw-mp/Script/Script.hpp"
 #include <components/openmw-mp/Controllers/PlayerPacketController.hpp>
 
 namespace mwmp
@@ -27,7 +27,7 @@ namespace mwmp
             if (!ServerNetworking::getPtr()->getServerSimulation().acceptPlayerCellChange(player, packet))
                 return;
 
-            Script::Call<Script::CallbackIdentity("OnPlayerCellChange")>(player.getId());
+            ServerEvents::playerCellChange(player.getId());
 
             const bool previousPlayerExchangeFullInfo = player.exchangeFullInfo;
             player.exchangeFullInfo = true;

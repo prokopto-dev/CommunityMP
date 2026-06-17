@@ -16,6 +16,7 @@
 #include "Script/Script.hpp"
 #include "Cell.hpp"
 #include "CellController.hpp"
+#include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
 #include "processors/ActorProcessor.hpp"
@@ -898,7 +899,7 @@ namespace
     {
         const std::string sourceCellDescription = actorList.cell.getDescription();
         ScopedReceivedActorList receivedActorList(actorList);
-        Script::Call<Script::CallbackIdentity("OnActorCellChange")>(player.getId(), sourceCellDescription.c_str());
+        mwmp::ServerEvents::actorCellChange(player.getId(), sourceCellDescription.c_str());
     }
 
     void moveFollowingActorsAcrossPlayerCellChange(Player& player, const ESM::Cell& sourceCellData)
@@ -1071,18 +1072,17 @@ namespace
 
     void notifyPlayerDeath(Player& target)
     {
-        Script::Call<Script::CallbackIdentity("OnPlayerDeath")>(target.getId());
+        mwmp::ServerEvents::playerDeath(target.getId());
     }
 
     void notifyPlayerStatsDynamic(Player& target)
     {
-        Script::Call<Script::CallbackIdentity("OnPlayerStatsDynamic")>(target.getId());
+        mwmp::ServerEvents::playerStatsDynamic(target.getId());
     }
 
     void notifyActorStatsDynamic(Player& source, Cell& cell)
     {
-        Script::Call<Script::CallbackIdentity("OnActorStatsDynamic")>(
-            source.getId(), cell.getCellData().getDescription().c_str());
+        mwmp::ServerEvents::actorStatsDynamic(source.getId(), cell.getCellData().getDescription().c_str());
     }
 }
 

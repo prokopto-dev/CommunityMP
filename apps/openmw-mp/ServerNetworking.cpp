@@ -228,7 +228,7 @@ void ServerNetworking::processLoadedPlayer(Player* player)
     player->setLoadState(Player::LOADED);
 
     unsigned short pid = player->getId();
-    Script::Call<Script::CallbackIdentity("OnPlayerConnect")>(pid);
+    mwmp::ServerEvents::playerConnect(pid);
 
     if (player->getLoadState() == Player::KICKED)
     {
@@ -296,7 +296,7 @@ void ServerNetworking::processPlayerPacket(ReceivedPacket* packet)
             player->npc.mHair.serializeText().c_str(),
             player->birthsign.c_str());
         if (player->getLoadState() == Player::POSTLOADED)
-            Script::Call<Script::CallbackIdentity("OnPlayerBaseInfo")>(player->getId());
+            mwmp::ServerEvents::playerBaseInfo(player->getId());
         myPacket->Send(true);
         return;
     }
@@ -537,7 +537,7 @@ void ServerNetworking::disconnectPlayer(PacketGuid guid)
     Player *player = Players::getPlayer(guid);
     if (!player)
         return;
-    Script::Call<Script::CallbackIdentity("OnPlayerDisconnect")>(player->getId());
+    mwmp::ServerEvents::playerDisconnect(player->getId());
 
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->setPlayer(player);
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->Send(true);
@@ -599,7 +599,7 @@ void ServerNetworking::setCurrentMpNum(int value)
 int ServerNetworking::incrementMpNum()
 {
     currentMpNum++;
-    Script::Call<Script::CallbackIdentity("OnMpNumIncrement")>(currentMpNum);
+    mwmp::ServerEvents::mpNumIncrement(currentMpNum);
     return currentMpNum;
 }
 

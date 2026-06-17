@@ -3,6 +3,7 @@
 
 #include "../PlayerProcessor.hpp"
 #include "PlayerMovementSnapshot.hpp"
+#include "apps/openmw-mp/ServerEventDispatcher.hpp"
 #include "apps/openmw-mp/ServerNetworking.hpp"
 #include <components/openmw-mp/Utils.hpp>
 #include <chrono>
@@ -58,7 +59,7 @@ namespace mwmp
 
             player.sendToLoaded(&packet);
 
-            Script::Call<Script::CallbackIdentity("OnPlayerDeath")>(player.getId());
+            ServerEvents::playerDeath(player.getId());
         }
     };
 }
