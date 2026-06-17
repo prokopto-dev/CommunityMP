@@ -150,16 +150,17 @@ void CellController::removeCell(Cell *cell)
 
 void CellController::deletePlayer(Player *player)
 {
+    if (player == nullptr)
+        return;
+
     LOG_APPEND(TimedLog::LOG_INFO, "- Iterating through Cells from Player %s", player->npc.mName.c_str());
 
     std::vector<Cell*> toDelete;
+    CellController::TContainer loadedCells = *player->getCells();
+    player->getCells()->clear();
 
-    auto it = player->getCells()->begin();
-    const auto endIter = player->getCells()->end();
-
-    for (; it != endIter; ++it)
+    for (Cell *c : loadedCells)
     {
-        Cell *c = *it;
         if (c == nullptr)
             continue;
 

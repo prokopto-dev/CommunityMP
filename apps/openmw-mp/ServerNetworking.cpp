@@ -540,9 +540,12 @@ void ServerNetworking::disconnectPlayer(PacketGuid guid)
         return;
     mwmp::ServerEvents::playerDisconnect(player->getId());
 
+    player->setLoadState(Player::KICKED);
+    serverSimulation->removePlayer(guid);
+    CellController::get()->deletePlayer(player);
+
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->setPlayer(player);
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->Send(true);
-    serverSimulation->removePlayer(guid);
     CommunityMpClientLuaEventHandler::clearPlayer(guid);
     CommunityMpLuaEventSender::clearPlayer(guid);
     Players::deletePlayer(guid);
