@@ -19,6 +19,9 @@
 -- @field [parent=#interfaces] scripts.omw.combat.interface#scripts.omw.combat.interface Combat
 
 ---
+-- @field [parent=#interfaces] scripts.communitymp.server_events#scripts.communitymp.server_events CommunityMP
+
+---
 -- @field [parent=#interfaces] scripts.omw.mwui.init#scripts.omw.mwui.init MWUI
 
 ---
