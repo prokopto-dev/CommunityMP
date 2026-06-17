@@ -166,6 +166,14 @@ namespace
         return nullptr;
     }
 
+    std::string getLuaCellKey(const ESM::Cell& cell)
+    {
+        if (cell.isExterior())
+            return "exterior::" + std::to_string(cell.mData.mX) + ":" + std::to_string(cell.mData.mY);
+
+        return "interior:" + cell.mName;
+    }
+
     float squaredHorizontalLength(float x, float y)
     {
         return x * x + y * y;
@@ -1627,13 +1635,21 @@ namespace mwmp
         const bool isAuthority = hasAuthority && state.authority == player.guid;
         const std::string authorityGuid = hasAuthority ? mwmp::packetGuidToString(state.authority) : "";
         const std::string authorityName = hasAuthority ? shadowAuthorityName(state.authority) : "";
+        const Cell* serverCell = findLoadedServerCellByDescription(cellDescription);
+        const std::string cellKey = serverCell != nullptr ? getLuaCellKey(serverCell->getCellData()) : "";
+        const std::string serverCellKey = serverCell != nullptr ? getCellSimulationKey(serverCell->getCellData()) : "";
 
         std::string payload;
-        payload.reserve(192 + cellDescription.size() + authorityGuid.size() + authorityName.size());
+        payload.reserve(240 + cellDescription.size() + cellKey.size() + serverCellKey.size()
+            + authorityGuid.size() + authorityName.size());
         payload += "{\"schema\":";
         payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
         payload += ",\"kind\":\"cell_authority\",\"cellDescription\":";
         payload += jsonString(cellDescription);
+        payload += ",\"cellKey\":";
+        payload += jsonString(cellKey);
+        payload += ",\"serverCellKey\":";
+        payload += jsonString(serverCellKey);
         payload += ",\"authorityGuid\":";
         payload += jsonString(authorityGuid);
         payload += ",\"authorityName\":";
