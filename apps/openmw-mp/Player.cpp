@@ -1,14 +1,64 @@
 #include "Player.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 #include <algorithm>
 #include <limits>
+#include <list>
 
 TPlayers Players::players;
 TSlots Players::slots;
 std::mutex Players::mutex;
+
+namespace
+{
+    float estimateOneWayLatencySeconds(mwmp::PacketGuid guid)
+    {
+        // Keep replicated movement snapshots conservative. Client-side
+        // interpolation should smooth accepted state; server-injected route
+        // latency made mixed-refresh clients over-predict and desync.
+        static_cast<void>(guid);
+        return 0.f;
+    }
+
+    float estimateRouteLatencySeconds(mwmp::PacketGuid sourceGuid, mwmp::PacketGuid destinationGuid)
+    {
+        return mwmp::sanitizeMovementLatencySeconds(
+            estimateOneWayLatencySeconds(sourceGuid) + estimateOneWayLatencySeconds(destinationGuid));
+    }
+
+    void appendCellPlayers(std::list<Player*>& players, Cell* cell)
+    {
+        if (cell == nullptr)
+            return;
+
+        for (Player* player : *cell)
+        {
+            if (player != nullptr && !player->npc.mName.empty())
+                players.push_back(player);
+        }
+    }
+
+    void sendToUniquePlayers(Player& sender, mwmp::PlayerPacket* packet, std::list<Player*>& players,
+        mwmp::PacketReliability reliability)
+    {
+        players.sort();
+        players.unique();
+
+        const float originalLatencySeconds = sender.movementLatencySeconds;
+        for (Player* player : players)
+        {
+            if (player == nullptr || player == &sender)
+                continue;
+
+            sender.movementLatencySeconds = estimateRouteLatencySeconds(sender.guid, player->guid);
+            packet->setPlayer(&sender);
+            packet->SendWithReliability(player->guid, reliability);
+        }
+        sender.movementLatencySeconds = originalLatencySeconds;
+    }
+}
 
 void Players::deletePlayer(mwmp::PacketGuid guid)
 {
@@ -53,7 +103,7 @@ void Players::newPlayer(mwmp::PacketGuid guid)
     std::lock_guard lock(mutex);
     players[guid] = player;
     const unsigned int maxConnections = std::min<unsigned int>(
-        mwmp::Networking::get().maxConnections(), std::numeric_limits<unsigned short>::max());
+        mwmp::ServerNetworking::get().maxConnections(), std::numeric_limits<unsigned short>::max());
     for (unsigned short i = 0; i < maxConnections; i++)
     {
         if (slots[i] == 0)
@@ -202,6 +252,31 @@ CellController::TContainer *Player::getCells()
     return &cells;
 }
 
+void Player::sendToGuid(mwmp::PlayerPacket *myPacket, mwmp::PacketGuid targetGuid)
+{
+    if (targetGuid == mwmp::unassignedPacketGuid() || targetGuid == guid)
+        return;
+
+    const float originalLatencySeconds = movementLatencySeconds;
+    movementLatencySeconds = estimateRouteLatencySeconds(guid, targetGuid);
+    myPacket->setPlayer(this);
+    myPacket->Send(targetGuid);
+    movementLatencySeconds = originalLatencySeconds;
+}
+
+void Player::sendToGuidWithReliability(
+    mwmp::PlayerPacket *myPacket, mwmp::PacketGuid targetGuid, mwmp::PacketReliability reliability)
+{
+    if (targetGuid == mwmp::unassignedPacketGuid() || targetGuid == guid)
+        return;
+
+    const float originalLatencySeconds = movementLatencySeconds;
+    movementLatencySeconds = estimateRouteLatencySeconds(guid, targetGuid);
+    myPacket->setPlayer(this);
+    myPacket->SendWithReliability(targetGuid, reliability);
+    movementLatencySeconds = originalLatencySeconds;
+}
+
 void Player::sendToLoaded(mwmp::PlayerPacket *myPacket)
 {
     std::list <Player*> plList;
@@ -221,12 +296,45 @@ void Player::sendToLoaded(mwmp::PlayerPacket *myPacket)
     plList.sort();
     plList.unique();
 
+    const float originalLatencySeconds = movementLatencySeconds;
     for (auto pl : plList)
     {
         if (pl == this) continue;
+        movementLatencySeconds = estimateRouteLatencySeconds(guid, pl->guid);
         myPacket->setPlayer(this);
         myPacket->Send(pl->guid);
     }
+    movementLatencySeconds = originalLatencySeconds;
+}
+
+void Player::sendToLoadedWithReliability(mwmp::PlayerPacket *myPacket, mwmp::PacketReliability reliability)
+{
+    std::list <Player*> plList;
+
+    for (auto loadedCell : cells)
+    {
+        if (loadedCell == nullptr)
+            continue;
+
+        for (auto pl : *loadedCell)
+        {
+            if (pl != nullptr && !pl->npc.mName.empty())
+                plList.push_back(pl);
+        }
+    }
+
+    plList.sort();
+    plList.unique();
+
+    const float originalLatencySeconds = movementLatencySeconds;
+    for (auto pl : plList)
+    {
+        if (pl == this) continue;
+        movementLatencySeconds = estimateRouteLatencySeconds(guid, pl->guid);
+        myPacket->setPlayer(this);
+        myPacket->SendWithReliability(pl->guid, reliability);
+    }
+    movementLatencySeconds = originalLatencySeconds;
 }
 
 void Player::sendToLoadedAndGuid(mwmp::PlayerPacket *myPacket, mwmp::PacketGuid targetGuid)
@@ -255,12 +363,35 @@ void Player::sendToLoadedAndGuid(mwmp::PlayerPacket *myPacket, mwmp::PacketGuid 
     plList.sort();
     plList.unique();
 
+    const float originalLatencySeconds = movementLatencySeconds;
     for (auto pl : plList)
     {
         if (pl == this) continue;
+        movementLatencySeconds = estimateRouteLatencySeconds(guid, pl->guid);
         myPacket->setPlayer(this);
         myPacket->Send(pl->guid);
     }
+    movementLatencySeconds = originalLatencySeconds;
+}
+
+void Player::sendToLoadedAndRecentCellVisitorsWithReliability(
+    mwmp::PlayerPacket *myPacket, mwmp::PacketReliability reliability)
+{
+    std::list<Player*> plList;
+
+    for (Cell* loadedCell : cells)
+        appendCellPlayers(plList, loadedCell);
+
+    for (const mwmp::CellState& cellState : cellStateChanges)
+    {
+        if (cellState.type != mwmp::CellState::UNLOAD)
+            continue;
+
+        ESM::Cell unloadedCell = cellState.cell;
+        appendCellPlayers(plList, CellController::get()->getCell(&unloadedCell));
+    }
+
+    sendToUniquePlayers(*this, myPacket, plList, reliability);
 }
 
 void Player::forEachLoaded(std::function<void(Player *pl, Player *other)> func)

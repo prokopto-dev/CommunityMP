@@ -24,6 +24,20 @@ void mwmp::PacketPlayerAnimFlags::Packet(PacketStream *newBitstream, bool send)
     if (!readOk)
         return;
 
+    float sampleInterval = mwmp::sanitizeMovementSampleIntervalSeconds(player->movementSampleIntervalSeconds);
+    readOk = RW(sampleInterval, send);
+    if (!readOk)
+        return;
+
+    player->movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+    float latencySeconds = mwmp::sanitizeMovementLatencySeconds(player->movementLatencySeconds);
+    readOk = RW(latencySeconds, send);
+    if (!readOk)
+        return;
+
+    player->movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(latencySeconds);
+
     readOk = RW(player->animFlagsSequence, send);
     if (!readOk)
         return;

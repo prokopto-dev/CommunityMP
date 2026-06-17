@@ -22,8 +22,13 @@ namespace mwmp
         {
             if (isLocal())
                 MWBase::Environment::get().getStateManager()->requestQuit();
-            else if (player != 0)
+            else
             {
+                PlayerProcessor::clearPendingPacketsForPlayer(guid);
+
+                if (player == 0)
+                    return;
+
                 mwmp::LocalPlayer *localPlayer = mwmp::Main::get().getLocalPlayer();
 
                 for (std::vector<PacketGuid>::iterator iter = localPlayer->alliedPlayers.begin(); iter != localPlayer->alliedPlayers.end(); )
@@ -37,7 +42,6 @@ namespace mwmp
                     else
                         ++iter;
                 }
-
                 PlayerList::deletePlayer(guid);
             }
         }

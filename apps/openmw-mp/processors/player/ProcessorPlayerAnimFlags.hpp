@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERANIMFLAGS_HPP
 
 #include "../PlayerProcessor.hpp"
+#include "apps/openmw-mp/ServerSimulation.hpp"
 #include "PlayerMovementSnapshot.hpp"
 
 namespace mwmp
@@ -30,7 +31,7 @@ namespace mwmp
             if (!normalizePlayerMovementSnapshot(player))
                 return;
 
-            player.sendToLoaded(&packet);
+            ServerNetworking::getPtr()->getServerSimulation().sendPlayerVisualStateToLoaded(player, packet);
         }
     };
 }

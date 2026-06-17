@@ -12,6 +12,37 @@
 
 namespace mwmp
 {
+    inline float sanitizeMovementSampleIntervalSeconds(float seconds)
+    {
+        constexpr float defaultSampleIntervalSeconds = 1.f / 60.f;
+        constexpr float minSampleIntervalSeconds = 1.f / 300.f;
+        constexpr float maxSampleIntervalSeconds = 0.25f;
+
+        if (!std::isfinite(seconds))
+            return defaultSampleIntervalSeconds;
+
+        if (seconds < minSampleIntervalSeconds)
+            return minSampleIntervalSeconds;
+
+        if (seconds > maxSampleIntervalSeconds)
+            return maxSampleIntervalSeconds;
+
+        return seconds;
+    }
+
+    inline float sanitizeMovementLatencySeconds(float seconds)
+    {
+        constexpr float maxMovementLatencySeconds = 0.35f;
+
+        if (!std::isfinite(seconds) || seconds <= 0.f)
+            return 0.f;
+
+        if (seconds > maxMovementLatencySeconds)
+            return maxMovementLatencySeconds;
+
+        return seconds;
+    }
+
     namespace DialogueChoiceType
     {
         enum DIALOGUE_CHOICE

@@ -1,5 +1,5 @@
-#ifndef OPENMW_NETWORKING_HPP
-#define OPENMW_NETWORKING_HPP
+#ifndef OPENMW_MP_SERVER_NETWORKING_HPP
+#define OPENMW_MP_SERVER_NETWORKING_HPP
 
 #include <components/openmw-mp/Controllers/SystemPacketController.hpp>
 #include <components/openmw-mp/Controllers/PlayerPacketController.hpp>
@@ -19,11 +19,11 @@ namespace  mwmp
     class ReceivedPacket;
     class ServerSimulation;
 
-    class Networking
+    class ServerNetworking
     {
     public:
-        explicit Networking(PacketTransport *transport);
-        ~Networking();
+        explicit ServerNetworking(PacketTransport *transport);
+        ~ServerNetworking();
 
         void newPlayer(PacketGuid guid);
         void disconnectPlayer(PacketGuid guid);
@@ -75,8 +75,8 @@ namespace  mwmp
         void setServerPassword(std::string passw) noexcept;
         bool isPassworded() const;
 
-        static const Networking &get();
-        static Networking *getPtr();
+        static const ServerNetworking &get();
+        static ServerNetworking *getPtr();
 
         void postInit();
 
@@ -88,7 +88,7 @@ namespace  mwmp
         std::string expectedVersion;
         uint32_t expectedProtocolVersion;
         std::string expectedCommitHash;
-        static Networking *sThis;
+        static ServerNetworking *sThis;
 
         PacketTransport *transport;
         PacketStream bsOut;
@@ -114,4 +114,4 @@ namespace  mwmp
 }
 
 
-#endif //OPENMW_NETWORKING_HPP
+#endif // OPENMW_MP_SERVER_NETWORKING_HPP

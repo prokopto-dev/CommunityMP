@@ -24,5 +24,17 @@ void PacketActorPosition::Actor(BaseActor &actor, bool send)
     if (!readOk)
         return;
 
+    float sampleInterval = sanitizeMovementSampleIntervalSeconds(actor.movementSampleIntervalSeconds);
+    readOk = RW(sampleInterval, send);
+    if (!readOk)
+        return;
+
+    actor.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+    float latencySeconds = sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
+    readOk = RW(latencySeconds, send);
+    if (!readOk)
+        return;
+
+    actor.movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
     actor.hasPositionData = true;
 }

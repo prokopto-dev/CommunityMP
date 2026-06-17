@@ -31,11 +31,12 @@ if(NOT OPENMW_USE_SYSTEM_BULLET)
         set(USE_MSVC_RUNTIME_LIBRARY_DLL ON CACHE BOOL "" FORCE)
     endif()
 
-    # May 7, 2021
+    # Bullet 3.25 keeps the stable Bullet 2 collision API while bringing
+    # newer heightfield, broadphase, and threading fixes into our default path.
     include(FetchContent)
     FetchContent_Declare(bullet
-        URL https://github.com/bulletphysics/bullet3/archive/refs/tags/3.17.tar.gz
-        URL_HASH SHA512=a5105bf5f1dd365a64a350755c7d2c97942f74897a18dcdb3651e6732fd55cc1030a096f5808cf50575281f05e3ac09aa50a48d271a47b94cd61f5167a72b7cc
+        URL https://github.com/bulletphysics/bullet3/archive/refs/tags/3.25.tar.gz
+        URL_HASH SHA512=7086e5fcf69635801bb311261173cb8d173b712ca1bd78be03df48fad884674e85512861190e45a1a62d5627aaad65cde08c175c44a3be9afa410d3dfd5358d4
         SOURCE_DIR fetched/bullet
     )
     FetchContent_MakeAvailable(bullet)

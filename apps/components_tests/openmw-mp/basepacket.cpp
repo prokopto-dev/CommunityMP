@@ -43,6 +43,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerFaction.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerLuaEvent.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerMiscellaneous.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerQuickKeys.hpp>
@@ -372,6 +373,33 @@ namespace
         cell.updateId();
     }
 
+    constexpr float testMovementSampleInterval = 1.f / 144.f;
+    constexpr float testMovementLatency = 0.061f;
+
+    void setMovementTiming(mwmp::BasePlayer& player)
+    {
+        player.movementSampleIntervalSeconds = testMovementSampleInterval;
+        player.movementLatencySeconds = testMovementLatency;
+    }
+
+    void setMovementTiming(mwmp::BaseActor& actor)
+    {
+        actor.movementSampleIntervalSeconds = testMovementSampleInterval;
+        actor.movementLatencySeconds = testMovementLatency;
+    }
+
+    void expectMovementTiming(const mwmp::BasePlayer& player)
+    {
+        EXPECT_FLOAT_EQ(player.movementSampleIntervalSeconds, testMovementSampleInterval);
+        EXPECT_FLOAT_EQ(player.movementLatencySeconds, testMovementLatency);
+    }
+
+    void expectMovementTiming(const mwmp::BaseActor& actor)
+    {
+        EXPECT_FLOAT_EQ(actor.movementSampleIntervalSeconds, testMovementSampleInterval);
+        EXPECT_FLOAT_EQ(actor.movementLatencySeconds, testMovementLatency);
+    }
+
     TEST(MpBasePacketTest, failedPrimitiveAndStringReadsMarkPacketInvalid)
     {
         {
@@ -683,6 +711,7 @@ namespace
         sent.direction.pos[0] = 1.f;
         sent.direction.pos[1] = -1.f;
         sent.direction.rot[2] = 0.5f;
+        setMovementTiming(sent);
 
         PacketStream stream;
         mwmp::PacketPlayerPosition writer;
@@ -702,6 +731,7 @@ namespace
         EXPECT_FLOAT_EQ(received.direction.pos[0], 1.f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], -1.f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], 0.5f);
+        expectMovementTiming(received);
     }
 
     TEST(MpBasePacketTest, playerPositionUsesUnreliableSequencedMovementDelivery)
@@ -745,6 +775,7 @@ namespace
         sent.position.rot[2] = 1.25f;
         sent.direction.pos[1] = 1.f;
         sent.direction.rot[2] = 0.25f;
+        setMovementTiming(sent);
         sent.cellChangeReason = mwmp::CELL_CHANGE_REASON_MAGIC_RECALL;
         sent.previousCellPosition.pos[0] = 12.5f;
         sent.previousCellPosition.pos[1] = -34.25f;
@@ -772,6 +803,7 @@ namespace
         EXPECT_FLOAT_EQ(received.position.rot[2], 1.25f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], 1.f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], 0.25f);
+        expectMovementTiming(received);
         EXPECT_EQ(received.cellChangeReason, mwmp::CELL_CHANGE_REASON_MAGIC_RECALL);
         EXPECT_FLOAT_EQ(received.previousCellPosition.pos[0], 12.5f);
         EXPECT_FLOAT_EQ(received.previousCellPosition.pos[1], -34.25f);
@@ -907,6 +939,7 @@ namespace
         sent.direction.pos[0] = 0.5f;
         sent.direction.pos[1] = -0.5f;
         sent.direction.rot[2] = 0.125f;
+        setMovementTiming(sent);
         sent.animation.groupname = "attack1";
         sent.animation.mode = 2;
         sent.animation.count = 3;
@@ -930,6 +963,7 @@ namespace
         EXPECT_FLOAT_EQ(received.direction.pos[0], 0.5f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], -0.5f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], 0.125f);
+        expectMovementTiming(received);
         EXPECT_EQ(received.animation.groupname, "attack1");
         EXPECT_EQ(received.animation.mode, 2);
         EXPECT_EQ(received.animation.count, 3);
@@ -997,6 +1031,7 @@ namespace
         sent.direction.pos[0] = 1.f;
         sent.direction.pos[1] = -1.f;
         sent.direction.rot[2] = 0.375f;
+        setMovementTiming(sent);
         sent.attack.target.isPlayer = false;
         sent.attack.target.refId = "rat";
         sent.attack.target.refNum = 777;
@@ -1038,6 +1073,7 @@ namespace
         EXPECT_FLOAT_EQ(received.direction.pos[0], 1.f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], -1.f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], 0.375f);
+        expectMovementTiming(received);
         EXPECT_EQ(received.attack.target.refId, "rat");
         EXPECT_EQ(received.attack.target.refNum, 777u);
         EXPECT_EQ(received.attack.target.mpNum, 2u);
@@ -1119,6 +1155,7 @@ namespace
         sent.direction.pos[0] = -1.f;
         sent.direction.pos[1] = 1.f;
         sent.direction.rot[2] = -0.375f;
+        setMovementTiming(sent);
         sent.cast.target.isPlayer = false;
         sent.cast.target.refId = "skeleton";
         sent.cast.target.refNum = 321;
@@ -1152,6 +1189,7 @@ namespace
         EXPECT_FLOAT_EQ(received.direction.pos[0], -1.f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], 1.f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], -0.375f);
+        expectMovementTiming(received);
         EXPECT_EQ(received.cast.target.refId, "skeleton");
         EXPECT_EQ(received.cast.target.refNum, 321u);
         EXPECT_EQ(received.cast.target.mpNum, 6u);
@@ -1179,6 +1217,7 @@ namespace
         sent.direction.pos[0] = 0.75f;
         sent.direction.pos[1] = -0.25f;
         sent.direction.rot[2] = 0.5f;
+        setMovementTiming(sent);
         sent.deathState = 3;
         sent.killer.isPlayer = false;
         sent.killer.refId = "skeleton";
@@ -1204,6 +1243,7 @@ namespace
         EXPECT_FLOAT_EQ(received.direction.pos[0], 0.75f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], -0.25f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], 0.5f);
+        expectMovementTiming(received);
         EXPECT_EQ(received.deathState, 3);
         EXPECT_FALSE(received.killer.isPlayer);
         EXPECT_EQ(received.killer.refId, "skeleton");
@@ -1426,7 +1466,7 @@ namespace
         }
     }
 
-    TEST(MpBasePacketTest, playerDeathUsesMovementDelivery)
+    TEST(MpBasePacketTest, playerDeathUsesCombatDelivery)
     {
         CapturingTransport transport;
         ScopedPacketTransport scopedTransport(&transport);
@@ -1441,7 +1481,7 @@ namespace
         EXPECT_EQ(packet.Send(mwmp::PacketDestination(testGuid())), 1u);
         EXPECT_EQ(transport.sentPriority, PacketPriority::High);
         EXPECT_EQ(transport.sentReliability, PacketReliability::ReliableOrdered);
-        EXPECT_EQ(transport.sentOrderChannel, CHANNEL_MOVEMENT);
+        EXPECT_EQ(transport.sentOrderChannel, CHANNEL_COMBAT);
         EXPECT_EQ(transport.sentDestination.guid(), testGuid());
         EXPECT_FALSE(transport.sentBroadcast);
     }
@@ -1922,6 +1962,39 @@ namespace
         EXPECT_EQ(received.equipmentItems[5].count, 1);
     }
 
+    TEST(MpBasePacketTest, playerEquipmentFullSnapshotMarksEverySlotChanged)
+    {
+        mwmp::BasePlayer sent(testGuid());
+        sent.equipmentSequence = 9;
+        sent.exchangeFullInfo = true;
+        sent.equipmentItems[7].refId = "common_shoes_01";
+        sent.equipmentItems[7].count = 1;
+        sent.equipmentItems[7].charge = -1;
+        sent.equipmentItems[7].enchantmentCharge = -1.f;
+        sent.equipmentItems[8].refId = "common_shirt_01";
+        sent.equipmentItems[8].count = 1;
+        sent.equipmentItems[8].charge = -1;
+        sent.equipmentItems[8].enchantmentCharge = -1.f;
+
+        PacketStream stream;
+        mwmp::PacketPlayerEquipment writer;
+        writePlayerPacketToPayload(writer, sent, stream);
+
+        mwmp::BasePlayer received(testGuid());
+        mwmp::PacketPlayerEquipment reader;
+        reader.setPlayer(&received);
+        reader.Packet(&stream, false);
+
+        ASSERT_TRUE(reader.isPacketValid());
+        EXPECT_EQ(received.equipmentSequence, 9u);
+        EXPECT_TRUE(received.exchangeFullInfo);
+        ASSERT_EQ(received.equipmentIndexChanges.size(), mwmp::equipmentSlotCount);
+        for (std::size_t slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
+            EXPECT_EQ(received.equipmentIndexChanges[slot], static_cast<int>(slot));
+        EXPECT_EQ(received.equipmentItems[7].refId, "common_shoes_01");
+        EXPECT_EQ(received.equipmentItems[8].refId, "common_shirt_01");
+    }
+
     TEST(MpBasePacketTest, playerEquipmentRejectsInvalidItemPayloadsWithoutSlotReplay)
     {
         mwmp::BasePlayer sent(testGuid());
@@ -1974,6 +2047,69 @@ namespace
         EXPECT_TRUE(player.acceptEquipmentPacket());
         EXPECT_EQ(player.equipmentSequence, 11u);
         EXPECT_EQ(player.equipmentItems[0].refId, "steel dagger");
+    }
+
+    TEST(MpBasePacketTest, playerLuaEventRoundTripsBoundedPayload)
+    {
+        mwmp::BasePlayer sent(testGuid());
+        sent.luaEvent.schemaVersion = mwmp::clientLuaEventSchemaVersion;
+        sent.luaEvent.sequence = 42;
+        sent.luaEvent.namespaceName = "communitymp.server";
+        sent.luaEvent.eventName = "ready";
+        sent.luaEvent.payload = "{\"schema\":1,\"kind\":\"ready\"}";
+
+        PacketStream stream;
+        mwmp::PacketPlayerLuaEvent writer;
+        writePlayerPacketToPayload(writer, sent, stream);
+
+        mwmp::BasePlayer received(testGuid());
+        mwmp::PacketPlayerLuaEvent reader;
+        reader.setPlayer(&received);
+        reader.Packet(&stream, false);
+
+        ASSERT_TRUE(reader.isPacketValid());
+        EXPECT_EQ(received.luaEvent.schemaVersion, mwmp::clientLuaEventSchemaVersion);
+        EXPECT_EQ(received.luaEvent.sequence, 42u);
+        EXPECT_EQ(received.luaEvent.namespaceName, "communitymp.server");
+        EXPECT_EQ(received.luaEvent.eventName, "ready");
+        EXPECT_EQ(received.luaEvent.payload, "{\"schema\":1,\"kind\":\"ready\"}");
+    }
+
+    TEST(MpBasePacketTest, playerLuaEventRejectsOversizedStringsWithoutTruncation)
+    {
+        PacketStream stream;
+        stream.Write(mwmp::clientLuaEventSchemaVersion);
+        stream.Write(std::uint32_t{ 1 });
+        const std::string oversizedNamespace(mwmp::clientLuaEventMaxNamespaceLength + 1, 'a');
+        stream.Write(static_cast<std::uint32_t>(oversizedNamespace.size()));
+        stream.Write(oversizedNamespace.data(), static_cast<unsigned int>(oversizedNamespace.size()));
+
+        mwmp::BasePlayer received(testGuid());
+        mwmp::PacketPlayerLuaEvent reader;
+        reader.setPlayer(&received);
+        reader.Packet(&stream, false);
+
+        EXPECT_FALSE(reader.isPacketValid());
+        EXPECT_TRUE(received.luaEvent.namespaceName.empty());
+
+        PacketStream payloadStream;
+        payloadStream.Write(mwmp::clientLuaEventSchemaVersion);
+        payloadStream.Write(std::uint32_t{ 1 });
+        payloadStream.Write(std::uint32_t{ 18 });
+        payloadStream.Write("communitymp.server", 18);
+        payloadStream.Write(std::uint32_t{ 5 });
+        payloadStream.Write("ready", 5);
+        const std::string oversizedPayload(mwmp::clientLuaEventMaxPayloadLength + 1, 'x');
+        payloadStream.Write(static_cast<std::uint32_t>(oversizedPayload.size()));
+        payloadStream.Write(oversizedPayload.data(), static_cast<unsigned int>(oversizedPayload.size()));
+
+        mwmp::BasePlayer receivedPayload(testGuid());
+        mwmp::PacketPlayerLuaEvent payloadReader;
+        payloadReader.setPlayer(&receivedPayload);
+        payloadReader.Packet(&payloadStream, false);
+
+        EXPECT_FALSE(payloadReader.isPacketValid());
+        EXPECT_TRUE(receivedPayload.luaEvent.payload.empty());
     }
 
     TEST(MpBasePacketTest, playerListPacketsRejectOversizedCountsBeforeResize)
@@ -2765,6 +2901,7 @@ namespace
         sent.direction.pos[0] = 1.f;
         sent.direction.pos[1] = -0.5f;
         sent.direction.rot[2] = 0.25f;
+        setMovementTiming(sent);
         sent.animFlagsSequence = 0x80000002u;
         sent.movementFlags = 0x13;
         sent.drawState = 2;
@@ -2789,6 +2926,7 @@ namespace
         EXPECT_FLOAT_EQ(received.direction.pos[0], 1.f);
         EXPECT_FLOAT_EQ(received.direction.pos[1], -0.5f);
         EXPECT_FLOAT_EQ(received.direction.rot[2], 0.25f);
+        expectMovementTiming(received);
         EXPECT_EQ(received.animFlagsSequence, 0x80000002u);
         EXPECT_EQ(received.movementFlags, 0x13u);
         EXPECT_EQ(received.drawState, 2);
@@ -2884,6 +3022,7 @@ namespace
         actor.direction.pos[0] = 1.f;
         actor.direction.pos[1] = -1.f;
         actor.direction.rot[2] = 0.5f;
+        setMovementTiming(actor);
         sent.baseActors.push_back(actor);
 
         PacketStream stream;
@@ -2909,6 +3048,7 @@ namespace
         EXPECT_FLOAT_EQ(received.baseActors[0].direction.pos[0], 1.f);
         EXPECT_FLOAT_EQ(received.baseActors[0].direction.pos[1], -1.f);
         EXPECT_FLOAT_EQ(received.baseActors[0].direction.rot[2], 0.5f);
+        expectMovementTiming(received.baseActors[0]);
         EXPECT_TRUE(received.baseActors[0].hasPositionData);
     }
 
@@ -3233,6 +3373,7 @@ namespace
         actor.direction.pos[0] = 0.5f;
         actor.direction.pos[1] = -0.25f;
         actor.direction.rot[2] = 0.125f;
+        setMovementTiming(actor);
         actor.isFollowerCellChange = true;
         sent.baseActors.push_back(actor);
 
@@ -3262,6 +3403,7 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[0], 0.5f);
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[1], -0.25f);
         EXPECT_FLOAT_EQ(receivedActor.direction.rot[2], 0.125f);
+        expectMovementTiming(receivedActor);
         EXPECT_TRUE(receivedActor.isFollowerCellChange);
         EXPECT_TRUE(receivedActor.hasPositionData);
     }
@@ -3285,6 +3427,7 @@ namespace
         actor.direction.pos[0] = 0.25f;
         actor.direction.pos[1] = -0.25f;
         actor.direction.rot[2] = 0.75f;
+        setMovementTiming(actor);
         actor.animation.groupname = "attack2";
         actor.animation.mode = 1;
         actor.animation.count = 2;
@@ -3317,6 +3460,7 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[0], 0.25f);
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[1], -0.25f);
         EXPECT_FLOAT_EQ(receivedActor.direction.rot[2], 0.75f);
+        expectMovementTiming(receivedActor);
         EXPECT_EQ(receivedActor.animation.groupname, "attack2");
         EXPECT_EQ(receivedActor.animation.mode, 1);
         EXPECT_EQ(receivedActor.animation.count, 2);
@@ -3412,6 +3556,7 @@ namespace
         actor.direction.pos[0] = 1.f;
         actor.direction.pos[1] = -1.f;
         actor.direction.rot[2] = 0.25f;
+        setMovementTiming(actor);
         actor.attack.target.isPlayer = false;
         actor.attack.target.refId = "rat";
         actor.attack.target.refNum = 777;
@@ -3462,6 +3607,7 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[0], 1.f);
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[1], -1.f);
         EXPECT_FLOAT_EQ(receivedActor.direction.rot[2], 0.25f);
+        expectMovementTiming(receivedActor);
         EXPECT_EQ(receivedActor.attack.target.refId, "rat");
         EXPECT_EQ(receivedActor.attack.target.refNum, 777u);
         EXPECT_EQ(receivedActor.attack.target.mpNum, 2u);
@@ -3563,6 +3709,7 @@ namespace
         actor.direction.pos[0] = -1.f;
         actor.direction.pos[1] = 1.f;
         actor.direction.rot[2] = -0.5f;
+        setMovementTiming(actor);
         actor.cast.target.isPlayer = false;
         actor.cast.target.refId = "skeleton";
         actor.cast.target.refNum = 321;
@@ -3605,6 +3752,7 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[0], -1.f);
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[1], 1.f);
         EXPECT_FLOAT_EQ(receivedActor.direction.rot[2], -0.5f);
+        expectMovementTiming(receivedActor);
         EXPECT_EQ(receivedActor.cast.target.refId, "skeleton");
         EXPECT_EQ(receivedActor.cast.target.refNum, 321u);
         EXPECT_EQ(receivedActor.cast.target.mpNum, 6u);
@@ -3661,6 +3809,7 @@ namespace
         actor.direction.pos[0] = -0.75f;
         actor.direction.pos[1] = 0.5f;
         actor.direction.rot[2] = -0.125f;
+        setMovementTiming(actor);
         actor.deathState = 4;
         actor.isInstantDeath = true;
         actor.killer.isPlayer = false;
@@ -3696,6 +3845,7 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[0], -0.75f);
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[1], 0.5f);
         EXPECT_FLOAT_EQ(receivedActor.direction.rot[2], -0.125f);
+        expectMovementTiming(receivedActor);
         EXPECT_EQ(receivedActor.deathState, 4);
         EXPECT_TRUE(receivedActor.isInstantDeath);
         EXPECT_FALSE(receivedActor.killer.isPlayer);
@@ -3983,6 +4133,7 @@ namespace
         actor.direction.pos[0] = 0.5f;
         actor.direction.pos[1] = 0.75f;
         actor.direction.rot[2] = 0.125f;
+        setMovementTiming(actor);
         actor.aiAction = mwmp::BaseActorList::ESCORT;
         actor.aiDuration = 45;
         actor.aiCoordinates.pos[0] = 100.f;
@@ -4019,6 +4170,7 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[0], 0.5f);
         EXPECT_FLOAT_EQ(receivedActor.direction.pos[1], 0.75f);
         EXPECT_FLOAT_EQ(receivedActor.direction.rot[2], 0.125f);
+        expectMovementTiming(receivedActor);
         EXPECT_EQ(receivedActor.aiAction, static_cast<unsigned int>(mwmp::BaseActorList::ESCORT));
         EXPECT_EQ(receivedActor.aiDuration, 45u);
         EXPECT_FLOAT_EQ(receivedActor.aiCoordinates.pos[0], 100.f);
@@ -4159,6 +4311,7 @@ namespace
         actor.direction.pos[0] = -1.f;
         actor.direction.pos[1] = 0.25f;
         actor.direction.rot[2] = -0.75f;
+        setMovementTiming(actor);
         actor.animFlagsSequence = 0x80000003u;
         actor.movementFlags = 0x15;
         actor.drawState = 2;
@@ -4189,6 +4342,7 @@ namespace
         EXPECT_FLOAT_EQ(received.baseActors[0].direction.pos[0], -1.f);
         EXPECT_FLOAT_EQ(received.baseActors[0].direction.pos[1], 0.25f);
         EXPECT_FLOAT_EQ(received.baseActors[0].direction.rot[2], -0.75f);
+        expectMovementTiming(received.baseActors[0]);
         EXPECT_EQ(received.baseActors[0].animFlagsSequence, 0x80000003u);
         EXPECT_EQ(received.baseActors[0].movementFlags, 0x15u);
         EXPECT_EQ(received.baseActors[0].drawState, 2);

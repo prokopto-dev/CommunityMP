@@ -7,7 +7,7 @@
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadskil.hpp>
 
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Player.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 #include <apps/openmw-mp/Script/Functions/Worldstate.hpp>
@@ -1980,7 +1980,7 @@ void RecordsDynamicFunctions::SendRecordDynamic(unsigned short pid, bool sendToO
 
     WorldstateFunctions::writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_RECORD_DYNAMIC);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_RECORD_DYNAMIC);
     packet->setWorldstate(&WorldstateFunctions::writeWorldstate);
 
     if (!skipAttachedPlayer)

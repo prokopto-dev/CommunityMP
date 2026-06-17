@@ -12,10 +12,10 @@ local function getJournalRoot()
         return config.itemTransactionJournalRoot
     end
 
-    return "saves/transactions/items"
+    return "saves/tx/items"
 end
 
-local function safeSegment(value, fallback)
+local function safeSegment(value, fallback, maxLength)
     local segment = tostring(value or "")
     segment = segment:gsub("^%s+", ""):gsub("%s+$", "")
     segment = segment:gsub("[<>:\"/\\|%?%*%c]", "_")
@@ -25,11 +25,25 @@ local function safeSegment(value, fallback)
         segment = fallback or "unknown"
     end
 
-    if string.len(segment) > 64 then
-        segment = string.sub(segment, 1, 64)
+    maxLength = maxLength or 64
+
+    if string.len(segment) > maxLength then
+        segment = string.sub(segment, 1, maxLength)
     end
 
     return segment
+end
+
+local function getEventTypeSegment(eventType)
+    if eventType == "playerInventory" then
+        return "pi"
+    elseif eventType == "container" then
+        return "c"
+    elseif eventType == "object" then
+        return "o"
+    end
+
+    return safeSegment(eventType, "i", 12)
 end
 
 local function getInventoryActionName(action)
@@ -126,8 +140,13 @@ end
 local function makeEventPath(event)
     local timestamp = tonumber(event.createdAt) or os.time()
     local day = os.date("!%Y%m%d", timestamp)
-    local eventType = safeSegment(event.type, "item")
-    local actor = safeSegment(getEventActorSegment(event), "server")
+    local eventType = getEventTypeSegment(event.type)
+    local actor = safeSegment(getEventActorSegment(event), "server", 32)
+    local directory = getJournalRoot() .. "/" .. day
+
+    if not saveCodec.ensureDirectory(directory) then
+        return nil
+    end
 
     for _ = 1, 1000 do
         sequence = sequence + 1
@@ -136,8 +155,8 @@ local function makeEventPath(event)
             sequence = 1
         end
 
-        local fileName = string.format("%010d_%06d_%s_%s.xml", timestamp, sequence, eventType, actor)
-        local relativePath = getJournalRoot() .. "/" .. day .. "/" .. fileName
+        local fileName = string.format("%x_%x_%s_%s.xml", timestamp, sequence, eventType, actor)
+        local relativePath = directory .. "/" .. fileName
 
         if not saveCodec.exists(relativePath) then
             return relativePath, sequence

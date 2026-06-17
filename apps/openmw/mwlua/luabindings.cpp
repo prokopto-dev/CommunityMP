@@ -10,6 +10,7 @@
 #include "animationbindings.hpp"
 #include "camerabindings.hpp"
 #include "cellbindings.hpp"
+#include "communitympbindings.hpp"
 #include "contentbindings.hpp"
 #include "corebindings.hpp"
 #include "debugbindings.hpp"
@@ -71,6 +72,7 @@ namespace MWLua
         return {
             { "openmw.ambient", initAmbientPackage(context) },
             { "openmw.camera", initCameraPackage(context.sol()) },
+            { "openmw.communitymp", initCommunityMpPackage(context) },
             { "openmw.debug", initDebugPackage(context) },
             { "openmw.input", initInputPackage(context) },
             { "openmw.postprocessing", initPostprocessingPackage(context) },

@@ -3,7 +3,7 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 using namespace mwmp;
 
@@ -59,7 +59,7 @@ void DialogueFunctions::SendTopicChanges(unsigned short pid, bool sendToOtherPla
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_TOPIC);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_TOPIC);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)
@@ -80,7 +80,7 @@ void DialogueFunctions::PlayAnimation(unsigned short pid, const char* groupname,
     player->advanceCombatSequence();
     player->acceptCurrentCombatPacket();
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_ANIM_PLAY);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_ANIM_PLAY);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -94,7 +94,7 @@ void DialogueFunctions::PlaySpeech(unsigned short pid, const char* sound) noexce
 
     player->sound = sound;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPEECH);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPEECH);
     packet->setPlayer(player);
 
     packet->Send(false);

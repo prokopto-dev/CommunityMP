@@ -39,6 +39,7 @@ namespace Resource
 namespace MWPhysics
 {
     class JoltActor;
+    class JoltProjectile;
 }
 
 namespace MWPhysics
@@ -212,7 +213,7 @@ namespace MWPhysics
         IPhysicsActor* getActor(const MWWorld::Ptr& ptr) override;
         const IPhysicsActor* getActor(const MWWorld::ConstPtr& ptr) const override;
         const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const override;
-        Projectile* getProjectile(int projectileId) const override;
+        IProjectile* getProjectile(int projectileId) const override;
 
         Resource::BulletShapeManager* getShapeManager() override;
         float getPhysicsDt() const override;
@@ -306,7 +307,7 @@ namespace MWPhysics
         // Projectiles (phase 8). Same int-id identity scheme as
         // PhysicsSystem so mwworld/projectilemanager doesn't need
         // to learn a new key type.
-        std::unordered_map<int, JPH::BodyID> mProjectileBodies;
+        std::unordered_map<int, std::unique_ptr<JoltProjectile>> mProjectiles;
         int mNextProjectileId = 0;
 
         // Reverse map: BodyID's full u32 identifier -> the

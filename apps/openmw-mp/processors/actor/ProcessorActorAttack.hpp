@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "../ActorProcessor.hpp"
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/ServerSimulation.hpp"
 
 namespace mwmp
@@ -24,7 +24,7 @@ namespace mwmp
 
             if (serverCell != nullptr && serverCell->hasPlayer(&player))
             {
-                if (!Networking::getPtr()->getServerSimulation().acceptActorAttacks(actorList, *serverCell))
+                if (!ServerNetworking::getPtr()->getServerSimulation().acceptActorAttacks(actorList, *serverCell))
                     return;
 
                 std::vector<PacketGuid> targetGuids;

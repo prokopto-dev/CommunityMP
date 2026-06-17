@@ -18,11 +18,12 @@ endif()
 set(OPENMW_HEADERS
     doc.hpp
     engine.hpp
+    OpenMWApplication.hpp
     options.hpp
     profile.hpp
 )
 
-source_group(apps/openmw FILES main.cpp androidmain.cpp ${OPENMW_SOURCES} ${OPENMW_HEADERS} ${OPENMW_RESOURCES})
+source_group(apps/openmw FILES main.cpp OpenMWStandaloneMain.cpp androidmain.cpp ${OPENMW_SOURCES} ${OPENMW_HEADERS} ${OPENMW_RESOURCES})
 
 add_openmw_dir (mwrender
     actors objects renderingmanager animation rotatecontroller sky skyutil npcanimation esm4npcanimation vismask
@@ -67,7 +68,7 @@ add_openmw_dir (mwscript
 
 add_openmw_dir (mwlua
     luamanagerimp object objectlists userdataserializer luaevents engineevents objectvariant loadscripts contentbindings
-    context menuscripts globalscripts localscripts playerscripts luabindings objectbindings cellbindings coremwscriptbindings
+    context menuscripts globalscripts localscripts playerscripts luabindings objectbindings cellbindings communitympbindings coremwscriptbindings
     mwscriptbindings camerabindings vfsbindings uibindings soundbindings inputbindings nearbybindings dialoguebindings
     dialogueinfo
     postprocessingbindings stats recordstore debugbindings corebindings worldbindings worker landbindings magicbindings factionbindings
@@ -136,6 +137,7 @@ add_openmw_dir (mwbase
 if(BUILD_TES3MP_CLIENT)
     add_openmw_dir (mwmp Main Networking LocalSystem LocalPlayer DedicatedPlayer PlayerList LocalActor DedicatedActor ActorList
         ObjectList Worldstate Cell CellController CellIdentity GUIController MechanicsHelper RecordHelper ScriptController
+        CommunityMpLuaEventQueue
         )
 
     add_openmw_dir (mwmp/GUI GUIChat GUICharacterSelect PlayerMarkerCollection GUIDialogList TextInputDialog
@@ -163,7 +165,7 @@ if(BUILD_TES3MP_CLIENT)
         ProcessorPlayerJournal ProcessorPlayerLevel ProcessorPlayerMiscellaneous ProcessorPlayerMomentum ProcessorPlayerPosition
         ProcessorPlayerQuickKeys ProcessorPlayerReputation ProcessorPlayerRest ProcessorPlayerResurrect ProcessorPlayerShapeshift
         ProcessorPlayerSkill ProcessorPlayerSpeech ProcessorPlayerSpellbook ProcessorPlayerSpellsActive
-        ProcessorPlayerStatsDynamic ProcessorPlayerTopic
+        ProcessorPlayerStatsDynamic ProcessorPlayerTopic ProcessorPlayerLuaEvent
         )
 
     add_openmw_dir (mwmp/processors/object BaseObjectProcessor
@@ -188,6 +190,19 @@ add_library(openmw-lib STATIC
     ${OPENMW_SOURCES}
 )
 
+add_library(openmw-client-core STATIC
+    main.cpp
+    OpenMWApplication.hpp
+)
+
+target_link_libraries(openmw-client-core PUBLIC openmw-lib)
+
+set_target_properties(openmw-client-core PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
+
 if (MSVC)
     # these TUs take a lot of memory for codegen
     # in CI, they often go over the 8GB memory limit if another cl.exe is running at the same time
@@ -207,18 +222,18 @@ endif()
 if(BUILD_OPENMW)
     if (ANDROID)
         add_library(openmw SHARED
-            main.cpp
+            OpenMWStandaloneMain.cpp
             androidmain.cpp
         )
     else()
         openmw_add_executable(openmw
             ${APPLE_BUNDLE_RESOURCES}
             ${OPENMW_RESOURCES}
-            main.cpp
+            OpenMWStandaloneMain.cpp
         )
     endif()
 
-    target_link_libraries(openmw openmw-lib)
+    target_link_libraries(openmw openmw-client-core)
 
     if(BUILD_TES3MP_CLIENT)
         set_target_properties(openmw PROPERTIES OUTPUT_NAME communitymp-client)

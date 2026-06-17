@@ -7,6 +7,7 @@ using namespace mwmp;
 PacketActorDeath::PacketActorDeath() : ActorPacket()
 {
     packetID = ID_ACTOR_DEATH;
+    orderChannel = CHANNEL_COMBAT;
 }
 
 void PacketActorDeath::Actor(BaseActor &actor, bool send)
@@ -25,6 +26,16 @@ void PacketActorDeath::Actor(BaseActor &actor, bool send)
         if (!RW(actor.positionSequence, send) || !RW(actor.position, send, true)
             || !RW(actor.direction, send, true))
             return;
+
+        float sampleInterval = sanitizeMovementSampleIntervalSeconds(actor.movementSampleIntervalSeconds);
+        if (!RW(sampleInterval, send))
+            return;
+        actor.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+        float latencySeconds = sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
+        if (!RW(latencySeconds, send))
+            return;
+        actor.movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
     }
 
     if (!RW(actor.deathState, send) || !RW(actor.isInstantDeath, send) || !RW(actor.killer.isPlayer, send))

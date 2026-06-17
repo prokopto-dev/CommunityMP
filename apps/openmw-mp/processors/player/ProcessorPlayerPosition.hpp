@@ -2,7 +2,7 @@
 #define OPENMW_PROCESSORPLAYERPOSITION_HPP
 
 #include "../PlayerProcessor.hpp"
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/ServerSimulation.hpp"
 
 namespace mwmp
@@ -17,7 +17,7 @@ namespace mwmp
 
         void Do(PlayerPacket &packet, Player &player) override
         {
-            Networking::getPtr()->getServerSimulation().acceptPlayerMovementSnapshot(player, packet);
+            ServerNetworking::getPtr()->getServerSimulation().acceptPlayerMovementSnapshot(player, packet);
         }
     };
 }

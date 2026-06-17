@@ -121,6 +121,7 @@ add_component_dir (bullethelpers
     operators
     processtrianglecallback
     transformboundingbox
+    version
     )
 
 add_component_dir (vfs
@@ -503,6 +504,7 @@ add_component_dir (openmw-mp/Packets/Player
     PacketPlayerJail
     PacketPlayerJournal
     PacketPlayerLevel
+    PacketPlayerLuaEvent
     PacketPlayerMiscellaneous
     PacketPlayerMomentum
     PacketPlayerPosition

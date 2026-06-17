@@ -26,7 +26,7 @@ namespace
 PacketPlayerCast::PacketPlayerCast() : PlayerPacket()
 {
     packetID = ID_PLAYER_CAST;
-    orderChannel = CHANNEL_MOVEMENT;
+    orderChannel = CHANNEL_COMBAT;
 }
 
 void PacketPlayerCast::Packet(PacketStream *newBitstream, bool send)
@@ -39,6 +39,16 @@ void PacketPlayerCast::Packet(PacketStream *newBitstream, bool send)
     if (!RW(player->positionSequence, send) || !RW(player->position, send, true)
         || !RW(player->direction, send, true))
         return;
+
+    float sampleInterval = sanitizeMovementSampleIntervalSeconds(player->movementSampleIntervalSeconds);
+    if (!RW(sampleInterval, send))
+        return;
+    player->movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+    float latencySeconds = sanitizeMovementLatencySeconds(player->movementLatencySeconds);
+    if (!RW(latencySeconds, send))
+        return;
+    player->movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
 
     if (!RW(player->cast.target.isPlayer, send))
         return;

@@ -7,6 +7,7 @@ using namespace mwmp;
 PacketActorAnimPlay::PacketActorAnimPlay() : ActorPacket()
 {
     packetID = ID_ACTOR_ANIM_PLAY;
+    orderChannel = CHANNEL_COMBAT;
 }
 
 void PacketActorAnimPlay::Actor(BaseActor &actor, bool send)
@@ -35,6 +36,19 @@ void PacketActorAnimPlay::Actor(BaseActor &actor, bool send)
         readOk = RW(actor.direction, send, true);
         if (!readOk)
             return;
+
+        float sampleInterval = sanitizeMovementSampleIntervalSeconds(actor.movementSampleIntervalSeconds);
+        readOk = RW(sampleInterval, send);
+        if (!readOk)
+            return;
+
+        actor.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+        float latencySeconds = sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
+        readOk = RW(latencySeconds, send);
+        if (!readOk)
+            return;
+
+        actor.movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
     }
 
     readOk = RW(actor.animation.groupname, send);

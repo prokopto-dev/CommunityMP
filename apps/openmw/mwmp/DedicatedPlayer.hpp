@@ -12,7 +12,9 @@
 
 #include "../mwworld/manualref.hpp"
 
+#include <chrono>
 #include <map>
+#include <osg/Vec3f>
 
 namespace MWMechanics
 {
@@ -92,14 +94,27 @@ namespace mwmp
         bool hasChangedCell;
         bool isLevitationPurged;
         bool hasPendingSpellsActiveChanges;
+        bool hasPendingEquipmentApplication;
 
         bool wasJumping;
+        osg::Vec3f mRemoteVelocity;
+        std::chrono::steady_clock::time_point mLastRemotePositionPacket;
+        float mSmoothedRemoteSampleIntervalSeconds;
+        float mSmoothedRemoteLatencySeconds;
+        float mRemoteJitterSeconds;
+        float mRemotePacketAgeSeconds;
+        bool mHasRemoteVelocity;
+        bool mHasRemoteTimingEstimate;
 
         void setPosition();
         void setMovementSettings();
         void setMovementSettings(const ESM::Position& movementDirection);
         void setMovementSettingsFromVisualDelta(const ESM::Position& previousPosition);
         void applyRemoteJumpMovementCue(bool wasRemoteJumping);
+        void updateRemoteMovementEstimate(const ESM::Position& previousPosition, bool hadPositionData);
+        void resetRemoteMovementEstimate();
+        void updateRemoteTimingEstimate(float arrivalDeltaSeconds, bool hasPreviousPacket);
+        void resetRemoteTimingEstimate();
     };
 }
 #endif //OPENMW_DEDICATEDPLAYER_HPP

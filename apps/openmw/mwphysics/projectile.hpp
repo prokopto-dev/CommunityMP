@@ -7,6 +7,7 @@
 
 #include <LinearMath/btVector3.h>
 
+#include "iprojectile.hpp"
 #include "ptrholder.hpp"
 
 class btCollisionObject;
@@ -23,7 +24,7 @@ namespace MWPhysics
     class PhysicsTaskScheduler;
     class PhysicsSystem;
 
-    class Projectile final : public PtrHolder
+    class Projectile final : public PtrHolder, public IProjectile
     {
     public:
         Projectile(const MWWorld::Ptr& caster, const osg::Vec3f& position, float radius,
@@ -34,24 +35,26 @@ namespace MWPhysics
 
         void updateCollisionObjectPosition();
 
-        bool isActive() const { return mActive.load(std::memory_order_acquire); }
+        bool isActive() const override { return mActive.load(std::memory_order_acquire); }
 
-        MWWorld::Ptr getTarget() const;
+        MWWorld::Ptr getTarget() const override;
 
-        MWWorld::Ptr getCaster() const;
-        void setCaster(const MWWorld::Ptr& caster);
+        MWWorld::Ptr getCaster() const override;
+        void setCaster(const MWWorld::Ptr& caster) override;
         const btCollisionObject* getCasterCollisionObject() const { return mCasterColObj; }
 
         void setHitWater() { mHitWater = true; }
 
-        bool getHitWater() const { return mHitWater; }
+        bool getHitWater() const override { return mHitWater; }
 
         void hit(const btCollisionObject* target, btVector3 pos, btVector3 normal);
 
-        void setValidTargets(const std::vector<MWWorld::Ptr>& targets);
+        void setValidTargets(const std::vector<MWWorld::Ptr>& targets) override;
         bool isValidTarget(const btCollisionObject* target) const;
 
-        btVector3 getHitPosition() const { return mHitPosition; }
+        void setVelocity(osg::Vec3f velocity) override { PtrHolder::setVelocity(velocity); }
+        osg::Vec3f getSimulationPosition() const override { return PtrHolder::getSimulationPosition(); }
+        osg::Vec3f getHitPosition() const override;
 
     private:
         std::unique_ptr<btCollisionShape> mShape;

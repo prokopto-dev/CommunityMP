@@ -125,19 +125,17 @@ namespace
 
         actor.position = baseActor.position;
         actor.direction = baseActor.direction;
+        actor.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(baseActor.movementSampleIntervalSeconds);
+        actor.movementLatencySeconds = sanitizeMovementLatencySeconds(baseActor.movementLatencySeconds);
         actor.positionSequence = baseActor.positionSequence;
         actor.hasPositionData = true;
 
         if (hadPositionData)
             MechanicsHelper::deriveMissingMovementDirection(actor.direction, actor.position, previousPosition);
+        actor.updateRemoteMovementEstimate(previousPosition, hadPositionData);
 
         if (!hadPositionData)
             actor.setPosition();
-        else
-        {
-            constexpr float immediateReplayStep = 0.015f;
-            actor.move(immediateReplayStep);
-        }
 
         return true;
     }
@@ -287,7 +285,7 @@ void Cell::updateLocal(bool forceUpdate)
     if (localActors.empty())
         return;
 
-    const float timeoutSec = 0.025f;
+    constexpr float timeoutSec = 1.f / 60.f;
 
     if (!forceUpdate)
     {
@@ -785,6 +783,9 @@ void Cell::readCellChange(ActorList& actorList)
             dedicatedActor->cell = baseActor.cell;
             dedicatedActor->position = baseActor.position;
             dedicatedActor->direction = baseActor.direction;
+            dedicatedActor->movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(
+                baseActor.movementSampleIntervalSeconds);
+            dedicatedActor->movementLatencySeconds = sanitizeMovementLatencySeconds(baseActor.movementLatencySeconds);
             dedicatedActor->positionSequence = baseActor.positionSequence;
             dedicatedActor->hasPositionData = true;
 
@@ -837,6 +838,10 @@ void Cell::readCellChange(ActorList& actorList)
                         localActor->setPtr(dedicatedActor->getPtr());
                         localActor->position = dedicatedActor->position;
                         localActor->direction = dedicatedActor->direction;
+                        localActor->movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(
+                            dedicatedActor->movementSampleIntervalSeconds);
+                        localActor->movementLatencySeconds = sanitizeMovementLatencySeconds(
+                            dedicatedActor->movementLatencySeconds);
                         localActor->positionSequence = dedicatedActor->positionSequence;
                         localActor->animFlagsSequence = dedicatedActor->animFlagsSequence;
                         localActor->hasAnimFlagsData = dedicatedActor->hasAnimFlagsData;

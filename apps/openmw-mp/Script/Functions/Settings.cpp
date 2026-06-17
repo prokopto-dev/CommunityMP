@@ -4,7 +4,7 @@
 #include <components/openmw-mp/TimedLog.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 #include <iostream>
 
@@ -97,7 +97,7 @@ void SettingFunctions::SendSettings(unsigned short pid, bool sendToOtherPlayers,
     Player *player;
     GET_PLAYER(pid, player,);
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GAME_SETTINGS);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GAME_SETTINGS);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)

@@ -3,6 +3,8 @@
 
 #include <osg/ref_ptr>
 
+#include <components/bullethelpers/version.hpp>
+
 #include <LinearMath/btScalar.h>
 
 #include <memory>

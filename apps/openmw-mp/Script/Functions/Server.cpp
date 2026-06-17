@@ -7,7 +7,7 @@
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/MasterClient.hpp>
 #include <Script/Script.hpp>
 
@@ -26,7 +26,7 @@ void ServerFunctions::LogAppend(unsigned short level, const char *message) noexc
 
 void ServerFunctions::StopServer(int code) noexcept
 {
-    mwmp::Networking::getPtr()->stopServer(code);
+    mwmp::ServerNetworking::getPtr()->stopServer(code);
 }
 
 void ServerFunctions::Kick(unsigned short pid) noexcept
@@ -35,18 +35,18 @@ void ServerFunctions::Kick(unsigned short pid) noexcept
     GET_PLAYER(pid, player,);
 
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Kicking player %s (%i)", player->npc.mName.c_str(), player->getId());
-    mwmp::Networking::getPtr()->kickPlayer(player->guid);
+    mwmp::ServerNetworking::getPtr()->kickPlayer(player->guid);
     player->setLoadState(Player::KICKED);
 }
 
 void ServerFunctions::BanAddress(const char *ipAddress) noexcept
 {
-    mwmp::Networking::getPtr()->banAddress(ipAddress);
+    mwmp::ServerNetworking::getPtr()->banAddress(ipAddress);
 }
 
 void ServerFunctions::UnbanAddress(const char *ipAddress) noexcept
 {
-    mwmp::Networking::getPtr()->unbanAddress(ipAddress);
+    mwmp::ServerNetworking::getPtr()->unbanAddress(ipAddress);
 }
 
 bool ServerFunctions::DoesFilePathExist(const char *filePath) noexcept
@@ -110,7 +110,7 @@ int ServerFunctions::GetAvgPing(unsigned short pid) noexcept
 {
     Player *player;
     GET_PLAYER(pid, player, -1);
-    return mwmp::Networking::get().getAvgPing(player->guid);
+    return mwmp::ServerNetworking::get().getAvgPing(player->guid);
 }
 
 const char *ServerFunctions::GetIP(unsigned short pid) noexcept
@@ -118,7 +118,7 @@ const char *ServerFunctions::GetIP(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, "");
     static std::string address;
-    const mwmp::PacketAddress packetAddress = mwmp::Networking::getPtr()->getPacketAddress(player->guid);
+    const mwmp::PacketAddress packetAddress = mwmp::ServerNetworking::getPtr()->getPacketAddress(player->guid);
     if (!mwmp::isPacketAddressAssigned(packetAddress))
         return "UNASSIGNED_SYSTEM_ADDRESS";
 
@@ -128,73 +128,73 @@ const char *ServerFunctions::GetIP(unsigned short pid) noexcept
 
 unsigned short ServerFunctions::GetPort() noexcept
 {
-    return mwmp::Networking::get().getPort();
+    return mwmp::ServerNetworking::get().getPort();
 }
 
 unsigned int ServerFunctions::GetMaxPlayers() noexcept
 {
-    return mwmp::Networking::get().maxConnections();
+    return mwmp::ServerNetworking::get().maxConnections();
 }
 
 bool ServerFunctions::HasPassword() noexcept
 {
-    return mwmp::Networking::get().isPassworded();
+    return mwmp::ServerNetworking::get().isPassworded();
 }
 
 bool ServerFunctions::GetDataFileEnforcementState() noexcept
 {
-    return mwmp::Networking::getPtr()->getDataFileEnforcementState();
+    return mwmp::ServerNetworking::getPtr()->getDataFileEnforcementState();
 }
 
 bool ServerFunctions::GetScriptErrorIgnoringState() noexcept
 {
-    return mwmp::Networking::getPtr()->getScriptErrorIgnoringState();
+    return mwmp::ServerNetworking::getPtr()->getScriptErrorIgnoringState();
 }
 
 void ServerFunctions::SetGameMode(const char *gameMode) noexcept
 {
-    if (mwmp::Networking::getPtr()->getMasterClient())
-        mwmp::Networking::getPtr()->getMasterClient()->SetModname(gameMode);
+    if (mwmp::ServerNetworking::getPtr()->getMasterClient())
+        mwmp::ServerNetworking::getPtr()->getMasterClient()->SetModname(gameMode);
 }
 
 void ServerFunctions::SetHostname(const char *name) noexcept
 {
-    if (mwmp::Networking::getPtr()->getMasterClient())
-        mwmp::Networking::getPtr()->getMasterClient()->SetHostname(name);
+    if (mwmp::ServerNetworking::getPtr()->getMasterClient())
+        mwmp::ServerNetworking::getPtr()->getMasterClient()->SetHostname(name);
 }
 
 void ServerFunctions::SetServerPassword(const char *password) noexcept
 {
-    mwmp::Networking::getPtr()->setServerPassword(password);
+    mwmp::ServerNetworking::getPtr()->setServerPassword(password);
 }
 
 void ServerFunctions::SetDataFileEnforcementState(bool state) noexcept
 {
-    mwmp::Networking::getPtr()->setDataFileEnforcementState(state);
+    mwmp::ServerNetworking::getPtr()->setDataFileEnforcementState(state);
 }
 
 void ServerFunctions::SetScriptErrorIgnoringState(bool state) noexcept
 {
-    mwmp::Networking::getPtr()->setScriptErrorIgnoringState(state);
+    mwmp::ServerNetworking::getPtr()->setScriptErrorIgnoringState(state);
 }
 
 void ServerFunctions::SetRuleString(const char *key, const char *value) noexcept
 {
-    auto mc = mwmp::Networking::getPtr()->getMasterClient();
+    auto mc = mwmp::ServerNetworking::getPtr()->getMasterClient();
     if (mc)
         mc->SetRuleString(key, value);
 }
 
 void ServerFunctions::SetRuleValue(const char *key, double value) noexcept
 {
-    auto mc = mwmp::Networking::getPtr()->getMasterClient();
+    auto mc = mwmp::ServerNetworking::getPtr()->getMasterClient();
     if (mc)
         mc->SetRuleValue(key, value);
 }
 
 void ServerFunctions::AddDataFileRequirement(const char *dataFilename, const char *checksumString) noexcept
 {
-    auto &samples = mwmp::Networking::getPtr()->getSamples();
+    auto &samples = mwmp::ServerNetworking::getPtr()->getSamples();
     
     auto it = std::find_if(samples.begin(), samples.end(), [&dataFilename](mwmp::PacketPreInit::PluginPair &item) {
         return item.first == dataFilename;
@@ -219,7 +219,7 @@ void ServerFunctions::AddDataFileRequirement(const char *dataFilename, const cha
         }
         samples.emplace_back(dataFilename, checksumList);
 
-        auto masterClient = mwmp::Networking::getPtr()->getMasterClient();
+        auto masterClient = mwmp::ServerNetworking::getPtr()->getMasterClient();
         
         if (masterClient)
             masterClient->PushPlugin({dataFilename, checksum});
@@ -240,7 +240,7 @@ const char* ServerFunctions::GetModDir() noexcept
 
 bool ServerFunctions::GetPluginEnforcementState() noexcept
 {
-    return mwmp::Networking::getPtr()->getDataFileEnforcementState();
+    return mwmp::ServerNetworking::getPtr()->getDataFileEnforcementState();
 }
 
 void ServerFunctions::SetPluginEnforcementState(bool state) noexcept

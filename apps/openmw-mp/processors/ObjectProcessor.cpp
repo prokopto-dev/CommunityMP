@@ -1,7 +1,7 @@
 #include "ObjectProcessor.hpp"
 #include "Cell.hpp"
 #include "CellController.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include <components/openmw-mp/Transport/ReceivedPacket.hpp>
 
 using namespace mwmp;
@@ -49,7 +49,7 @@ bool ObjectProcessor::Process(ReceivedPacket& packet, BaseObjectList &objectList
                 return true;
             }
 
-            ObjectPacket *myPacket = Networking::get().getObjectPacketController()->GetPacket(packet.id());
+            ObjectPacket *myPacket = ServerNetworking::get().getObjectPacketController()->GetPacket(packet.id());
 
             myPacket->setObjectList(&objectList);
             objectList.isValid = true;

@@ -28,6 +28,7 @@
 #include "../Packets/Player/PacketPlayerJail.hpp"
 #include "../Packets/Player/PacketPlayerJournal.hpp"
 #include "../Packets/Player/PacketPlayerLevel.hpp"
+#include "../Packets/Player/PacketPlayerLuaEvent.hpp"
 #include "../Packets/Player/PacketPlayerMiscellaneous.hpp"
 #include "../Packets/Player/PacketPlayerMomentum.hpp"
 #include "../Packets/Player/PacketPlayerPosition.hpp"
@@ -85,6 +86,7 @@ mwmp::PlayerPacketController::PlayerPacketController()
     AddPacket<PacketPlayerJail>(&packets);
     AddPacket<PacketPlayerJournal>(&packets);
     AddPacket<PacketPlayerLevel>(&packets);
+    AddPacket<PacketPlayerLuaEvent>(&packets);
     AddPacket<PacketPlayerMiscellaneous>(&packets);
     AddPacket<PacketPlayerMomentum>(&packets);
     AddPacket<PacketPlayerPosition>(&packets);

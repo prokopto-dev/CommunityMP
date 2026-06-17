@@ -3,7 +3,7 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 void GUIFunctions::_MessageBox(unsigned short pid, int id, const char *label) noexcept
 {
@@ -14,7 +14,7 @@ void GUIFunctions::_MessageBox(unsigned short pid, int id, const char *label) no
     player->guiMessageBox.label = label;
     player->guiMessageBox.type = Player::GUIMessageBox::MessageBox;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -30,7 +30,7 @@ void GUIFunctions::CustomMessageBox(unsigned short pid, int id, const char *labe
     player->guiMessageBox.buttons = buttons;
     player->guiMessageBox.type = Player::GUIMessageBox::CustomMessageBox;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -46,7 +46,7 @@ void GUIFunctions::InputDialog(unsigned short pid, int id, const char *label, co
     player->guiMessageBox.note = note;
     player->guiMessageBox.type = Player::GUIMessageBox::InputDialog;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
     packet->setPlayer(player);
     
     packet->Send(false);
@@ -62,7 +62,7 @@ void GUIFunctions::PasswordDialog(unsigned short pid, int id, const char *label,
     player->guiMessageBox.note = note;
     player->guiMessageBox.type = Player::GUIMessageBox::PasswordDialog;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
     packet->setPlayer(player);
     
     packet->Send(false);
@@ -79,7 +79,7 @@ void GUIFunctions::ListBox(unsigned short pid, int id, const char *label, const 
     player->guiMessageBox.note.clear();
     player->guiMessageBox.type = Player::GUIMessageBox::ListBox;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
     packet->setPlayer(player);
     
     packet->Send(false);
@@ -97,7 +97,7 @@ void GUIFunctions::ListBoxWithMetadata(unsigned short pid, int id, const char *l
     player->guiMessageBox.note = metadata;
     player->guiMessageBox.type = Player::GUIMessageBox::ListBox;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_GUI_MESSAGEBOX);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -170,8 +170,8 @@ void GUIFunctions::SendQuickKeyChanges(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_QUICKKEYS)->setPlayer(player);
-    mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_QUICKKEYS)->Send(false);
+    mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_QUICKKEYS)->setPlayer(player);
+    mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_QUICKKEYS)->Send(false);
 }
 
 void GUIFunctions::SetMapVisibility(unsigned short targetPid, unsigned short affectedPid, unsigned short state) noexcept

@@ -5,7 +5,7 @@
 #include <components/openmw-mp/Utils.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 using namespace mwmp;
 
@@ -366,7 +366,7 @@ void SpellFunctions::SendSpellbookChanges(unsigned short pid, bool sendToOtherPl
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPELLBOOK);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPELLBOOK);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)
@@ -380,7 +380,7 @@ void SpellFunctions::SendSpellsActiveChanges(unsigned short pid, bool sendToOthe
     Player* player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket* packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPELLS_ACTIVE);
+    mwmp::PlayerPacket* packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPELLS_ACTIVE);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)
@@ -394,7 +394,7 @@ void SpellFunctions::SendCooldownChanges(unsigned short pid) noexcept
     Player* player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket* packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_COOLDOWNS);
+    mwmp::PlayerPacket* packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_COOLDOWNS);
     packet->setPlayer(player);
     packet->Send(false);
 }

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include <components/esm/attr.hpp>
@@ -188,6 +189,7 @@ namespace
 
     constexpr float serverEquipmentReloadTimeout = 1.0f;
 
+    constexpr float multiplayerMovementTickSeconds = 1.f / 60.f;
     constexpr float dynamicObjectSyncInterval = 0.1f;
     constexpr float dynamicObjectPositionEpsilonSquared = 4.0f;
     constexpr float dynamicObjectRotationEpsilon = 0.025f;
@@ -296,24 +298,31 @@ MWWorld::Ptr LocalPlayer::getPlayerPtr()
 
 void LocalPlayer::update()
 {
-    static float updateTimer = 0;
-    const float timeoutSec = 0.015f;
+    static float movementUpdateTimer = 0.f;
+    static float generalUpdateTimer = 0.f;
+    constexpr float movementTimeoutSec = multiplayerMovementTickSeconds;
+    constexpr float generalTimeoutSec = 0.015f;
+    const float frameDuration = MWBase::Environment::get().getFrameDuration();
 
     if (mServerEquipmentReloadTimer > 0.f)
-        mServerEquipmentReloadTimer = std::max(0.f,
-            mServerEquipmentReloadTimer - MWBase::Environment::get().getFrameDuration());
+        mServerEquipmentReloadTimer = std::max(0.f, mServerEquipmentReloadTimer - frameDuration);
 
-    if ((updateTimer += MWBase::Environment::get().getFrameDuration()) >= timeoutSec)
+    if ((movementUpdateTimer += frameDuration) >= movementTimeoutSec)
     {
-        updateTimer = std::fmod(updateTimer, timeoutSec);
+        movementUpdateTimer = std::fmod(movementUpdateTimer, movementTimeoutSec);
         updateCell();
-        getNetworking()->getWorldstate()->sendWeatherIfAuthorityChanged();
         updatePosition();
         updateAnimFlags();
+        updateAttackOrCast();
+    }
+
+    if ((generalUpdateTimer += frameDuration) >= generalTimeoutSec)
+    {
+        generalUpdateTimer = std::fmod(generalUpdateTimer, generalTimeoutSec);
+        getNetworking()->getWorldstate()->sendWeatherIfAuthorityChanged();
         updateEquipment();
         updateStatsDynamic();
-        updateAttackOrCast();
-        updateDynamicObjects(timeoutSec);
+        updateDynamicObjects(generalTimeoutSec);
         updateAttributes();
         updateSkills();
         updateLevel();
@@ -743,7 +752,7 @@ void LocalPlayer::updateReputation(bool forceUpdate)
     }
 }
 
-void LocalPlayer::updatePosition(bool forceUpdate, bool reliable, bool sendPacket)
+void LocalPlayer::updatePosition(bool forceUpdate, bool reliable, bool sendPacket, bool advanceSequenceWithoutPacket)
 {
     MWBase::World *world = MWBase::Environment::get().getWorld();
     MWWorld::Ptr ptrPlayer = world->getPlayerPtr();
@@ -761,12 +770,43 @@ void LocalPlayer::updatePosition(bool forceUpdate, bool reliable, bool sendPacke
         hasOldPosition = true;
     }
 
-    const auto sendPosition = [this, reliable, sendPacket]()
+    const auto advancePositionSequence = [this]()
+    {
+        static std::chrono::steady_clock::time_point lastSentPositionPacket;
+        const auto now = std::chrono::steady_clock::now();
+        float sampleIntervalSeconds = multiplayerMovementTickSeconds;
+        if (lastSentPositionPacket != std::chrono::steady_clock::time_point())
+        {
+            const float elapsedSeconds = std::chrono::duration<float>(now - lastSentPositionPacket).count();
+            if (std::isfinite(elapsedSeconds) && elapsedSeconds > multiplayerMovementTickSeconds * 1.5f)
+                sampleIntervalSeconds = elapsedSeconds;
+        }
+        lastSentPositionPacket = now;
+
+        movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleIntervalSeconds);
+        movementLatencySeconds = 0.f;
+        ++positionSequence;
+    };
+
+    const auto sendPosition = [this, forceUpdate, reliable, sendPacket, &advancePositionSequence]()
     {
         if (!sendPacket)
             return;
 
-        ++positionSequence;
+        static std::chrono::steady_clock::time_point lastUnreliablePositionPacket;
+        if (!forceUpdate && !reliable)
+        {
+            constexpr auto minimumUnreliablePositionInterval
+                = std::chrono::duration<float>(multiplayerMovementTickSeconds);
+            const auto now = std::chrono::steady_clock::now();
+            if (lastUnreliablePositionPacket != std::chrono::steady_clock::time_point()
+                && now - lastUnreliablePositionPacket < minimumUnreliablePositionInterval)
+                return;
+
+            lastUnreliablePositionPacket = now;
+        }
+
+        advancePositionSequence();
         PlayerPacket* packet = getNetworking()->getPlayerPacket(ID_PLAYER_POSITION);
         packet->setPlayer(this);
 
@@ -783,13 +823,14 @@ void LocalPlayer::updatePosition(bool forceUpdate, bool reliable, bool sendPacke
         direction.rot[axis] = MechanicsHelper::sanitizeMovementComponent(movement.mRotation[axis]);
     }
 
-    const float transformEpsilon = 0.0001f;
+    constexpr float positionEpsilon = 0.05f;
+    constexpr float rotationEpsilon = 0.0005f;
     bool transformWasChanged = false;
     for (int axis = 0; axis < 3; ++axis)
     {
         transformWasChanged = transformWasChanged ||
-            std::abs(position.pos[axis] - oldPosition.pos[axis]) > transformEpsilon ||
-            std::abs(position.rot[axis] - oldPosition.rot[axis]) > transformEpsilon;
+            std::abs(position.pos[axis] - oldPosition.pos[axis]) > positionEpsilon ||
+            std::abs(position.rot[axis] - oldPosition.rot[axis]) > rotationEpsilon;
     }
     if (!isPlayingAnimation)
         MechanicsHelper::deriveMissingMovementDirection(direction, position, oldPosition);
@@ -804,6 +845,8 @@ void LocalPlayer::updatePosition(bool forceUpdate, bool reliable, bool sendPacke
         posWasChanged = false;
         wasJumping = !world->isOnGround(ptrPlayer) && !world->isFlying(ptrPlayer);
         sentJumpEnd = true;
+        if (advanceSequenceWithoutPacket)
+            advancePositionSequence();
         return;
     }
 
@@ -873,8 +916,7 @@ void LocalPlayer::updateCell(bool forceUpdate, bool sendPositionPacket)
         // old cell and send a stale correction back during the load fade.
         if (sendPositionPacket)
         {
-            updatePosition(true, false, false);
-            ++positionSequence;
+            updatePosition(true, false, false, true);
             mHasPendingCellChangePositionSequence = true;
             mPendingCellChangePositionSequence = positionSequence;
         }
@@ -897,7 +939,7 @@ void LocalPlayer::updateCell(bool forceUpdate, bool sendPositionPacket)
 
 void LocalPlayer::updateEquipment(bool forceUpdate)
 {
-    if (mServerEquipmentReloadTimer > 0.f)
+    if (!forceUpdate && mServerEquipmentReloadTimer > 0.f)
         return;
 
     if (equipmentIndexChanges.size() > 0)
@@ -929,7 +971,7 @@ void LocalPlayer::updateEquipment(bool forceUpdate)
                 item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
             }
         }
-        else if (!item.refId.empty())
+        else if (forceUpdate || !item.refId.empty())
         {
             equipmentIndexChanges.push_back(slot);
             item.refId = "";
@@ -939,9 +981,9 @@ void LocalPlayer::updateEquipment(bool forceUpdate)
         }
     }
 
-    if (equipmentIndexChanges.size() > 0)
+    if (forceUpdate || equipmentIndexChanges.size() > 0)
     {
-        exchangeFullInfo = false;
+        exchangeFullInfo = forceUpdate;
         ++equipmentSequence;
         acceptCurrentEquipmentPacket();
         getNetworking()->getPlayerPacket(ID_PLAYER_EQUIPMENT)->setPlayer(this);
@@ -1023,7 +1065,7 @@ void LocalPlayer::updateAttackOrCast()
     const bool attackReady = attack.shouldSend && !MechanicsHelper::shouldDeferLocalAttack(attack);
 
     if (attackReady || cast.shouldSend)
-        updatePosition(true);
+        updatePosition(true, false, false, true);
 
     if (attackReady)
     {
@@ -1114,8 +1156,9 @@ void LocalPlayer::updateAnimFlags(bool forceUpdate)
 
 #undef __SETFLAG
 
-        if (isJumping)
-            updatePosition(true); // fix position after jump;
+        // Animation packets also carry a movement snapshot. Refresh it here so
+        // spawn/run/draw-state changes never forward a stale transform.
+        updatePosition(true, false, false, true);
 
         ++animFlagsSequence;
         getNetworking()->getPlayerPacket(ID_PLAYER_ANIM_FLAGS)->setPlayer(this);
@@ -1364,7 +1407,7 @@ void LocalPlayer::die()
     health.writeState(creatureStats.mDynamic[0]);
     acceptCurrentStatsDynamicPacket();
 
-    updatePosition(true);
+    updatePosition(true, false, false, true);
     advanceCombatSequence();
     acceptCurrentCombatPacket();
     Main::get().getNetworking()->getPlayerPacket(ID_PLAYER_DEATH)->setPlayer(this);
@@ -2139,7 +2182,7 @@ void LocalPlayer::sendDeath(char newDeathState)
     if (MechanicsHelper::isEmptyTarget(killer))
         killer = MechanicsHelper::getTarget(getPlayerPtr());
 
-    updatePosition(true);
+    updatePosition(true, false, false, true);
     deathState = newDeathState;
     updateStatsDynamic(true);
     advanceCombatSequence();

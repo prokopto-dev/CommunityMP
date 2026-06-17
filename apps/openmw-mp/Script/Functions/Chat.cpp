@@ -4,7 +4,7 @@
 #include <components/openmw-mp/TimedLog.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 void ChatFunctions::SendMessage(unsigned short pid, const char *message, bool sendToOtherPlayers, bool skipAttachedPlayer) noexcept
 {
@@ -15,7 +15,7 @@ void ChatFunctions::SendMessage(unsigned short pid, const char *message, bool se
 
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "System: %s", message);
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_CHAT_MESSAGE);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_CHAT_MESSAGE);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)
@@ -31,7 +31,7 @@ void ChatFunctions::CleanChatForPid(unsigned short pid)
 
     player->chatMessage.clear();
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_CHAT_MESSAGE);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_CHAT_MESSAGE);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -43,7 +43,7 @@ void ChatFunctions::CleanChat()
     {
         player.second->chatMessage.clear();
 
-        mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_CHAT_MESSAGE);
+        mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_CHAT_MESSAGE);
         packet->setPlayer(player.second);
 
         packet->Send(false);

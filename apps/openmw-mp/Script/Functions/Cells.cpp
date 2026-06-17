@@ -7,7 +7,7 @@
 #include <apps/openmw-mp/Cell.hpp>
 #include <apps/openmw-mp/CellController.hpp>
 #include <apps/openmw-mp/Player.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/ServerSimulation.hpp>
 #include <apps/openmw-mp/Utils.hpp>
 
@@ -171,9 +171,9 @@ void CellFunctions::SendCell(unsigned short pid) noexcept
     GET_PLAYER(pid, player, );
 
     ++player->positionSequence;
-    mwmp::Networking::getPtr()->getServerSimulation().acceptServerAuthoredPlayerState(*player, true);
+    mwmp::ServerNetworking::getPtr()->getServerSimulation().acceptServerAuthoredPlayerState(*player, true);
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_CELL_CHANGE);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_CELL_CHANGE);
     packet->setPlayer(player);
 
     packet->Send(false);

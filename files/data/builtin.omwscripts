@@ -29,6 +29,10 @@ NPC,CREATURE,PLAYER: scripts/omw/combat/interface.lua
 # User interface
 PLAYER: scripts/omw/ui.lua
 
+# CommunityMP bridge
+PLAYER: scripts/communitymp/player_observer.lua
+PLAYER: scripts/communitymp/server_events.lua
+
 # Lua console
 MENU: scripts/omw/console/menu.lua
 PLAYER: scripts/omw/console/player.lua

@@ -1,7 +1,7 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
 
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Player.hpp>
 #include <apps/openmw-mp/Utils.hpp>
 #include <apps/openmw-mp/processors/ActorProcessor.hpp>
@@ -113,7 +113,7 @@ namespace
 
 void ActorFunctions::ReadReceivedActorList() noexcept
 {
-    readActorList = mwmp::Networking::getPtr()->getReceivedActorList();
+    readActorList = mwmp::ServerNetworking::getPtr()->getReceivedActorList();
 }
 
 void ActorFunctions::ReadCellActorList(const char* cellDescription) noexcept
@@ -721,7 +721,7 @@ void ActorFunctions::SendActorList() noexcept
             serverCell->readActorList(ID_ACTOR_LIST, &writeActorList);
     }
 
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_LIST);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_LIST);
     actorPacket->setActorList(&writeActorList);
     actorPacket->Send(writeActorList.guid);
 }
@@ -743,7 +743,7 @@ void ActorFunctions::SendActorAuthority() noexcept
 
         serverCell->setAuthority(writeActorList.guid);
 
-        mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_AUTHORITY);
+        mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_AUTHORITY);
         actorPacket->setActorList(&writeActorList);
 
         // Always send the packet to everyone on the server, to reduce bugs caused by late-arriving packets
@@ -759,7 +759,7 @@ void ActorFunctions::SendActorPosition(bool sendToOtherVisitors, bool skipAttach
     if (serverCell != nullptr)
         serverCell->readActorList(ID_ACTOR_POSITION, &writeActorList);
 
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)
@@ -782,7 +782,7 @@ void ActorFunctions::SendActorStatsDynamic(bool sendToOtherVisitors, bool skipAt
     if (serverCell != nullptr)
         serverCell->readActorList(ID_ACTOR_STATS_DYNAMIC, &writeActorList);
 
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)
@@ -805,7 +805,7 @@ void ActorFunctions::SendActorEquipment(bool sendToOtherVisitors, bool skipAttac
     if (serverCell != nullptr)
         serverCell->readActorList(ID_ACTOR_EQUIPMENT, &writeActorList);
 
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)
@@ -823,7 +823,7 @@ void ActorFunctions::SendActorEquipment(bool sendToOtherVisitors, bool skipAttac
 void ActorFunctions::SendActorSpellsActiveChanges(bool sendToOtherVisitors, bool skipAttachedPlayer) noexcept
 {
     syncActorListCount(writeActorList);
-    mwmp::ActorPacket* actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_SPELLS_ACTIVE);
+    mwmp::ActorPacket* actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_SPELLS_ACTIVE);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)
@@ -843,7 +843,7 @@ void ActorFunctions::SendActorSpellsActiveChanges(bool sendToOtherVisitors, bool
 void ActorFunctions::SendActorSpeech(bool sendToOtherVisitors, bool skipAttachedPlayer) noexcept
 {
     syncActorListCount(writeActorList);
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_SPEECH);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_SPEECH);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)
@@ -863,7 +863,7 @@ void ActorFunctions::SendActorSpeech(bool sendToOtherVisitors, bool skipAttached
 void ActorFunctions::SendActorDeath(bool sendToOtherVisitors, bool skipAttachedPlayer) noexcept
 {
     syncActorListCount(writeActorList);
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_DEATH);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_DEATH);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)
@@ -883,7 +883,7 @@ void ActorFunctions::SendActorDeath(bool sendToOtherVisitors, bool skipAttachedP
 void ActorFunctions::SendActorAI(bool sendToOtherVisitors, bool skipAttachedPlayer) noexcept
 {
     syncActorListCount(writeActorList);
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_AI);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_AI);
     actorPacket->setActorList(&writeActorList);
 
     Cell *serverCell = CellController::get()->getCell(&writeActorList.cell);
@@ -904,7 +904,7 @@ void ActorFunctions::SendActorCellChange(bool sendToOtherVisitors, bool skipAtta
     syncActorListCount(writeActorList);
     mwmp::ActorProcessor::cacheCellChange(writeActorList);
 
-    mwmp::ActorPacket *actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_CELL_CHANGE);
+    mwmp::ActorPacket *actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_CELL_CHANGE);
     actorPacket->setActorList(&writeActorList);
 
     if (!skipAttachedPlayer)

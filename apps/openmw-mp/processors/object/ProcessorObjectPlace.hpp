@@ -2,7 +2,7 @@
 #define OPENMW_PROCESSOROBJECTPLACE_HPP
 
 #include "../ObjectProcessor.hpp"
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 namespace mwmp
 {
@@ -20,7 +20,7 @@ namespace mwmp
 
             for (unsigned int i = 0; i < objectList.baseObjectCount; i++)
             {
-                objectList.baseObjects.at(i).mpNum = mwmp::Networking::getPtr()->incrementMpNum();
+                objectList.baseObjects.at(i).mpNum = mwmp::ServerNetworking::getPtr()->incrementMpNum();
             }
 
             Script::Call<Script::CallbackIdentity("OnObjectPlace")>(player.getId(), objectList.cell.getDescription().c_str());

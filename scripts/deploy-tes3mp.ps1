@@ -300,6 +300,14 @@ function Copy-MsvcRuntimeDependencies {
     }
 
     $redistRoots += @(
+        "C:\Program Files\Microsoft Visual Studio\2026\Enterprise\VC\Redist\MSVC",
+        "C:\Program Files\Microsoft Visual Studio\2026\Professional\VC\Redist\MSVC",
+        "C:\Program Files\Microsoft Visual Studio\2026\Community\VC\Redist\MSVC",
+        "C:\Program Files\Microsoft Visual Studio\2026\BuildTools\VC\Redist\MSVC",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2026\Enterprise\VC\Redist\MSVC",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2026\Professional\VC\Redist\MSVC",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2026\Community\VC\Redist\MSVC",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2026\BuildTools\VC\Redist\MSVC",
         "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC",
         "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Redist\MSVC",
         "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC",
@@ -315,7 +323,11 @@ function Copy-MsvcRuntimeDependencies {
         if (Test-Path -LiteralPath $root -PathType Container) {
             $candidateDirs += Get-ChildItem -LiteralPath $root -Directory |
                 Sort-Object LastWriteTime -Descending |
-                ForEach-Object { Join-Path $_.FullName "x64\Microsoft.VC143.CRT" } |
+                ForEach-Object {
+                    Get-ChildItem -LiteralPath (Join-Path $_.FullName "x64") -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue
+                } |
+                Sort-Object LastWriteTime -Descending |
+                ForEach-Object { $_.FullName } |
                 Where-Object { Test-Path -LiteralPath $_ -PathType Container }
         }
     }
@@ -575,6 +587,7 @@ foreach ($portableDirectory in @("config", "userdata", "userdata\data")) {
 Copy-OpenMwContentBootstrap $installRoot
 
 Copy-DirectoryContents (Join-Path $runtimeRoot "resources") (Join-Path $installRoot "resources")
+Copy-DirectoryContents (Join-Path $repoRoot "files\data\scripts") (Join-Path $installRoot "resources\vfs\scripts")
 Copy-DirectoryContents (Join-Path $runtimeRoot "server\lib") (Join-Path $installRoot "server\lib")
 Copy-DirectoryContents (Join-Path $runtimeRoot "server\scripts") (Join-Path $installRoot "server\scripts")
 Assert-OpenMwConfigBootstrap $installRoot

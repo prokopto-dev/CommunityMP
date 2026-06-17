@@ -2,7 +2,7 @@
 #include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Player.hpp>
 #include <apps/openmw-mp/Utils.hpp>
 #include <apps/openmw-mp/processors/ObjectProcessor.hpp>
@@ -103,7 +103,7 @@ namespace
 
     void SendObjectPacket(mwmp::PacketId packetId, bool sendToOtherPlayers, bool skipAttachedPlayer)
     {
-        mwmp::ObjectPacket* packet = mwmp::Networking::get().getObjectPacketController()->GetPacket(packetId);
+        mwmp::ObjectPacket* packet = mwmp::ServerNetworking::get().getObjectPacketController()->GetPacket(packetId);
         syncObjectListCounts(writeObjectList);
         packet->setObjectList(&writeObjectList);
 
@@ -116,7 +116,7 @@ namespace
 
 void ObjectFunctions::ReadReceivedObjectList() noexcept
 {
-    readObjectList = mwmp::Networking::getPtr()->getReceivedObjectList();
+    readObjectList = mwmp::ServerNetworking::getPtr()->getReceivedObjectList();
 }
 
 void ObjectFunctions::ClearObjectList() noexcept

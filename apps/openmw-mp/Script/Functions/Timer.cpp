@@ -1,7 +1,7 @@
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <Player.hpp>
-#include <Networking.hpp>
+#include <ServerNetworking.hpp>
 #include <Script/API/TimerAPI.hpp>
 
 using namespace mwmp;

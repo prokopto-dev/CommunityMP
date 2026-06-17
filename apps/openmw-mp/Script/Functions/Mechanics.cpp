@@ -6,7 +6,7 @@
 
 #include <apps/openmw-mp/Script/Script.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 #include <algorithm>
 #include <iostream>
@@ -262,7 +262,7 @@ void MechanicsFunctions::SendMarkLocation(unsigned short pid)
 
     player->miscellaneousChangeType = mwmp::MISCELLANEOUS_CHANGE_TYPE::MARK_LOCATION;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MISCELLANEOUS);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MISCELLANEOUS);
     packet->setPlayer(player);
     
     packet->Send(false);
@@ -275,7 +275,7 @@ void MechanicsFunctions::SendSelectedSpell(unsigned short pid)
 
     player->miscellaneousChangeType = mwmp::MISCELLANEOUS_CHANGE_TYPE::SELECTED_SPELL;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MISCELLANEOUS);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MISCELLANEOUS);
     packet->setPlayer(player);
     
     packet->Send(false);
@@ -288,7 +288,7 @@ void MechanicsFunctions::SendSelectedEnchantedItem(unsigned short pid)
 
     player->miscellaneousChangeType = mwmp::MISCELLANEOUS_CHANGE_TYPE::SELECTED_ENCHANTED_ITEM;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MISCELLANEOUS);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MISCELLANEOUS);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -299,7 +299,7 @@ void MechanicsFunctions::SendAlliedPlayers(unsigned short pid, bool sendToOtherP
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_ALLY);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_ALLY);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -319,7 +319,7 @@ void MechanicsFunctions::Jail(unsigned short pid, int jailDays, bool ignoreJailT
     player->jailProgressText = jailProgressText;
     player->jailEndText = jailEndText;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_JAIL);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_JAIL);
     packet->setPlayer(player);
     
     packet->Send(false);
@@ -347,7 +347,7 @@ void MechanicsFunctions::Resurrect(unsigned short pid, unsigned int type) noexce
     ++player->statsDynamicSequence;
     player->acceptCurrentStatsDynamicPacket();
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_RESURRECT);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_RESURRECT);
     packet->setPlayer(player);
 
     packet->Send(false);

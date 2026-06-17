@@ -21,6 +21,7 @@
 #include <LinearMath/btVector3.h>
 
 #include <components/debug/debuglog.hpp>
+#include <components/bullethelpers/version.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/misc/constants.hpp>
@@ -107,6 +108,9 @@ namespace MWPhysics
         , mWaterEnabled(false)
         , mParentNode(std::move(parentNode))
     {
+        Log(Debug::Info) << "Using Bullet physics " << BulletHelpers::RuntimeBulletVersion
+                         << " (required >= " << BulletHelpers::RequiredBulletVersion << ")";
+
         mResourceSystem->addResourceManager(mShapeManager.get());
 
         mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>();
@@ -579,7 +583,7 @@ namespace MWPhysics
         return nullptr;
     }
 
-    Projectile* PhysicsSystem::getProjectile(int projectileId) const
+    IProjectile* PhysicsSystem::getProjectile(int projectileId) const
     {
         ProjectileMap::const_iterator found = mProjectiles.find(projectileId);
         if (found != mProjectiles.end())

@@ -21,7 +21,6 @@
 #include <components/esm/vector3.hpp>
 
 #include <components/misc/constants.hpp>
-#include <components/misc/convert.hpp>
 #include <components/misc/resourcehelpers.hpp>
 
 #include <components/resource/resourcesystem.hpp>
@@ -58,7 +57,7 @@
 #include "../mwsound/sound.hpp"
 
 #include "../mwphysics/iphysicsbackend.hpp"
-#include "../mwphysics/projectile.hpp"
+#include "../mwphysics/iprojectile.hpp"
 
 namespace
 {
@@ -452,6 +451,13 @@ namespace MWWorld
                 continue;
 
             auto* projectile = mPhysics->getProjectile(magicBoltState.mProjectileId);
+            if (projectile == nullptr)
+            {
+                Log(Debug::Warning) << "ProjectileManager: missing magic projectile "
+                                    << magicBoltState.mProjectileId;
+                cleanupMagicBolt(magicBoltState);
+                continue;
+            }
             if (!projectile->isActive())
                 continue;
             // If the actor caster is gone, the magic bolt needs to be removed from the scene during the next frame.
@@ -504,6 +510,12 @@ namespace MWWorld
                 continue;
 
             auto* projectile = mPhysics->getProjectile(projectileState.mProjectileId);
+            if (projectile == nullptr)
+            {
+                Log(Debug::Warning) << "ProjectileManager: missing projectile " << projectileState.mProjectileId;
+                cleanupProjectile(projectileState);
+                continue;
+            }
             if (!projectile->isActive())
                 continue;
             // gravity constant - must be way lower than the gravity affecting actors, since we're not
@@ -536,6 +548,12 @@ namespace MWWorld
                 continue;
 
             auto* projectile = mPhysics->getProjectile(projectileState.mProjectileId);
+            if (projectile == nullptr)
+            {
+                Log(Debug::Warning) << "ProjectileManager: missing projectile " << projectileState.mProjectileId;
+                cleanupProjectile(projectileState);
+                continue;
+            }
 
             const auto pos = projectile->getSimulationPosition();
             projectileState.mNode->setPosition(pos);
@@ -561,7 +579,7 @@ namespace MWWorld
                     bow = *invIt;
             }
 
-            const auto hitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
+            const auto hitPosition = projectile->getHitPosition();
 
             if (projectile->getHitWater())
                 mRendering->emitWaterRipple(hitPosition);
@@ -577,6 +595,13 @@ namespace MWWorld
                 continue;
 
             auto* projectile = mPhysics->getProjectile(magicBoltState.mProjectileId);
+            if (projectile == nullptr)
+            {
+                Log(Debug::Warning) << "ProjectileManager: missing magic projectile "
+                                    << magicBoltState.mProjectileId;
+                cleanupMagicBolt(magicBoltState);
+                continue;
+            }
 
             const auto pos = projectile->getSimulationPosition();
             magicBoltState.mNode->setPosition(pos);
@@ -595,7 +620,7 @@ namespace MWWorld
             assert(target != caster);
 
             MWMechanics::CastSpell cast(caster, target);
-            cast.mHitPosition = !active ? Misc::Convert::makeOsgVec3f(projectile->getHitPosition()) : pos;
+            cast.mHitPosition = !active ? projectile->getHitPosition() : pos;
             cast.mId = magicBoltState.mSpellId;
             cast.mSourceName = magicBoltState.mSourceName;
             cast.mItem = magicBoltState.mItem;

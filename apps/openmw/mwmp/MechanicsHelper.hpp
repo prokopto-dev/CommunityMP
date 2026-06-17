@@ -13,6 +13,25 @@ namespace MechanicsHelper
 {
     osg::Vec3f getLinearInterpolation(osg::Vec3f start, osg::Vec3f end, float percent);
     float getRemoteMovementInterpolationFactor(float dt);
+    float getRemoteMovementInterpolationFactor(float dt, float distanceToTarget, bool hasTranslationIntent);
+    float getRemoteMovementInterpolationFactor(float dt, float distanceToTarget, bool hasTranslationIntent,
+        float jitterSeconds);
+    float getRemoteRotationInterpolationFactor(float dt);
+    osg::Vec3f getInterpolatedRemoteRotation(
+        const ESM::Position& currentPosition, const ESM::Position& targetPosition, float interpolationFactor);
+    bool hasRemoteTranslationIntent(const ESM::Position& direction);
+    osg::Vec3f estimateRemoteVelocity(
+        const ESM::Position& previousPosition, const ESM::Position& currentPosition, float deltaSeconds);
+    osg::Vec3f smoothRemoteVelocity(
+        const osg::Vec3f& previousVelocity, const osg::Vec3f& sampleVelocity, float deltaSeconds, bool hasPreviousVelocity);
+    float smoothRemoteTimingValue(float previousValue, float sampleValue, float deltaSeconds, bool hasPreviousValue);
+    float sanitizeRemoteMovementJitterSeconds(float seconds);
+    osg::Vec3f getPredictedRemoteMovementTarget(
+        const ESM::Position& position, const ESM::Position& direction, const osg::Vec3f& velocity, bool hasVelocity,
+        float packetAgeSeconds, float sampleIntervalSeconds, float latencySeconds);
+    osg::Vec3f getPredictedRemoteMovementTarget(
+        const ESM::Position& position, const ESM::Position& direction, const osg::Vec3f& velocity, bool hasVelocity,
+        float packetAgeSeconds, float sampleIntervalSeconds, float latencySeconds, float jitterSeconds);
     float sanitizeMovementComponent(float value);
     void deriveMissingMovementDirection(
         ESM::Position& direction, const ESM::Position& currentPosition, const ESM::Position& previousPosition);

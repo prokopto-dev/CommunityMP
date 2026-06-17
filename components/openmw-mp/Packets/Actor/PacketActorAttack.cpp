@@ -30,6 +30,7 @@ namespace
 PacketActorAttack::PacketActorAttack() : ActorPacket()
 {
     packetID = ID_ACTOR_ATTACK;
+    orderChannel = CHANNEL_COMBAT;
 }
 
 void PacketActorAttack::Actor(BaseActor &actor, bool send)
@@ -48,6 +49,16 @@ void PacketActorAttack::Actor(BaseActor &actor, bool send)
         if (!RW(actor.positionSequence, send) || !RW(actor.position, send, true)
             || !RW(actor.direction, send, true))
             return;
+
+        float sampleInterval = sanitizeMovementSampleIntervalSeconds(actor.movementSampleIntervalSeconds);
+        if (!RW(sampleInterval, send))
+            return;
+        actor.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+        float latencySeconds = sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
+        if (!RW(latencySeconds, send))
+            return;
+        actor.movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
     }
 
     if (!RW(actor.attack.target.isPlayer, send))

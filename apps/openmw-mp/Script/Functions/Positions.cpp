@@ -2,7 +2,7 @@
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <apps/openmw-mp/Player.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/ServerSimulation.hpp>
 
 #include <iostream>
@@ -105,14 +105,14 @@ void PositionFunctions::SendPos(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, );
 
-    if (mwmp::Networking::getPtr()->getServerSimulation().isRedundantServerAuthoredPosition(*player))
+    if (mwmp::ServerNetworking::getPtr()->getServerSimulation().isRedundantServerAuthoredPosition(*player))
         return;
 
     ++player->positionSequence;
-    if (!mwmp::Networking::getPtr()->getServerSimulation().acceptServerAuthoredPlayerState(*player))
+    if (!mwmp::ServerNetworking::getPtr()->getServerSimulation().acceptServerAuthoredPlayerState(*player))
         return;
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_POSITION);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_POSITION);
     packet->setPlayer(player);
 
     packet->SendWithReliability(false, mwmp::PacketReliability::ReliableOrdered);
@@ -123,7 +123,7 @@ void PositionFunctions::SendMomentum(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MOMENTUM);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_MOMENTUM);
     packet->setPlayer(player);
 
     packet->Send(false);

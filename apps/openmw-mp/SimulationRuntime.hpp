@@ -1,0 +1,85 @@
+#ifndef OPENMW_MP_SIMULATIONRUNTIME_HPP
+#define OPENMW_MP_SIMULATIONRUNTIME_HPP
+
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace mwmp
+{
+    struct SimulationRuntimeEventArgument
+    {
+        enum class Type
+        {
+            Boolean,
+            Integer,
+            String
+        };
+
+        Type type = Type::String;
+        bool booleanValue = false;
+        int integerValue = 0;
+        std::string stringValue;
+
+        static SimulationRuntimeEventArgument boolean(bool value);
+        static SimulationRuntimeEventArgument integer(int value);
+        static SimulationRuntimeEventArgument string(std::string value);
+    };
+
+    using SimulationRuntimeEventArguments = std::vector<SimulationRuntimeEventArgument>;
+
+    enum class SimulationRuntimeKind
+    {
+        PacketMirror,
+        OpenMwHeadless
+    };
+
+    struct SimulationRuntimeCapabilities
+    {
+        bool ownsWorldState = false;
+        bool resolvesCells = false;
+        bool runsScripts = false;
+        bool runsActorAi = false;
+        bool ownsActorMovement = false;
+        bool ownsActorCombat = false;
+    };
+
+    class SimulationRuntime
+    {
+    public:
+        SimulationRuntime();
+        explicit SimulationRuntime(SimulationRuntimeKind requestedKind);
+        SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+            SimulationRuntimeCapabilities capabilities);
+        virtual ~SimulationRuntime() = default;
+
+        virtual SimulationRuntimeKind requestedKind() const;
+        virtual SimulationRuntimeKind activeKind() const;
+        virtual const SimulationRuntimeCapabilities& capabilities() const;
+
+        virtual bool hasOpenMwWorld() const;
+        virtual bool canSimulateActors() const;
+        virtual bool canOwnActorAuthority() const;
+
+        virtual void tick(float deltaSeconds);
+        virtual bool dispatchServerEvent(
+            std::string_view eventName, const SimulationRuntimeEventArguments& arguments);
+
+        virtual const char* requestedName() const;
+        virtual const char* activeName() const;
+
+    private:
+        SimulationRuntimeKind mRequestedKind;
+        SimulationRuntimeKind mActiveKind;
+        SimulationRuntimeCapabilities mCapabilities;
+    };
+
+    using SimulationRuntimeFactory = std::unique_ptr<SimulationRuntime> (*)();
+
+    std::unique_ptr<SimulationRuntime> makePacketMirrorSimulationRuntime();
+    std::unique_ptr<SimulationRuntime> createSimulationRuntime();
+    void setSimulationRuntimeFactory(SimulationRuntimeFactory factory);
+}
+
+#endif // OPENMW_MP_SIMULATIONRUNTIME_HPP

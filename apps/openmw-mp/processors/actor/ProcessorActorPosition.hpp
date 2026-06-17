@@ -2,7 +2,7 @@
 #define OPENMW_PROCESSORACTORPOSITION_HPP
 
 #include "../ActorProcessor.hpp"
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/ServerSimulation.hpp"
 
 namespace mwmp
@@ -21,7 +21,7 @@ namespace mwmp
             Cell *serverCell = CellController::get()->getCell(&actorList.cell);
 
             if (serverCell != nullptr && serverCell->hasPlayer(&player))
-                Networking::getPtr()->getServerSimulation().acceptActorMovementSnapshot(packet, actorList, *serverCell);
+                ServerNetworking::getPtr()->getServerSimulation().acceptActorMovementSnapshot(packet, actorList, *serverCell);
         }
     };
 }

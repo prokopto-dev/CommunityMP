@@ -28,8 +28,9 @@
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 #include "Player.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include "MasterClient.hpp"
+#include "ServerApplication.hpp"
 #include "Utils.hpp"
 
 #include <apps/openmw-mp/Script/Script.hpp>
@@ -178,7 +179,7 @@ boost::program_options::variables_map launchOptions(int argc, char *argv[], File
     return variables;
 }
 
-int main(int argc, char *argv[])
+int runCommunityMpDedicatedServer(int argc, char* argv[])
 {
     Settings::Manager mgr;
     Files::ConfigurationManager cfgMgr;
@@ -274,8 +275,8 @@ int main(int argc, char *argv[])
         std::unique_ptr<GnsTransport> gnsTransport = std::make_unique<GnsTransport>(GnsMode::Server);
         gnsTransport->startupServer(address, static_cast<unsigned short>(port), static_cast<unsigned int>(players));
 
-        Networking networking(gnsTransport.get());
-        networking.setServerPassword(password);
+        ServerNetworking serverNetworking(gnsTransport.get());
+        serverNetworking.setServerPassword(password);
 
         if (mgr.getBool("enabled", "MasterServer"))
         {
@@ -290,22 +291,22 @@ int main(int argc, char *argv[])
                 LOG_APPEND(TimedLog::LOG_INFO, "- switching to updateRate %i because the one in the server config was too low", updateRate);
             }
 
-            networking.InitQuery(masterAddr, (unsigned short) masterPort);
-            networking.getMasterClient()->SetMaxPlayers((unsigned) players);
-            networking.getMasterClient()->SetUpdateRate((unsigned) updateRate);
+            serverNetworking.InitQuery(masterAddr, (unsigned short) masterPort);
+            serverNetworking.getMasterClient()->SetMaxPlayers((unsigned) players);
+            serverNetworking.getMasterClient()->SetUpdateRate((unsigned) updateRate);
             std::string hostname = mgr.getString("hostname", "General");
-            networking.getMasterClient()->SetHostname(hostname);
-            networking.getMasterClient()->SetRuleString("CommitHash", commitHash.substr(0, 10));
+            serverNetworking.getMasterClient()->SetHostname(hostname);
+            serverNetworking.getMasterClient()->SetRuleString("CommitHash", commitHash.substr(0, 10));
 
-            networking.getMasterClient()->Start();
+            serverNetworking.getMasterClient()->Start();
         }
 
-        networking.postInit();
+        serverNetworking.postInit();
 
-        code = networking.mainLoop();
+        code = serverNetworking.mainLoop();
 
-        if (networking.getMasterClient())
-            networking.getMasterClient()->Stop();
+        if (serverNetworking.getMasterClient())
+            serverNetworking.getMasterClient()->Stop();
     }
     catch (std::exception &e)
     {

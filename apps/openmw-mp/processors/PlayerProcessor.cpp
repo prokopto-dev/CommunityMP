@@ -1,5 +1,5 @@
 #include "PlayerProcessor.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include <components/openmw-mp/Transport/ReceivedPacket.hpp>
 
 using namespace mwmp;
@@ -21,7 +21,7 @@ bool PlayerProcessor::Process(ReceivedPacket& packet) noexcept
                 return true;
             }
 
-            PlayerPacket *myPacket = Networking::get().getPlayerPacketController()->GetPacket(packet.id());
+            PlayerPacket *myPacket = ServerNetworking::get().getPlayerPacketController()->GetPacket(packet.id());
             myPacket->setPlayer(player);
 
             if (!processor.second->avoidReading)

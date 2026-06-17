@@ -10,7 +10,7 @@
 #include <components/openmw-mp/Master/PacketMasterAnnounce.hpp>
 #include <components/openmw-mp/Transport/GnsTransport.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 
 using namespace mwmp;
 
@@ -206,7 +206,7 @@ void MasterClient::Send(mwmp::PacketMasterAnnounce::Func func, const QueryData& 
             writeStream.Reset();
             pma.SetServer(&packetData);
             pma.SetFunc(func);
-            pma.SetAdvertisedPort(Networking::get().getPort());
+            pma.SetAdvertisedPort(ServerNetworking::get().getPort());
             pma.Packet(&writeStream, true);
 
             if (masterTransport->send(writeStream.data(), writeStream.size(), PacketPriority::High,
@@ -255,7 +255,7 @@ void MasterClient::Thread()
 {
     {
         std::lock_guard lock(mutexData);
-        queryData.SetPassword((int) Networking::get().isPassworded());
+        queryData.SetPassword((int) ServerNetworking::get().isPassworded());
         queryData.SetVersion(TES3MP_VERSION);
     }
 

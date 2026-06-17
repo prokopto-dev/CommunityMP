@@ -79,6 +79,9 @@ namespace mwmp
             currentActor->positionSequence = actor.positionSequence;
             currentActor->position = actor.position;
             currentActor->direction = actor.direction;
+            currentActor->movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                actor.movementSampleIntervalSeconds);
+            currentActor->movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
         }
         else if (currentActor->hasPositionData)
         {
@@ -86,6 +89,9 @@ namespace mwmp
             actor.positionSequence = currentActor->positionSequence;
             actor.position = currentActor->position;
             actor.direction = currentActor->direction;
+            actor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                currentActor->movementSampleIntervalSeconds);
+            actor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(currentActor->movementLatencySeconds);
         }
     }
 
@@ -262,6 +268,9 @@ namespace mwmp
                 actor.positionSequence = currentActor->positionSequence;
                 actor.position = currentActor->position;
                 actor.direction = currentActor->direction;
+                actor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                    currentActor->movementSampleIntervalSeconds);
+                actor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(currentActor->movementLatencySeconds);
             }
 
             if (!hasNewerAnimFlags && currentActor->hasAnimFlagsData)

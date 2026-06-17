@@ -22,8 +22,10 @@
 #include <csignal>
 #include <string_view>
 
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include "MasterClient.hpp"
+#include "CommunityMpLuaEventSender.hpp"
+#include "ServerEventDispatcher.hpp"
 #include "ServerSimulation.hpp"
 #include "Cell.hpp"
 #include "CellController.hpp"
@@ -35,7 +37,7 @@
 
 using namespace mwmp;
 
-Networking *Networking::sThis = 0;
+ServerNetworking *ServerNetworking::sThis = 0;
 
 static int currentMpNum = 0;
 static bool dataFileEnforcementState = true;
@@ -87,7 +89,7 @@ namespace
     }
 }
 
-Networking::Networking(PacketTransport *transport) : mclient(nullptr)
+ServerNetworking::ServerNetworking(PacketTransport *transport) : mclient(nullptr)
 {
     sThis = this;
     this->transport = transport;
@@ -118,16 +120,16 @@ Networking::Networking(PacketTransport *transport) : mclient(nullptr)
     running = true;
     exitCode = 0;
 
-    Script::Call<Script::CallbackIdentity("OnServerInit")>();
+    mwmp::ServerEvents::serverInit();
 
     serverPassword = TES3MP_DEFAULT_PASSW;
 
     ProcessorInitializer();
 }
 
-Networking::~Networking()
+ServerNetworking::~ServerNetworking()
 {
-    Script::Call<Script::CallbackIdentity("OnServerExit")>(false);
+    mwmp::ServerEvents::serverExit(false);
 
     CellController::destroy();
 
@@ -140,17 +142,17 @@ Networking::~Networking()
     delete worldstatePacketController;
 }
 
-void Networking::setServerPassword(std::string password) noexcept
+void ServerNetworking::setServerPassword(std::string password) noexcept
 {
     serverPassword = normalizeServerPassword(password);
 }
 
-bool Networking::isPassworded() const
+bool ServerNetworking::isPassworded() const
 {
     return isServerPassworded(serverPassword);
 }
 
-void Networking::processSystemPacket(ReceivedPacket* packet)
+void ServerNetworking::processSystemPacket(ReceivedPacket* packet)
 {
     Player *player = Players::getPlayer(packet->guid());
     if (player == nullptr)
@@ -215,7 +217,7 @@ void Networking::processSystemPacket(ReceivedPacket* packet)
     }
 }
 
-void Networking::processLoadedPlayer(Player* player)
+void ServerNetworking::processLoadedPlayer(Player* player)
 {
     if (player == nullptr || player->getLoadState() != Player::NOTLOADED)
         return;
@@ -243,7 +245,7 @@ void Networking::processLoadedPlayer(Player* player)
     }
 }
 
-void Networking::processPlayerPacket(ReceivedPacket* packet)
+void ServerNetworking::processPlayerPacket(ReceivedPacket* packet)
 {
     Player *player = nullptr;
     if (!getPlayerForGameplayPacket(packet, player, "PlayerPacket"))
@@ -306,7 +308,7 @@ void Networking::processPlayerPacket(ReceivedPacket* packet)
 
 }
 
-void Networking::processActorPacket(ReceivedPacket* packet)
+void ServerNetworking::processActorPacket(ReceivedPacket* packet)
 {
     Player *player = nullptr;
     if (!getPlayerForGameplayPacket(packet, player, "ActorPacket"))
@@ -320,7 +322,7 @@ void Networking::processActorPacket(ReceivedPacket* packet)
 
 }
 
-void Networking::processObjectPacket(ReceivedPacket* packet)
+void ServerNetworking::processObjectPacket(ReceivedPacket* packet)
 {
     Player *player = nullptr;
     if (!getPlayerForGameplayPacket(packet, player, "ObjectPacket"))
@@ -334,7 +336,7 @@ void Networking::processObjectPacket(ReceivedPacket* packet)
 
 }
 
-void Networking::processWorldstatePacket(ReceivedPacket* packet)
+void ServerNetworking::processWorldstatePacket(ReceivedPacket* packet)
 {
     Player *player = nullptr;
     if (!getPlayerForGameplayPacket(packet, player, "WorldstatePacket"))
@@ -348,7 +350,7 @@ void Networking::processWorldstatePacket(ReceivedPacket* packet)
 
 }
 
-bool Networking::preInit(ReceivedPacket* packet, PacketStream &bsIn)
+bool ServerNetworking::preInit(ReceivedPacket* packet, PacketStream &bsIn)
 {
     if (packet->id() != ID_GAME_PREINIT)
     {
@@ -439,7 +441,7 @@ bool Networking::preInit(ReceivedPacket* packet, PacketStream &bsIn)
     return false;
 }
 
-void Networking::update(ReceivedPacket* packet, PacketStream &bsIn)
+void ServerNetworking::update(ReceivedPacket* packet, PacketStream &bsIn)
 {
     if (systemPacketController->ContainsPacket(packet->id()))
     {
@@ -470,7 +472,7 @@ void Networking::update(ReceivedPacket* packet, PacketStream &bsIn)
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Unhandled packet with identifier %i has arrived", packet->id());
 }
 
-void Networking::newPlayer(PacketGuid guid)
+void ServerNetworking::newPlayer(PacketGuid guid)
 {
     playerPacketController->GetPacket(ID_PLAYER_BASEINFO)->RequestData(guid);
     playerPacketController->GetPacket(ID_PLAYER_STATS_DYNAMIC)->RequestData(guid);
@@ -497,6 +499,9 @@ void Networking::newPlayer(PacketGuid guid)
         // If we are iterating over a player who has inputted their name, proceed
         else if (pl->second->getLoadState() == Player::POSTLOADED)
         {
+            const bool previousExchangeFullInfo = pl->second->exchangeFullInfo;
+            pl->second->exchangeFullInfo = true;
+
             playerPacketController->GetPacket(ID_PLAYER_BASEINFO)->setPlayer(pl->second);
             playerPacketController->GetPacket(ID_PLAYER_STATS_DYNAMIC)->setPlayer(pl->second);
             playerPacketController->GetPacket(ID_PLAYER_ATTRIBUTE)->setPlayer(pl->second);
@@ -508,6 +513,9 @@ void Networking::newPlayer(PacketGuid guid)
             playerPacketController->GetPacket(ID_PLAYER_SHAPESHIFT)->setPlayer(pl->second);
 
             playerPacketController->GetPacket(ID_PLAYER_BASEINFO)->Send(guid);
+            playerPacketController->GetPacket(ID_PLAYER_CELL_CHANGE)->Send(guid);
+            playerPacketController->GetPacket(ID_PLAYER_EQUIPMENT)->Send(guid);
+            playerPacketController->GetPacket(ID_PLAYER_SHAPESHIFT)->Send(guid);
             playerPacketController->GetPacket(ID_PLAYER_STATS_DYNAMIC)->Send(guid);
             playerPacketController->GetPacket(ID_PLAYER_ATTRIBUTE)->Send(guid);
             playerPacketController->GetPacket(ID_PLAYER_SKILL)->Send(guid);
@@ -515,9 +523,8 @@ void Networking::newPlayer(PacketGuid guid)
                 guid, PacketReliability::ReliableOrdered);
             playerPacketController->GetPacket(ID_PLAYER_ANIM_FLAGS)->SendWithReliability(
                 guid, PacketReliability::ReliableOrdered);
-            playerPacketController->GetPacket(ID_PLAYER_CELL_CHANGE)->Send(guid);
-            playerPacketController->GetPacket(ID_PLAYER_EQUIPMENT)->Send(guid);
-            playerPacketController->GetPacket(ID_PLAYER_SHAPESHIFT)->Send(guid);
+
+            pl->second->exchangeFullInfo = previousExchangeFullInfo;
         }
     }
 
@@ -525,7 +532,7 @@ void Networking::newPlayer(PacketGuid guid)
 
 }
 
-void Networking::disconnectPlayer(PacketGuid guid)
+void ServerNetworking::disconnectPlayer(PacketGuid guid)
 {
     Player *player = Players::getPlayer(guid);
     if (!player)
@@ -535,103 +542,104 @@ void Networking::disconnectPlayer(PacketGuid guid)
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->setPlayer(player);
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->Send(true);
     serverSimulation->removePlayer(guid);
+    CommunityMpLuaEventSender::clearPlayer(guid);
     Players::deletePlayer(guid);
 }
 
-PlayerPacketController *Networking::getPlayerPacketController() const
+PlayerPacketController *ServerNetworking::getPlayerPacketController() const
 {
     return playerPacketController;
 }
 
-ActorPacketController *Networking::getActorPacketController() const
+ActorPacketController *ServerNetworking::getActorPacketController() const
 {
     return actorPacketController;
 }
 
-ObjectPacketController *Networking::getObjectPacketController() const
+ObjectPacketController *ServerNetworking::getObjectPacketController() const
 {
     return objectPacketController;
 }
 
-WorldstatePacketController *Networking::getWorldstatePacketController() const
+WorldstatePacketController *ServerNetworking::getWorldstatePacketController() const
 {
     return worldstatePacketController;
 }
 
-ServerSimulation& Networking::getServerSimulation()
+ServerSimulation& ServerNetworking::getServerSimulation()
 {
     return *serverSimulation;
 }
 
-BaseActorList *Networking::getReceivedActorList()
+BaseActorList *ServerNetworking::getReceivedActorList()
 {
     return &baseActorList;
 }
 
-BaseObjectList *Networking::getReceivedObjectList()
+BaseObjectList *ServerNetworking::getReceivedObjectList()
 {
     return &baseObjectList;
 }
 
-BaseWorldstate *Networking::getReceivedWorldstate()
+BaseWorldstate *ServerNetworking::getReceivedWorldstate()
 {
     return &baseWorldstate;
 }
 
-int Networking::getCurrentMpNum()
+int ServerNetworking::getCurrentMpNum()
 {
     return currentMpNum;
 }
 
-void Networking::setCurrentMpNum(int value)
+void ServerNetworking::setCurrentMpNum(int value)
 {
     currentMpNum = value;
 }
 
-int Networking::incrementMpNum()
+int ServerNetworking::incrementMpNum()
 {
     currentMpNum++;
     Script::Call<Script::CallbackIdentity("OnMpNumIncrement")>(currentMpNum);
     return currentMpNum;
 }
 
-bool Networking::getDataFileEnforcementState()
+bool ServerNetworking::getDataFileEnforcementState()
 {
     return dataFileEnforcementState;
 }
 
-void Networking::setDataFileEnforcementState(bool state)
+void ServerNetworking::setDataFileEnforcementState(bool state)
 {
     dataFileEnforcementState = state;
 }
 
-bool Networking::getScriptErrorIgnoringState()
+bool ServerNetworking::getScriptErrorIgnoringState()
 {
     return scriptErrorIgnoringState;
 }
 
-void Networking::setScriptErrorIgnoringState(bool state)
+void ServerNetworking::setScriptErrorIgnoringState(bool state)
 {
     scriptErrorIgnoringState = state;
 }
 
-const Networking &Networking::get()
+const ServerNetworking &ServerNetworking::get()
 {
     return *sThis;
 }
 
 
-Networking *Networking::getPtr()
+ServerNetworking *ServerNetworking::getPtr()
 {
     return sThis;
 }
 
-PacketAddress Networking::getPacketAddress(PacketGuid guid)
+PacketAddress ServerNetworking::getPacketAddress(PacketGuid guid)
 {
     return transport->getPacketAddress(guid);
 }
 
-void Networking::stopServer(int code)
+void ServerNetworking::stopServer(int code)
 {
     running = false;
     exitCode = code;
@@ -647,7 +655,7 @@ void signalHandler(int signum)
     }
 }
 
-int Networking::mainLoop()
+int ServerNetworking::mainLoop()
 {
     ReceivedPacket* receivedPacket;
 
@@ -748,58 +756,58 @@ int Networking::mainLoop()
     return exitCode;
 }
 
-void Networking::kickPlayer(PacketGuid guid, bool sendNotification)
+void ServerNetworking::kickPlayer(PacketGuid guid, bool sendNotification)
 {
     transport->closeConnection(PacketDestination(guid), sendNotification);
 }
 
-void Networking::banAddress(const char *ipAddress)
+void ServerNetworking::banAddress(const char *ipAddress)
 {
     transport->banAddress(ipAddress);
 }
 
-void Networking::unbanAddress(const char *ipAddress)
+void ServerNetworking::unbanAddress(const char *ipAddress)
 {
     transport->unbanAddress(ipAddress);
 }
 
-unsigned short Networking::numberOfConnections() const
+unsigned short ServerNetworking::numberOfConnections() const
 {
     return transport->numberOfConnections();
 }
 
-unsigned int Networking::maxConnections() const
+unsigned int ServerNetworking::maxConnections() const
 {
     return transport->maxConnections();
 }
 
-int Networking::getAvgPing(const PacketDestination& destination) const
+int ServerNetworking::getAvgPing(const PacketDestination& destination) const
 {
     return transport->averagePing(destination);
 }
 
-unsigned short Networking::getPort() const
+unsigned short ServerNetworking::getPort() const
 {
     return transport->port();
 }
 
-MasterClient *Networking::getMasterClient()
+MasterClient *ServerNetworking::getMasterClient()
 {
     return mclient;
 }
 
-void Networking::InitQuery(std::string queryAddr, unsigned short queryPort)
+void ServerNetworking::InitQuery(std::string queryAddr, unsigned short queryPort)
 {
     mclient = new MasterClient(queryAddr, queryPort);
 }
 
-void Networking::postInit()
+void ServerNetworking::postInit()
 {
-    Script::Call<Script::CallbackIdentity("OnRequestDataFileList")>();
-    Script::Call<Script::CallbackIdentity("OnServerPostInit")>();
+    mwmp::ServerEvents::requestDataFileList();
+    mwmp::ServerEvents::serverPostInit();
 }
 
-PacketPreInit::PluginContainer &Networking::getSamples()
+PacketPreInit::PluginContainer &ServerNetworking::getSamples()
 {
     return samples;
 }

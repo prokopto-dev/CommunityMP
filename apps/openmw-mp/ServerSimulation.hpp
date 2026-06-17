@@ -4,10 +4,13 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 
 #include <components/esm3/loadcell.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
+
+#include "SimulationRuntime.hpp"
 
 class Cell;
 class Player;
@@ -46,6 +49,9 @@ namespace mwmp
         bool acceptPlayerMovementSnapshot(::Player& player, PlayerPacket& packet);
         bool acceptServerAuthoredPlayerState(::Player& player, bool cellChangePacket = false);
         bool isRedundantServerAuthoredPosition(const ::Player& player) const;
+        void sendPlayerVisualStateToLoaded(::Player& player, PlayerPacket& packet);
+        SimulationRuntime& runtime();
+        const SimulationRuntime& runtime() const;
 
     private:
         using Clock = std::chrono::steady_clock;
@@ -57,7 +63,10 @@ namespace mwmp
             ESM::Position lastServerCellChangePosition;
             ESM::Position lastServerCellChangeDirection;
             std::uint32_t lastServerCellChangePositionSequence = 0;
+            ESM::Position lastVisualPosition;
+            std::uint32_t lastVisualPositionSequence = 0;
             bool hasServerCellChangePacket = false;
+            bool hasVisualPosition = false;
         };
 
         struct ActorMovementKey
@@ -82,10 +91,12 @@ namespace mwmp
         std::map<PacketGuid, ESM::Cell> mPlayerAcceptedCells;
         std::map<ActorMovementKey, PlayerMovementState> mActorMovementStates;
         std::map<ActorMovementKey, ActorWanderState> mActorWanderStates;
+        std::unique_ptr<SimulationRuntime> mRuntime;
         Clock::time_point mLastTick;
         float mActorTickAccumulator = 0.f;
 
         static float clampDeltaSeconds(float seconds);
+        bool canAuthoritativelySimulateActors() const;
         void tickActors(float deltaSeconds);
     };
 }

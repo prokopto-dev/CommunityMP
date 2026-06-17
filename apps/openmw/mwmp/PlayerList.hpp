@@ -12,6 +12,8 @@
 #include "DedicatedPlayer.hpp"
 
 #include <map>
+#include <string>
+#include <vector>
 
 namespace MWMechanics
 {
@@ -29,6 +31,7 @@ namespace mwmp
         static DedicatedPlayer *newPlayer(PacketGuid guid);
 
         static void deletePlayer(PacketGuid guid);
+        static std::vector<PacketGuid> deletePlayersByNameExcept(const std::string& name, PacketGuid preservedGuid);
         static void cleanUp();
 
         static DedicatedPlayer *getPlayer(PacketGuid guid);

@@ -60,8 +60,12 @@ void PacketPlayerEquipment::Packet(PacketStream *newBitstream, bool send)
 
             player->equipmentSequence = equipmentSequence;
             player->exchangeFullInfo = exchangeFullInfo;
+            player->equipmentIndexChanges.clear();
             for (int slot = 0; slot < equipmentSlotCount; ++slot)
+            {
                 player->equipmentItems[slot] = receivedEquipmentItems[slot];
+                player->equipmentIndexChanges.push_back(slot);
+            }
         }
     }
     else

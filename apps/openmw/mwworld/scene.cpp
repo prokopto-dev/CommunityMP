@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <string_view>
@@ -125,6 +126,12 @@ namespace
         return value.find(needle) != std::string_view::npos;
     }
 
+    bool enableJoltDynamicProps()
+    {
+        const char* value = std::getenv("OPENMW_JOLT_DYNAMIC_PROPS");
+        return value != nullptr && value[0] != '\0' && value[0] != '0';
+    }
+
     std::optional<DynamicObjectProfile> getDynamicObjectProfile(
         const MWWorld::Ptr& ptr, VFS::Path::NormalizedView model)
     {
@@ -198,8 +205,11 @@ namespace
         if (!model.empty())
             ptr.getClass().insertObject(ptr, model, rotation, physics);
 
-        if (const auto dynamicProfile = getDynamicObjectProfile(ptr, VFS::Path::NormalizedView(model)))
-            physics.promoteToDynamic(ptr, dynamicProfile->mShape, osg::Vec3f(), dynamicProfile->mMass);
+        if (enableJoltDynamicProps())
+        {
+            if (const auto dynamicProfile = getDynamicObjectProfile(ptr, VFS::Path::NormalizedView(model)))
+                physics.promoteToDynamic(ptr, dynamicProfile->mShape, osg::Vec3f(), dynamicProfile->mMass);
+        }
 
         MWBase::Environment::get().getLuaManager()->objectAddedToScene(ptr);
     }

@@ -2,7 +2,7 @@
 #define OPENMW_PROCESSOROBJECTDIALOGUECHOICE_HPP
 
 #include "../ObjectProcessor.hpp"
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 namespace mwmp
 {

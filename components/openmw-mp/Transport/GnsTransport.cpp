@@ -35,7 +35,7 @@ namespace
     constexpr int connectionCloseReason = k_ESteamNetConnectionEnd_App_Generic;
     constexpr int serverFullCloseReason = k_ESteamNetConnectionEnd_AppException_Min + 1;
     constexpr int addressBannedCloseReason = k_ESteamNetConnectionEnd_AppException_Min + 2;
-    constexpr int gnsLaneCount = CHANNEL_WORLDSTATE + 1;
+    constexpr int gnsLaneCount = CHANNEL_COMBAT + 1;
 
     mwmp::PacketGuid readEmbeddedGuid(const unsigned char* data)
     {

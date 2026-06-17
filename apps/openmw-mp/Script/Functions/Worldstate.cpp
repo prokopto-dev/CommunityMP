@@ -1,6 +1,6 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Player.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 #include <apps/openmw-mp/CellController.hpp>
@@ -17,7 +17,7 @@ BaseWorldstate WorldstateFunctions::writeWorldstate;
 
 void WorldstateFunctions::ReadReceivedWorldstate() noexcept
 {
-    readWorldstate = mwmp::Networking::getPtr()->getReceivedWorldstate();
+    readWorldstate = mwmp::ServerNetworking::getPtr()->getReceivedWorldstate();
 }
 
 void WorldstateFunctions::CopyReceivedWorldstateToStore() noexcept
@@ -325,7 +325,7 @@ void WorldstateFunctions::SendClientScriptGlobal(unsigned short pid, bool sendTo
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_CLIENT_SCRIPT_GLOBAL);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_CLIENT_SCRIPT_GLOBAL);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -341,7 +341,7 @@ void WorldstateFunctions::SendClientScriptSettings(unsigned short pid, bool send
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_CLIENT_SCRIPT_SETTINGS);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_CLIENT_SCRIPT_SETTINGS);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -357,7 +357,7 @@ void WorldstateFunctions::SendWorldKillCount(unsigned short pid, bool sendToOthe
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_KILL_COUNT);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_KILL_COUNT);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -373,7 +373,7 @@ void WorldstateFunctions::SendWorldMap(unsigned short pid, bool sendToOtherPlaye
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_MAP);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_MAP);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -389,7 +389,7 @@ void WorldstateFunctions::SendWorldTime(unsigned short pid, bool sendToOtherPlay
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_TIME);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_TIME);
     packet->setWorldstate(&writeWorldstate);
     
     if (!skipAttachedPlayer)
@@ -405,7 +405,7 @@ void WorldstateFunctions::SendWorldWeather(unsigned short pid, bool sendToOtherP
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_WEATHER);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_WEATHER);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -421,7 +421,7 @@ void WorldstateFunctions::SendWorldCollisionOverride(unsigned short pid, bool se
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_COLLISION_OVERRIDE);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_COLLISION_OVERRIDE);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -432,7 +432,7 @@ void WorldstateFunctions::SendWorldCollisionOverride(unsigned short pid, bool se
 
 void WorldstateFunctions::SendCellReset(unsigned short pid, bool sendToOtherPlayers) noexcept
 {
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_CELL_RESET);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_CELL_RESET);
 
     Player *player;
     GET_PLAYER(pid, player, );
@@ -456,7 +456,7 @@ void WorldstateFunctions::SendWorldDestinationOverride(unsigned short pid, bool 
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_DESTINATION_OVERRIDE);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_DESTINATION_OVERRIDE);
     packet->setWorldstate(&writeWorldstate);
 
     if (!skipAttachedPlayer)
@@ -472,7 +472,7 @@ void WorldstateFunctions::SendWorldRegionAuthority(unsigned short pid) noexcept
 
     writeWorldstate.guid = player->guid;
 
-    mwmp::WorldstatePacket *packet = mwmp::Networking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_REGION_AUTHORITY);
+    mwmp::WorldstatePacket *packet = mwmp::ServerNetworking::get().getWorldstatePacketController()->GetPacket(ID_WORLD_REGION_AUTHORITY);
     packet->setWorldstate(&writeWorldstate);
 
     packet->Send(false);

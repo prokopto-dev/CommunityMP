@@ -4,6 +4,8 @@ set(COMMUNITYMP_SOURCES
 
 openmw_add_executable(communitymp ${COMMUNITYMP_SOURCES})
 
+target_link_libraries(communitymp PRIVATE openmw-client-core tes3mp-server-core)
+
 set_target_properties(communitymp PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED YES

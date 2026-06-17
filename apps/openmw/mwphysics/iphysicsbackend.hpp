@@ -79,7 +79,7 @@ namespace MWPhysics
     class IPhysicsActor;
     class IPhysicsObject;
     class Object;
-    class Projectile;
+    class IProjectile;
     enum ScriptedCollisionType : char; // defined in object.hpp
 
     struct ContactPoint
@@ -307,7 +307,7 @@ namespace MWPhysics
         // getTransform, getPtr) — verified by grep across mwworld /
         // mwmechanics / mwrender.
         virtual const IPhysicsObject* getObject(const MWWorld::ConstPtr& ptr) const = 0;
-        virtual Projectile* getProjectile(int projectileId) const = 0;
+        virtual IProjectile* getProjectile(int projectileId) const = 0;
 
         // ----- Concretely Bullet-flavoured but architecturally shared --
         // BulletShapeManager hosts the asset-side shape cache (NIF ->

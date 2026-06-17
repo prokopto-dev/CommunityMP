@@ -4,7 +4,7 @@
 #include <iostream>
 #include "Cell.hpp"
 #include "Player.hpp"
-#include "Script/Script.hpp"
+#include "ServerEventDispatcher.hpp"
 
 CellController::CellController()
 {
@@ -127,7 +127,7 @@ void CellController::removeCell(Cell *cell)
     {
         if (*it != nullptr && *it == cell)
         {
-            Script::Call<Script::CallbackIdentity("OnCellDeletion")>(cell->getShortDescription().c_str());
+            mwmp::ServerEvents::cellDeletion(cell->getShortDescription().c_str());
             LOG_APPEND(TimedLog::LOG_INFO, "- Removing %s from CellController", cell->getShortDescription().c_str());
 
             for (auto&& playerEntry : *Players::getPlayers())

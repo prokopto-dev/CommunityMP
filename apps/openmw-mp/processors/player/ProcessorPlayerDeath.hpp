@@ -3,7 +3,7 @@
 
 #include "../PlayerProcessor.hpp"
 #include "PlayerMovementSnapshot.hpp"
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include <components/openmw-mp/Utils.hpp>
 #include <chrono>
 #include <vector>
@@ -23,7 +23,7 @@ namespace mwmp
             player.restoreAcceptedStatsDynamicPacket();
             player.exchangeFullInfo = true;
 
-            PlayerPacket* packet = Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_STATS_DYNAMIC);
+            PlayerPacket* packet = ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_STATS_DYNAMIC);
             packet->setPlayer(&player);
             packet->SendWithReliability(player.guid, PacketReliability::ReliableOrdered);
 

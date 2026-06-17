@@ -49,7 +49,8 @@ namespace mwmp
         void updateLevel(bool forceUpdate = false);
         void updateBounty(bool forceUpdate = false);
         void updateReputation(bool forceUpdate = false);
-        void updatePosition(bool forceUpdate = false, bool reliable = false, bool sendPacket = true);
+        void updatePosition(bool forceUpdate = false, bool reliable = false, bool sendPacket = true,
+            bool advanceSequenceWithoutPacket = false);
         void updateCell(bool forceUpdate = false, bool sendPositionPacket = true);
         void updateEquipment(bool forceUpdate = false);
         void updateInventory(bool forceUpdate = false);

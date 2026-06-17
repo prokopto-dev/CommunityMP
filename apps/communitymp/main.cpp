@@ -1,17 +1,25 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "../openmw/OpenMWApplication.hpp"
+#include "../openmw-mp/ServerApplication.hpp"
+#include "../openmw-mp/SimulationRuntime.hpp"
+
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <cwctype>
 #include <windows.h>
 #else
@@ -49,7 +57,31 @@ namespace
         Mode mMode = Mode::Client;
         bool mHelp = false;
         bool mPrintTarget = false;
+        bool mExternalClient = false;
+        bool mExternalServer = false;
         std::vector<NativeString> mForwarded;
+    };
+
+    class ScopedCurrentPath
+    {
+    public:
+        explicit ScopedCurrentPath(const std::filesystem::path& path)
+            : mPrevious(std::filesystem::current_path())
+        {
+            std::filesystem::current_path(path);
+        }
+
+        ~ScopedCurrentPath()
+        {
+            std::error_code error;
+            std::filesystem::current_path(mPrevious, error);
+        }
+
+        ScopedCurrentPath(const ScopedCurrentPath&) = delete;
+        ScopedCurrentPath& operator=(const ScopedCurrentPath&) = delete;
+
+    private:
+        std::filesystem::path mPrevious;
     };
 
     NativeString toLower(NativeString value)
@@ -187,9 +219,12 @@ namespace
         printLine(COMMUNITYMP_TEXT("  --mode client|server        Explicit mode selector."));
         printLine(COMMUNITYMP_TEXT(""));
         printLine(COMMUNITYMP_TEXT("Launcher options:"));
+        printLine(COMMUNITYMP_TEXT("  --external-client           Run client mode using communitymp-client child process."));
+        printLine(COMMUNITYMP_TEXT("  --external-server          Run server mode using communitymp-server child process."));
         printLine(COMMUNITYMP_TEXT("  --print-target              Print the resolved child executable and exit."));
         printLine(COMMUNITYMP_TEXT("  --help                      Show this help."));
         printLine(COMMUNITYMP_TEXT(""));
+        printLine(COMMUNITYMP_TEXT("Client and server modes run in-process by default."));
         printLine(
             COMMUNITYMP_TEXT("A client and a dedicated server can run together from the same install, but duplicate"));
         printLine(COMMUNITYMP_TEXT("clients or duplicate dedicated servers from that install are refused."));
@@ -220,6 +255,18 @@ namespace
             if (lower == COMMUNITYMP_TEXT("--print-target"))
             {
                 parsed.mPrintTarget = true;
+                continue;
+            }
+
+            if (lower == COMMUNITYMP_TEXT("--external-server"))
+            {
+                parsed.mExternalServer = true;
+                continue;
+            }
+
+            if (lower == COMMUNITYMP_TEXT("--external-client"))
+            {
+                parsed.mExternalClient = true;
                 continue;
             }
 
@@ -378,6 +425,111 @@ namespace
     };
 
 #ifdef _WIN32
+    std::string nativeToUtf8(const NativeString& value)
+    {
+        if (value.empty())
+            return {};
+
+        const int size = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0,
+            nullptr, nullptr);
+        if (size <= 0)
+            throw std::runtime_error("failed to convert command line argument to UTF-8");
+
+        std::string result(static_cast<std::size_t>(size), '\0');
+        if (WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), size,
+                nullptr, nullptr)
+            != size)
+            throw std::runtime_error("failed to convert command line argument to UTF-8");
+
+        return result;
+    }
+#else
+    std::string nativeToUtf8(const NativeString& value)
+    {
+        return value;
+    }
+#endif
+
+    class Utf8Argv
+    {
+    public:
+        Utf8Argv(const std::filesystem::path& executablePath, const std::vector<NativeString>& arguments)
+        {
+            mStorage.reserve(arguments.size() + 1);
+            mStorage.push_back(nativeToUtf8(pathToNativeString(executablePath)));
+            for (const NativeString& argument : arguments)
+                mStorage.push_back(nativeToUtf8(argument));
+
+            mArgv.reserve(mStorage.size() + 1);
+            for (std::string& argument : mStorage)
+                mArgv.push_back(argument.data());
+            mArgv.push_back(nullptr);
+        }
+
+        int argc() const
+        {
+            return static_cast<int>(mStorage.size());
+        }
+
+        char** argv()
+        {
+            return mArgv.data();
+        }
+
+    private:
+        std::vector<std::string> mStorage;
+        std::vector<char*> mArgv;
+    };
+
+    class UnifiedOpenMwSimulationRuntime final : public mwmp::SimulationRuntime
+    {
+    public:
+        UnifiedOpenMwSimulationRuntime()
+            : mwmp::SimulationRuntime(mwmp::SimulationRuntimeKind::OpenMwHeadless)
+        {
+        }
+    };
+
+    std::unique_ptr<mwmp::SimulationRuntime> createUnifiedOpenMwSimulationRuntime()
+    {
+        return std::make_unique<UnifiedOpenMwSimulationRuntime>();
+    }
+
+    class ScopedSimulationRuntimeFactory
+    {
+    public:
+        explicit ScopedSimulationRuntimeFactory(mwmp::SimulationRuntimeFactory factory)
+        {
+            mwmp::setSimulationRuntimeFactory(factory);
+        }
+
+        ~ScopedSimulationRuntimeFactory()
+        {
+            mwmp::setSimulationRuntimeFactory(nullptr);
+        }
+
+        ScopedSimulationRuntimeFactory(const ScopedSimulationRuntimeFactory&) = delete;
+        ScopedSimulationRuntimeFactory& operator=(const ScopedSimulationRuntimeFactory&) = delete;
+    };
+
+    int runServerInProcess(const std::filesystem::path& executablePath, const std::filesystem::path& workingDirectory,
+        const std::vector<NativeString>& arguments)
+    {
+        ScopedSimulationRuntimeFactory simulationRuntimeFactory(&createUnifiedOpenMwSimulationRuntime);
+        ScopedCurrentPath currentPath(workingDirectory);
+        Utf8Argv argv(executablePath, arguments);
+        return runCommunityMpDedicatedServer(argv.argc(), argv.argv());
+    }
+
+    int runClientInProcess(const std::filesystem::path& executablePath, const std::filesystem::path& workingDirectory,
+        const std::vector<NativeString>& arguments)
+    {
+        ScopedCurrentPath currentPath(workingDirectory);
+        Utf8Argv argv(executablePath, arguments);
+        return runApplication(argv.argc(), argv.argv());
+    }
+
+#ifdef _WIN32
     NativeString quoteWindowsArgument(const NativeString& argument)
     {
         if (argument.empty())
@@ -527,7 +679,10 @@ int main(int argc, char** argv)
             return 0;
         }
 
-        if (!std::filesystem::exists(targetPath))
+        const bool runExternalChild = (arguments.mMode == Mode::Client && arguments.mExternalClient)
+            || (arguments.mMode == Mode::Server && arguments.mExternalServer);
+
+        if (runExternalChild && !std::filesystem::exists(targetPath))
         {
             printError(COMMUNITYMP_TEXT("CommunityMP could not find the selected mode executable next to ")
                 + pathToNativeString(executablePath.filename()) + COMMUNITYMP_TEXT(": ")
@@ -545,7 +700,13 @@ int main(int argc, char** argv)
             return 2;
         }
 
-        return runChild(targetPath, executableDirectory, arguments.mForwarded);
+        if (runExternalChild)
+            return runChild(targetPath, executableDirectory, arguments.mForwarded);
+
+        if (arguments.mMode == Mode::Server)
+            return runServerInProcess(executablePath, executableDirectory, arguments.mForwarded);
+
+        return runClientInProcess(executablePath, executableDirectory, arguments.mForwarded);
     }
     catch (const std::exception& e)
     {

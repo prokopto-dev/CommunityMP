@@ -5,6 +5,9 @@
 #include "../mwmechanics/aisequence.hpp"
 #include "../mwworld/manualref.hpp"
 
+#include <chrono>
+#include <osg/Vec3f>
+
 namespace mwmp
 {
     class DedicatedActor : public BaseActor
@@ -26,6 +29,8 @@ namespace mwmp
         void setAi();
         void playAnimation();
         void playSound();
+        void updateRemoteMovementEstimate(const ESM::Position& previousPosition, bool hadPositionData);
+        void resetRemoteMovementEstimate();
 
         bool hasItem(std::string itemId, int charge);
         void equipItem(std::string itemId, int charge, bool noSound = false);
@@ -44,10 +49,20 @@ namespace mwmp
         bool hasReceivedInitialEquipment;
         bool hasChangedCell;
         bool wasJumping;
+        osg::Vec3f mRemoteVelocity;
+        std::chrono::steady_clock::time_point mLastRemotePositionPacket;
+        float mSmoothedRemoteSampleIntervalSeconds;
+        float mSmoothedRemoteLatencySeconds;
+        float mRemoteJitterSeconds;
+        float mRemotePacketAgeSeconds;
+        bool mHasRemoteVelocity;
+        bool mHasRemoteTimingEstimate;
 
         void setMovementSettings(const ESM::Position& movementDirection);
         void setMovementSettingsFromVisualDelta(const ESM::Position& previousPosition);
         void applyRemoteJumpMovementCue(bool wasRemoteJumping);
+        void updateRemoteTimingEstimate(float arrivalDeltaSeconds, bool hasPreviousPacket);
+        void resetRemoteTimingEstimate();
     };
 }
 

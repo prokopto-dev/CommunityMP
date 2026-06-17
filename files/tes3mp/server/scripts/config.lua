@@ -310,7 +310,7 @@ config.playerScopedContainerItemRefIds = {
 -- Whether accepted inventory, container and ground item object changes should
 -- write durable transaction entries before mutating authoritative save state.
 config.enableItemTransactionJournal = true
-config.itemTransactionJournalRoot = "saves/transactions/items"
+config.itemTransactionJournalRoot = "saves/tx/items"
 
 -- Whether players should collide with other actors
 config.enablePlayerCollision = true

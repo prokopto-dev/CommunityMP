@@ -26,4 +26,18 @@ void PacketPlayerPosition::Packet(PacketStream *newBitstream, bool send)
     readOk = RW(player->direction, send, 1);
     if (!readOk)
         return;
+
+    float sampleInterval = sanitizeMovementSampleIntervalSeconds(player->movementSampleIntervalSeconds);
+    readOk = RW(sampleInterval, send);
+    if (!readOk)
+        return;
+
+    player->movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+    float latencySeconds = sanitizeMovementLatencySeconds(player->movementLatencySeconds);
+    readOk = RW(latencySeconds, send);
+    if (!readOk)
+        return;
+
+    player->movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
 }

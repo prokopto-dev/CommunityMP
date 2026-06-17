@@ -3,10 +3,11 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 #include <iostream>
 #include "Player.hpp"
-#include "Script/Script.hpp"
+#include "ServerEventDispatcher.hpp"
 
 namespace
 {
@@ -19,6 +20,44 @@ namespace
     bool isFiniteActorMovementSnapshot(const mwmp::BaseActor& actor)
     {
         return isFiniteActorPosition(actor.position) && isFiniteActorPosition(actor.direction);
+    }
+
+    float estimateOneWayLatencySeconds(mwmp::PacketGuid guid)
+    {
+        // Keep actor snapshots conservative while actors are still simulated
+        // by the cell authority client. Server-injected route latency made
+        // remote actor movement overshoot and rubber-band.
+        static_cast<void>(guid);
+        return 0.f;
+    }
+
+    float estimateRouteLatencySeconds(mwmp::PacketGuid sourceGuid, mwmp::PacketGuid destinationGuid)
+    {
+        return mwmp::sanitizeMovementLatencySeconds(
+            estimateOneWayLatencySeconds(sourceGuid) + estimateOneWayLatencySeconds(destinationGuid));
+    }
+
+    std::vector<float> captureMovementLatencies(const mwmp::BaseActorList& actorList)
+    {
+        std::vector<float> latencies;
+        latencies.reserve(actorList.baseActors.size());
+        for (const mwmp::BaseActor& actor : actorList.baseActors)
+            latencies.push_back(actor.movementLatencySeconds);
+        return latencies;
+    }
+
+    void setMovementLatencies(mwmp::BaseActorList& actorList, float latencySeconds)
+    {
+        const float sanitizedLatencySeconds = mwmp::sanitizeMovementLatencySeconds(latencySeconds);
+        for (mwmp::BaseActor& actor : actorList.baseActors)
+            actor.movementLatencySeconds = sanitizedLatencySeconds;
+    }
+
+    void restoreMovementLatencies(mwmp::BaseActorList& actorList, const std::vector<float>& latencies)
+    {
+        const std::size_t count = std::min(actorList.baseActors.size(), latencies.size());
+        for (std::size_t i = 0; i < count; ++i)
+            actorList.baseActors[i].movementLatencySeconds = latencies[i];
     }
 }
 
@@ -62,7 +101,7 @@ void Cell::addPlayer(Player *player)
 
     LOG_APPEND(TimedLog::LOG_INFO, "- Adding %s to Cell %s", player->npc.mName.c_str(), getShortDescription().c_str());
 
-    Script::Call<Script::CallbackIdentity("OnCellLoad")>(player->getId(), getShortDescription().c_str());
+    mwmp::ServerEvents::cellLoad(player->getId(), getShortDescription().c_str());
 
     players.push_back(player);
 }
@@ -86,7 +125,7 @@ void Cell::removePlayer(Player *player, bool cleanPlayer)
 
             LOG_APPEND(TimedLog::LOG_INFO, "- Removing %s from Cell %s", player->npc.mName.c_str(), getShortDescription().c_str());
 
-            Script::Call<Script::CallbackIdentity("OnCellUnload")>(player->getId(), getShortDescription().c_str());
+            mwmp::ServerEvents::cellUnload(player->getId(), getShortDescription().c_str());
 
             if (hasPendingActorListRequestFrom(player->guid))
                 actorListRequestGuid = mwmp::unassignedPacketGuid();
@@ -130,6 +169,9 @@ void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newA
                     cellActor->positionSequence = newActor.positionSequence;
                     cellActor->position = newActor.position;
                     cellActor->direction = newActor.direction;
+                    cellActor->movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                        newActor.movementSampleIntervalSeconds);
+                    cellActor->movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(newActor.movementLatencySeconds);
                 }
                 break;
 
@@ -185,6 +227,9 @@ void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newA
                     cellActor->positionSequence = newActor.positionSequence;
                     cellActor->position = newActor.position;
                     cellActor->direction = newActor.direction;
+                    cellActor->movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                        newActor.movementSampleIntervalSeconds);
+                    cellActor->movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(newActor.movementLatencySeconds);
                 }
 
                 cellActor->creatureStats.mDead = true;
@@ -204,6 +249,9 @@ void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newA
                     cellActor->positionSequence = newActor.positionSequence;
                     cellActor->position = newActor.position;
                     cellActor->direction = newActor.direction;
+                    cellActor->movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                        newActor.movementSampleIntervalSeconds);
+                    cellActor->movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(newActor.movementLatencySeconds);
                 }
 
                 cellActor->hasAiData = true;
@@ -379,15 +427,18 @@ void Cell::sendToLoaded(mwmp::ActorPacket *actorPacket, mwmp::BaseActorList *bas
     plList.sort();
     plList.unique();
 
+    const std::vector<float> originalLatencies = captureMovementLatencies(*baseActorList);
     for (auto pl : plList)
     {
         if (pl->guid == baseActorList->guid) continue;
 
+        setMovementLatencies(*baseActorList, estimateRouteLatencySeconds(baseActorList->guid, pl->guid));
         actorPacket->setActorList(baseActorList);
 
         // Send the packet to this eligible guid
         actorPacket->Send(pl->guid);
     }
+    restoreMovementLatencies(*baseActorList, originalLatencies);
 }
 
 void Cell::sendToLoadedAndGuids(mwmp::ActorPacket *actorPacket, mwmp::BaseActorList *baseActorList,
@@ -414,13 +465,16 @@ void Cell::sendToLoadedAndGuids(mwmp::ActorPacket *actorPacket, mwmp::BaseActorL
     plList.sort();
     plList.unique();
 
+    const std::vector<float> originalLatencies = captureMovementLatencies(*baseActorList);
     for (auto pl : plList)
     {
         if (pl->guid == baseActorList->guid) continue;
 
+        setMovementLatencies(*baseActorList, estimateRouteLatencySeconds(baseActorList->guid, pl->guid));
         actorPacket->setActorList(baseActorList);
         actorPacket->Send(pl->guid);
     }
+    restoreMovementLatencies(*baseActorList, originalLatencies);
 }
 
 void Cell::sendToLoaded(mwmp::ObjectPacket *objectPacket, mwmp::BaseObjectList *baseObjectList) const

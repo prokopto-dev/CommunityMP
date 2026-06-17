@@ -2,7 +2,7 @@
 #define OPENMW_PROCESSORACTORAI_HPP
 
 #include "../ActorProcessor.hpp"
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/ServerSimulation.hpp"
 #include "ActorSequenceCoalescing.hpp"
 
@@ -22,7 +22,7 @@ namespace mwmp
 
             if (serverCell != nullptr && serverCell->hasPlayer(&player))
             {
-                if (!Networking::getPtr()->getServerSimulation().acceptActorAiSnapshot(actorList, *serverCell))
+                if (!ServerNetworking::getPtr()->getServerSimulation().acceptActorAiSnapshot(actorList, *serverCell))
                     return;
 
                 Script::Call<Script::CallbackIdentity("OnActorAI")>(player.getId(), actorList.cell.getDescription().c_str());

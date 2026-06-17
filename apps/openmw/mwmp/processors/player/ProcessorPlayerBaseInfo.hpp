@@ -49,7 +49,14 @@ namespace mwmp
                     packet.Read();
                 }
 
+                if (player != nullptr)
+                {
+                    for (PacketGuid staleGuid : PlayerList::deletePlayersByNameExcept(player->npc.mName, guid))
+                        PlayerProcessor::clearPendingPacketsForPlayer(staleGuid);
+                }
+
                 static_cast<DedicatedPlayer*>(player)->setBaseInfo();
+                PlayerProcessor::replayPendingPacketsForPlayer(guid);
             }
         }
     };

@@ -59,6 +59,8 @@ namespace mwmp
 
         ESM::Position position;
         ESM::Position direction;
+        float movementSampleIntervalSeconds = 1.f / 60.f;
+        float movementLatencySeconds = 0.f;
         std::uint32_t positionSequence = 0;
 
         ESM::Cell cell;
@@ -128,6 +130,8 @@ namespace mwmp
         target.positionSequence = incoming.positionSequence;
         target.position = incoming.position;
         target.direction = incoming.direction;
+        target.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(incoming.movementSampleIntervalSeconds);
+        target.movementLatencySeconds = sanitizeMovementLatencySeconds(incoming.movementLatencySeconds);
     }
 
     inline void mergeNewestActorAnimFlags(BaseActor& target, const BaseActor& incoming)

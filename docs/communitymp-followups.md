@@ -5,6 +5,7 @@ This file tracks compatibility work that is known to remain after the current Op
 ## Upstream sync planning
 
 - Current upstream-sync planning, recent decisions, risk notes, and release gates are tracked in `docs/communitymp-upstream-sync-roadmap.md`. Keep that document updated when backporting OpenMW milestone or work-item fixes that affect CommunityMP client, server, editor, scripting, physics, rendering, or packaging behavior.
+- Runtime unification notes are tracked in `docs/communitymp-runtime-unification.md`. Keep the launcher/server-core boundary documented while `communitymp.exe` still supports child-process fallback and the in-process client/server entry points are being prepared.
 
 ## GameNetworkingSockets transport
 

@@ -77,8 +77,14 @@ public:
     virtual ~Player();
 
     CellController::TContainer *getCells();
+    void sendToGuid(mwmp::PlayerPacket *myPacket, mwmp::PacketGuid targetGuid);
+    void sendToGuidWithReliability(mwmp::PlayerPacket *myPacket, mwmp::PacketGuid targetGuid,
+        mwmp::PacketReliability reliability);
     void sendToLoaded(mwmp::PlayerPacket *myPacket);
+    void sendToLoadedWithReliability(mwmp::PlayerPacket *myPacket, mwmp::PacketReliability reliability);
     void sendToLoadedAndGuid(mwmp::PlayerPacket *myPacket, mwmp::PacketGuid targetGuid);
+    void sendToLoadedAndRecentCellVisitorsWithReliability(mwmp::PlayerPacket *myPacket,
+        mwmp::PacketReliability reliability);
 
     void forEachLoaded(std::function<void(Player *pl, Player *other)> func);
 

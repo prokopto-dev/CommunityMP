@@ -11,7 +11,7 @@
 #include "ScriptFunctions.hpp"
 #include "Language.hpp"
 
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 
 class Script : private ScriptFunctions
 {
@@ -103,7 +103,7 @@ public:
                     LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, e.what());
                     Script::Call<Script::CallbackIdentity("OnServerScriptCrash")>(e.what());
 
-                    if (!mwmp::Networking::getPtr()->getScriptErrorIgnoringState())
+                    if (!mwmp::ServerNetworking::getPtr()->getScriptErrorIgnoringState())
                         throw;
                 }
             }

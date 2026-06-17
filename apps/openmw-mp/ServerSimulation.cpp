@@ -16,7 +16,7 @@
 #include "Script/Script.hpp"
 #include "Cell.hpp"
 #include "CellController.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include "Player.hpp"
 #include "processors/ActorProcessor.hpp"
 #include "processors/actor/ActorSequenceCoalescing.hpp"
@@ -26,11 +26,14 @@ namespace
     constexpr float serverMovementUnitsPerSecond = 300.f;
     constexpr float firstMovementStepSeconds = 1.f / 60.f;
     constexpr float maxMovementStepSeconds = 0.05f;
-    constexpr float actorTickIntervalSeconds = 0.05f;
+    constexpr float actorTickIntervalSeconds = 1.f / 30.f;
     constexpr float correctionDistanceSquared = 48.f * 48.f;
     constexpr float maxPlayerMovementUnitsPerSecond = 1600.f;
     constexpr float maxPlayerVerticalUnitsPerSecond = 2400.f;
     constexpr float playerMovementCorrectionAllowance = 128.f;
+    constexpr float maxPlayerSampleGraceSeconds = 0.025f;
+    constexpr float maxPlayerLatencyGraceSeconds = 0.050f;
+    constexpr float maxPlayerPlausibilityDeltaSeconds = 0.120f;
     constexpr float cellSpaceTransitionDistance = static_cast<float>(ESM::Cell::sSize) * 0.5f;
     constexpr float cellSpaceTransitionDistanceSquared = cellSpaceTransitionDistance * cellSpaceTransitionDistance;
     constexpr float healthDeadEpsilon = 0.001f;
@@ -124,6 +127,38 @@ namespace
         observedDirection.pos[1] = horizontalY;
 
         return simulatedPosition;
+    }
+
+    float clampMovementDeltaSeconds(float seconds)
+    {
+        if (!std::isfinite(seconds) || seconds <= 0.f)
+            return firstMovementStepSeconds;
+
+        return std::clamp(seconds, 0.f, maxMovementStepSeconds);
+    }
+
+    float estimateOneWayLatencySeconds(mwmp::PacketGuid guid)
+    {
+        if (guid == mwmp::unassignedPacketGuid())
+            return 0.f;
+
+        const int pingMilliseconds = mwmp::ServerNetworking::get().getAvgPing(guid);
+        if (pingMilliseconds <= 0)
+            return 0.f;
+
+        return mwmp::sanitizeMovementLatencySeconds(static_cast<float>(pingMilliseconds) * 0.0005f);
+    }
+
+    float getPlayerPlausibilityDeltaSeconds(
+        float serverDeltaSeconds, float sampleIntervalSeconds, float oneWayLatencySeconds)
+    {
+        const float sampleGraceSeconds = std::min(
+            mwmp::sanitizeMovementSampleIntervalSeconds(sampleIntervalSeconds) * 0.75f, maxPlayerSampleGraceSeconds);
+        const float latencyGraceSeconds = std::min(
+            mwmp::sanitizeMovementLatencySeconds(oneWayLatencySeconds) * 0.50f, maxPlayerLatencyGraceSeconds);
+
+        return std::clamp(clampMovementDeltaSeconds(serverDeltaSeconds) + sampleGraceSeconds + latencyGraceSeconds,
+            firstMovementStepSeconds, maxPlayerPlausibilityDeltaSeconds);
     }
 
     bool isPlausiblePlayerMovement(
@@ -775,11 +810,19 @@ namespace
             acceptedActor.positionSequence = currentActor.positionSequence;
             acceptedActor.position = currentActor.position;
             acceptedActor.direction = currentActor.direction;
+            acceptedActor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                currentActor.movementSampleIntervalSeconds);
+            acceptedActor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(
+                currentActor.movementLatencySeconds);
         }
         else if (incomingActor.hasPositionData && isFiniteActorMovementSnapshot(incomingActor))
         {
             acceptedActor.hasPositionData = true;
             sanitizeFinitePosition(acceptedActor.direction);
+            acceptedActor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                incomingActor.movementSampleIntervalSeconds);
+            acceptedActor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(
+                incomingActor.movementLatencySeconds);
         }
         else
             acceptedActor.hasPositionData = false;
@@ -832,7 +875,7 @@ namespace
     {
     public:
         explicit ScopedReceivedActorList(const mwmp::BaseActorList& actorList)
-            : mReceivedActorList(mwmp::Networking::getPtr()->getReceivedActorList())
+            : mReceivedActorList(mwmp::ServerNetworking::getPtr()->getReceivedActorList())
             , mPreviousActorList(*mReceivedActorList)
         {
             *mReceivedActorList = actorList;
@@ -904,7 +947,7 @@ namespace
         persistServerGeneratedActorCellChange(player, movedFollowers);
 
         mwmp::ActorProcessor::cacheCellChange(movedFollowers);
-        mwmp::ActorPacket* actorPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(
+        mwmp::ActorPacket* actorPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(
             ID_ACTOR_CELL_CHANGE);
         actorPacket->setActorList(&movedFollowers);
         mwmp::ActorProcessor::sendCellChangeToLoaded(*actorPacket, movedFollowers);
@@ -1005,7 +1048,7 @@ namespace
 
     void broadcastPlayerStats(Player& target)
     {
-        mwmp::PlayerPacket* statsPacket = mwmp::Networking::get().getPlayerPacketController()->GetPacket(
+        mwmp::PlayerPacket* statsPacket = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(
             ID_PLAYER_STATS_DYNAMIC);
         statsPacket->setPlayer(&target);
         statsPacket->Send(target.guid);
@@ -1020,7 +1063,7 @@ namespace
         statsList.baseActors.push_back(target);
         statsList.count = static_cast<unsigned int>(statsList.baseActors.size());
 
-        mwmp::ActorPacket* statsPacket = mwmp::Networking::get().getActorPacketController()->GetPacket(
+        mwmp::ActorPacket* statsPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(
             ID_ACTOR_STATS_DYNAMIC);
         statsPacket->setActorList(&statsList);
         cell.sendToLoaded(statsPacket, &statsList);
@@ -1046,8 +1089,13 @@ namespace
 namespace mwmp
 {
     ServerSimulation::ServerSimulation()
-        : mLastTick(Clock::now())
+        : mRuntime(createSimulationRuntime())
+        , mLastTick(Clock::now())
     {
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+            "Server simulation runtime requested=%s active=%s openmwWorld=%s actorAuthority=%s",
+            mRuntime->requestedName(), mRuntime->activeName(), mRuntime->hasOpenMwWorld() ? "yes" : "no",
+            mRuntime->canOwnActorAuthority() ? "yes" : "no");
     }
 
     void ServerSimulation::tick()
@@ -1055,6 +1103,10 @@ namespace mwmp
         const Clock::time_point now = Clock::now();
         const float deltaSeconds = clampDeltaSeconds(std::chrono::duration<float>(now - mLastTick).count());
         mLastTick = now;
+
+        mRuntime->tick(deltaSeconds);
+        if (!canAuthoritativelySimulateActors())
+            return;
 
         mActorTickAccumulator += deltaSeconds;
         if (mActorTickAccumulator < actorTickIntervalSeconds)
@@ -1069,6 +1121,21 @@ namespace mwmp
     {
         mPlayerMovementStates.erase(guid);
         mPlayerAcceptedCells.erase(guid);
+    }
+
+    SimulationRuntime& ServerSimulation::runtime()
+    {
+        return *mRuntime;
+    }
+
+    const SimulationRuntime& ServerSimulation::runtime() const
+    {
+        return *mRuntime;
+    }
+
+    bool ServerSimulation::canAuthoritativelySimulateActors() const
+    {
+        return mRuntime != nullptr && mRuntime->canOwnActorAuthority();
     }
 
     bool ServerSimulation::acceptServerAuthoredPlayerState(Player& player, bool cellChangePacket)
@@ -1093,12 +1160,24 @@ namespace mwmp
             movementState.lastServerCellChangeDirection = player.direction;
             movementState.lastServerCellChangePositionSequence = player.positionSequence;
             movementState.hasServerCellChangePacket = true;
+            movementState.hasVisualPosition = false;
         }
         else
             movementState.hasServerCellChangePacket = false;
 
         mPlayerAcceptedCells[player.guid] = player.cell;
         return true;
+    }
+
+    void ServerSimulation::sendPlayerVisualStateToLoaded(Player& player, PlayerPacket& packet)
+    {
+        PlayerMovementState& movementState = mPlayerMovementStates[player.guid];
+        movementState.lastVisualPosition = player.position;
+        movementState.lastVisualPositionSequence = player.positionSequence;
+        movementState.hasVisualPosition = true;
+
+        packet.setPlayer(&player);
+        player.sendToLoaded(&packet);
     }
 
     bool ServerSimulation::isRedundantServerAuthoredPosition(const Player& player) const
@@ -1124,10 +1203,7 @@ namespace mwmp
 
     float ServerSimulation::clampDeltaSeconds(float seconds)
     {
-        if (!std::isfinite(seconds) || seconds <= 0.f)
-            return firstMovementStepSeconds;
-
-        return std::clamp(seconds, 0.f, maxMovementStepSeconds);
+        return clampMovementDeltaSeconds(seconds);
     }
 
     bool ServerSimulation::acceptActorCasts(BaseActorList& actorList, Cell& serverCell)
@@ -1300,7 +1376,8 @@ namespace mwmp
             if (currentActor == nullptr)
                 continue;
 
-            if (serverCell.hasSimulationInterest() && hasServerOwnedActorMovement(*currentActor))
+            if (canAuthoritativelySimulateActors() && serverCell.hasSimulationInterest()
+                && hasServerOwnedActorMovement(*currentActor))
             {
                 addPositionCorrection(*currentActor);
                 continue;
@@ -1330,7 +1407,7 @@ namespace mwmp
                 continue;
             }
 
-            if (!serverCell.hasSimulationInterest())
+            if (!canAuthoritativelySimulateActors() || !serverCell.hasSimulationInterest())
             {
                 BaseActor acceptedActor = actor;
                 acceptedActor.hasPositionData = true;
@@ -1390,11 +1467,14 @@ namespace mwmp
 
     void ServerSimulation::tickActors(float deltaSeconds)
     {
+        if (!canAuthoritativelySimulateActors())
+            return;
+
         CellController* cellController = CellController::get();
         if (cellController == nullptr)
             return;
 
-        ActorPacket* actorPacket = Networking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+        ActorPacket* actorPacket = ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
 
         for (Cell* cell : cellController->getCells())
         {
@@ -1448,6 +1528,8 @@ namespace mwmp
                     {
                         actor.direction = direction;
                         ++actor.positionSequence;
+                        actor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
+                        actor.movementLatencySeconds = 0.f;
                         actor.hasPositionData = true;
                         tickActorList.baseActors.push_back(actor);
                     }
@@ -1457,6 +1539,8 @@ namespace mwmp
                 actor.position = simulateMovementPosition(actor.position, actor.position, direction, deltaSeconds);
                 actor.direction = direction;
                 ++actor.positionSequence;
+                actor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
+                actor.movementLatencySeconds = 0.f;
                 actor.hasPositionData = true;
 
                 tickActorList.baseActors.push_back(actor);
@@ -1504,15 +1588,16 @@ namespace mwmp
 
             movementState.lastMovementPacket = now;
             mPlayerAcceptedCells[player.guid] = player.cell;
-            player.sendToLoaded(&packet);
+            sendPlayerVisualStateToLoaded(player, packet);
             return true;
         }
 
-        const float deltaSeconds = clampDeltaSeconds(
-            std::chrono::duration<float>(now - movementState.lastMovementPacket).count());
+        const float serverDeltaSeconds = std::chrono::duration<float>(now - movementState.lastMovementPacket).count();
+        const float plausibilityDeltaSeconds = getPlayerPlausibilityDeltaSeconds(
+            serverDeltaSeconds, player.movementSampleIntervalSeconds, estimateOneWayLatencySeconds(player.guid));
         movementState.lastMovementPacket = now;
 
-        if (!isPlausiblePlayerMovement(player.acceptedPosition, clientPosition, deltaSeconds))
+        if (!isPlausiblePlayerMovement(player.acceptedPosition, clientPosition, plausibilityDeltaSeconds))
         {
             const bool likelyCellSpaceTransition = isLikelyCellSpaceTransitionSnapshot(
                 player.acceptedPosition, clientPosition);
@@ -1544,7 +1629,7 @@ namespace mwmp
         mPlayerAcceptedCells[player.guid] = player.cell;
 
         packet.setPlayer(&player);
-        player.sendToLoaded(&packet);
+        sendPlayerVisualStateToLoaded(player, packet);
         return true;
     }
 

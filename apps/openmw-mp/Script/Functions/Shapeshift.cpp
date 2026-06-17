@@ -4,7 +4,7 @@
 #include <components/openmw-mp/TimedLog.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 #include <iostream>
 
@@ -77,7 +77,7 @@ void ShapeshiftFunctions::SendShapeshift(unsigned short pid)
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SHAPESHIFT);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SHAPESHIFT);
     packet->setPlayer(player);
 
     packet->Send(false);

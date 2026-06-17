@@ -2,7 +2,7 @@
 
 #include <components/openmw-mp/TimedLog.hpp>
 
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 
 #include <extern/PicoSHA2/picosha2.h>
@@ -61,10 +61,10 @@ unsigned int MiscellaneousFunctions::GetLastPlayerId() noexcept
 
 int MiscellaneousFunctions::GetCurrentMpNum() noexcept
 {
-    return mwmp::Networking::getPtr()->getCurrentMpNum();
+    return mwmp::ServerNetworking::getPtr()->getCurrentMpNum();
 }
 
 void MiscellaneousFunctions::SetCurrentMpNum(int mpNum) noexcept
 {
-    mwmp::Networking::getPtr()->setCurrentMpNum(mpNum);
+    mwmp::ServerNetworking::getPtr()->setCurrentMpNum(mpNum);
 }

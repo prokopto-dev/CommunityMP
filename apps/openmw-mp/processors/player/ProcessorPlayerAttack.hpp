@@ -26,7 +26,7 @@ namespace mwmp
             if (!acceptSequencedPlayerCombatEvent(player))
                 return;
 
-            Networking::getPtr()->getServerSimulation().applyPlayerAttack(player);
+            ServerNetworking::getPtr()->getServerSimulation().applyPlayerAttack(player);
 
             if (player.attack.isHit && player.attack.target.isPlayer)
                 player.sendToLoadedAndGuid(&packet, player.attack.target.guid);

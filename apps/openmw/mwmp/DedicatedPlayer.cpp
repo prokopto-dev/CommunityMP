@@ -1,4 +1,5 @@
 #include <apps/openmw/mwmechanics/steering.hpp>
+#include <algorithm>
 #include <boost/algorithm/clamp.hpp>
 #include <cmath>
 #include <components/esm/attr.hpp>
@@ -95,9 +96,17 @@ DedicatedPlayer::DedicatedPlayer(PacketGuid guid)
     markerEnabled = false;
     isLevitationPurged = false;
     hasPendingSpellsActiveChanges = false;
+    hasPendingEquipmentApplication = false;
 
     isJumping = false;
     wasJumping = false;
+    mRemoteVelocity = osg::Vec3f();
+    mSmoothedRemoteSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(movementSampleIntervalSeconds);
+    mSmoothedRemoteLatencySeconds = sanitizeMovementLatencySeconds(movementLatencySeconds);
+    mRemoteJitterSeconds = 0.f;
+    mRemotePacketAgeSeconds = 0.f;
+    mHasRemoteVelocity = false;
+    mHasRemoteTimingEstimate = false;
 }
 
 DedicatedPlayer::~DedicatedPlayer() {}
@@ -106,6 +115,9 @@ void DedicatedPlayer::update(float dt)
 {
     if (!reference)
         return;
+
+    if (hasPendingEquipmentApplication)
+        setEquipment();
 
     if (hasReceivedInitialPosition)
     {
@@ -154,6 +166,8 @@ void DedicatedPlayer::move(float dt)
     ESM::Position refPos = previousVisualPosition;
     MWBase::World* world = MWBase::Environment::get().getWorld();
     constexpr float maxInterpolationDistance = 512.f;
+    if (std::isfinite(dt) && dt > 0.f)
+        mRemotePacketAgeSeconds = std::min(mRemotePacketAgeSeconds + dt, 0.15f);
 
     // Apply interpolation only if the position hasn't changed too much from last time
     bool shouldInterpolate = std::abs(position.pos[0] - refPos.pos[0]) < maxInterpolationDistance
@@ -164,11 +178,22 @@ void DedicatedPlayer::move(float dt)
     // position can belong to a different cell or temporary placeholder.
     if (shouldInterpolate && !hasChangedCell)
     {
-        osg::Vec3f lerp = MechanicsHelper::getLinearInterpolation(
-            refPos.asVec3(), position.asVec3(), MechanicsHelper::getRemoteMovementInterpolationFactor(dt));
+        const osg::Vec3f target = MechanicsHelper::getPredictedRemoteMovementTarget(
+            position, direction, mRemoteVelocity, mHasRemoteVelocity, mRemotePacketAgeSeconds,
+            mHasRemoteTimingEstimate ? mSmoothedRemoteSampleIntervalSeconds : movementSampleIntervalSeconds,
+            mHasRemoteTimingEstimate ? mSmoothedRemoteLatencySeconds : movementLatencySeconds,
+            mHasRemoteTimingEstimate ? mRemoteJitterSeconds : 0.f);
+        const float distanceToTarget = (target - refPos.asVec3()).length();
+        const float positionFactor = MechanicsHelper::getRemoteMovementInterpolationFactor(
+            dt, distanceToTarget, MechanicsHelper::hasRemoteTranslationIntent(direction),
+            mHasRemoteTimingEstimate ? mRemoteJitterSeconds : 0.f);
+        osg::Vec3f lerp = MechanicsHelper::getLinearInterpolation(refPos.asVec3(), target,
+            positionFactor);
+        const osg::Vec3f rotation = MechanicsHelper::getInterpolatedRemoteRotation(
+            refPos, position, MechanicsHelper::getRemoteRotationInterpolationFactor(dt));
 
         world->moveObject(ptr, lerp);
-        world->rotateObject(ptr, osg::Vec3f(position.rot[0], 0, position.rot[2]));
+        world->rotateObject(ptr, osg::Vec3f(rotation.x(), 0, rotation.z()));
         setMovementSettingsFromVisualDelta(previousVisualPosition);
     }
     else
@@ -191,6 +216,7 @@ bool DedicatedPlayer::readPositionPacket()
         MechanicsHelper::deriveMissingMovementDirection(direction, position, previousAcceptedPosition);
         acceptedDirection = direction;
     }
+    updateRemoteMovementEstimate(previousAcceptedPosition, hadAcceptedPosition);
 
     updateMarker();
 
@@ -205,8 +231,6 @@ bool DedicatedPlayer::readPositionPacket()
         return true;
     }
 
-    constexpr float immediateReplayStep = 0.015f;
-    move(immediateReplayStep);
     return true;
 }
 
@@ -295,6 +319,95 @@ void DedicatedPlayer::applyRemoteJumpMovementCue(bool wasRemoteJumping)
     {
         move->mPosition[2] = 0.f;
     }
+}
+
+void DedicatedPlayer::updateRemoteMovementEstimate(const ESM::Position& previousPosition, bool hadPositionData)
+{
+    const auto now = std::chrono::steady_clock::now();
+    const bool hasPreviousPacket = mLastRemotePositionPacket != std::chrono::steady_clock::time_point();
+    const bool canUseArrivalDelta = hasPreviousPacket && !hasChangedCell;
+    const float deltaSeconds = canUseArrivalDelta
+        ? std::chrono::duration<float>(now - mLastRemotePositionPacket).count()
+        : 0.f;
+    mLastRemotePositionPacket = now;
+    updateRemoteTimingEstimate(deltaSeconds, canUseArrivalDelta);
+
+    mRemotePacketAgeSeconds = 0.f;
+    if (!hadPositionData || !canUseArrivalDelta)
+    {
+        resetRemoteMovementEstimate();
+        return;
+    }
+
+    const float sampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(mSmoothedRemoteSampleIntervalSeconds);
+    const float minVelocityDeltaSeconds = sampleIntervalSeconds * 0.50f;
+    const float maxVelocityDeltaSeconds = std::clamp(sampleIntervalSeconds * 6.f, 0.050f, 0.150f);
+    const float velocityDeltaSeconds = std::isfinite(deltaSeconds)
+        ? std::clamp(deltaSeconds, minVelocityDeltaSeconds, maxVelocityDeltaSeconds)
+        : sampleIntervalSeconds;
+    const osg::Vec3f sampleVelocity = MechanicsHelper::estimateRemoteVelocity(
+        previousPosition, position, velocityDeltaSeconds);
+    const bool hasTranslationIntent = MechanicsHelper::hasRemoteTranslationIntent(direction);
+    const bool hasVelocitySample = hasTranslationIntent && sampleVelocity.length2() > 1.f;
+    if (!hasVelocitySample)
+    {
+        if (!hasTranslationIntent)
+            resetRemoteMovementEstimate();
+        else if (mHasRemoteVelocity)
+        {
+            mRemoteVelocity *= 0.85f;
+            mHasRemoteVelocity = mRemoteVelocity.length2() > 1.f;
+        }
+        return;
+    }
+
+    mRemoteVelocity = MechanicsHelper::smoothRemoteVelocity(
+        mRemoteVelocity, sampleVelocity, deltaSeconds, mHasRemoteVelocity);
+    mHasRemoteVelocity = true;
+}
+
+void DedicatedPlayer::resetRemoteMovementEstimate()
+{
+    mRemoteVelocity = osg::Vec3f();
+    mRemotePacketAgeSeconds = 0.f;
+    mHasRemoteVelocity = false;
+}
+
+void DedicatedPlayer::updateRemoteTimingEstimate(float arrivalDeltaSeconds, bool hasPreviousPacket)
+{
+    const float sampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(movementSampleIntervalSeconds);
+    const float latencySeconds = sanitizeMovementLatencySeconds(movementLatencySeconds);
+
+    if (!hasPreviousPacket || !mHasRemoteTimingEstimate)
+    {
+        mSmoothedRemoteSampleIntervalSeconds = sampleIntervalSeconds;
+        mSmoothedRemoteLatencySeconds = latencySeconds;
+        mRemoteJitterSeconds = 0.f;
+        mHasRemoteTimingEstimate = true;
+        return;
+    }
+
+    mSmoothedRemoteSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(
+        MechanicsHelper::smoothRemoteTimingValue(mSmoothedRemoteSampleIntervalSeconds, sampleIntervalSeconds,
+            arrivalDeltaSeconds, true));
+    mSmoothedRemoteLatencySeconds = sanitizeMovementLatencySeconds(
+        MechanicsHelper::smoothRemoteTimingValue(mSmoothedRemoteLatencySeconds, latencySeconds,
+            arrivalDeltaSeconds, true));
+
+    const float expectedIntervalSeconds = sanitizeMovementSampleIntervalSeconds(mSmoothedRemoteSampleIntervalSeconds);
+    const float jitterSampleSeconds = std::isfinite(arrivalDeltaSeconds) && arrivalDeltaSeconds > 0.f
+        ? std::abs(arrivalDeltaSeconds - expectedIntervalSeconds)
+        : 0.f;
+    mRemoteJitterSeconds = MechanicsHelper::sanitizeRemoteMovementJitterSeconds(
+        MechanicsHelper::smoothRemoteTimingValue(mRemoteJitterSeconds, jitterSampleSeconds, arrivalDeltaSeconds, true));
+}
+
+void DedicatedPlayer::resetRemoteTimingEstimate()
+{
+    mSmoothedRemoteSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(movementSampleIntervalSeconds);
+    mSmoothedRemoteLatencySeconds = sanitizeMovementLatencySeconds(movementLatencySeconds);
+    mRemoteJitterSeconds = 0.f;
+    mHasRemoteTimingEstimate = false;
 }
 
 void DedicatedPlayer::setBaseInfo()
@@ -472,11 +585,19 @@ void DedicatedPlayer::setSkills()
 void DedicatedPlayer::setEquipment()
 {
     if (!reference)
+    {
+        hasPendingEquipmentApplication = true;
         return;
+    }
 
     // Go no further if the player is disguised as a creature
     if (!ptr.getClass().hasInventoryStore(ptr))
+    {
+        hasPendingEquipmentApplication = true;
         return;
+    }
+
+    hasPendingEquipmentApplication = false;
 
     bool equippedSomething = false;
 
@@ -651,6 +772,9 @@ void DedicatedPlayer::setCell()
     setMovementSettings();
     world->rotateObject(ptr, osg::Vec3f(position.rot[0], 0, position.rot[2]));
     hasChangedCell = true;
+    resetRemoteMovementEstimate();
+    resetRemoteTimingEstimate();
+    mLastRemotePositionPacket = std::chrono::steady_clock::time_point();
 
     // Remove the marker entirely if this player has moved to an interior that is inactive for us
     if (!cell.isExterior() && !Main::get().getCellController()->isActiveWorldCell(cell))
@@ -874,12 +998,22 @@ void DedicatedPlayer::createReference(const ESM::RefId& recId)
 
 void DedicatedPlayer::deleteReference()
 {
-    MWBase::World* world = MWBase::Environment::get().getWorld();
+    removeMarker();
+
+    if (!reference)
+        return;
 
     LOG_APPEND(TimedLog::LOG_INFO, "- Deleting reference");
-    world->deleteObject(ptr);
+    if (!ptr.isEmpty())
+        MWBase::Environment::get().getWorld()->deleteObject(ptr);
+
     delete reference;
     reference = nullptr;
+    ptr = MWWorld::Ptr();
+    hasReceivedInitialPosition = false;
+    hasFinishedInitialTeleportation = false;
+    resetRemoteMovementEstimate();
+    resetRemoteTimingEstimate();
 }
 
 MWWorld::Ptr DedicatedPlayer::getPtr()

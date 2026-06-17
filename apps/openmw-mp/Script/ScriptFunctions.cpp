@@ -3,7 +3,7 @@
 #include <cstdarg>
 #include <iostream>
 #include <apps/openmw-mp/Player.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 template<typename... Types>

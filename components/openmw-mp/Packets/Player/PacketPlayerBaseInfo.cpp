@@ -6,7 +6,7 @@ using namespace mwmp;
 PacketPlayerBaseInfo::PacketPlayerBaseInfo() : PlayerPacket()
 {
     packetID = ID_PLAYER_BASEINFO;
-    orderChannel = CHANNEL_MOVEMENT;
+    orderChannel = CHANNEL_PLAYER;
 }
 
 void PacketPlayerBaseInfo::Packet(PacketStream *newBitstream, bool send)

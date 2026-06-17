@@ -7,7 +7,7 @@ mwmp::PacketPlayerCellChange::PacketPlayerCellChange() : PlayerPacket()
     packetID = ID_PLAYER_CELL_CHANGE;
     priority = PacketPriority::Immediate;
     reliability = PacketReliability::ReliableOrdered;
-    orderChannel = CHANNEL_MOVEMENT;
+    orderChannel = CHANNEL_PLAYER;
 }
 
 void mwmp::PacketPlayerCellChange::Packet(PacketStream *newBitstream, bool send)
@@ -33,6 +33,19 @@ void mwmp::PacketPlayerCellChange::Packet(PacketStream *newBitstream, bool send)
     readOk = RW(player->direction, send, 1);
     if (!readOk)
         return;
+
+    float sampleInterval = sanitizeMovementSampleIntervalSeconds(player->movementSampleIntervalSeconds);
+    readOk = RW(sampleInterval, send);
+    if (!readOk)
+        return;
+
+    player->movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+    float latencySeconds = sanitizeMovementLatencySeconds(player->movementLatencySeconds);
+    readOk = RW(latencySeconds, send);
+    if (!readOk)
+        return;
+
+    player->movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
 
     readOk = RW(player->cellChangeReason, send);
     if (!readOk)

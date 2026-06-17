@@ -2,6 +2,8 @@
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
+#include <vector>
+
 #include "../mwbase/environment.hpp"
 
 #include "../mwclass/npc.hpp"
@@ -59,6 +61,31 @@ void PlayerList::deletePlayer(PacketGuid guid)
 
     delete player->second;
     playerList.erase(player);
+}
+
+std::vector<PacketGuid> PlayerList::deletePlayersByNameExcept(const std::string& name, PacketGuid preservedGuid)
+{
+    if (name.empty())
+        return {};
+
+    std::vector<PacketGuid> stalePlayers;
+    for (const auto& playerEntry : playerList)
+    {
+        if (playerEntry.first == preservedGuid || playerEntry.second == nullptr)
+            continue;
+
+        if (playerEntry.second->npc.mName == name)
+            stalePlayers.push_back(playerEntry.first);
+    }
+
+    for (PacketGuid staleGuid : stalePlayers)
+    {
+        LOG_APPEND(TimedLog::LOG_INFO, "- Deleting stale remote avatar for %s with guid %s",
+            name.c_str(), packetGuidToString(staleGuid).c_str());
+        deletePlayer(staleGuid);
+    }
+
+    return stalePlayers;
 }
 
 void PlayerList::cleanUp()

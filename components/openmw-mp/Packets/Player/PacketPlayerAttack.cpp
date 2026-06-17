@@ -29,7 +29,7 @@ namespace
 PacketPlayerAttack::PacketPlayerAttack() : PlayerPacket()
 {
     packetID = ID_PLAYER_ATTACK;
-    orderChannel = CHANNEL_MOVEMENT;
+    orderChannel = CHANNEL_COMBAT;
 }
 
 void PacketPlayerAttack::Packet(PacketStream *newBitstream, bool send)
@@ -42,6 +42,16 @@ void PacketPlayerAttack::Packet(PacketStream *newBitstream, bool send)
     if (!RW(player->positionSequence, send) || !RW(player->position, send, true)
         || !RW(player->direction, send, true))
         return;
+
+    float sampleInterval = sanitizeMovementSampleIntervalSeconds(player->movementSampleIntervalSeconds);
+    if (!RW(sampleInterval, send))
+        return;
+    player->movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+    float latencySeconds = sanitizeMovementLatencySeconds(player->movementLatencySeconds);
+    if (!RW(latencySeconds, send))
+        return;
+    player->movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
 
     if (!RW(player->attack.target.isPlayer, send))
         return;

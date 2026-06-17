@@ -3,7 +3,7 @@
 
 #include <components/openmw-mp/NetworkMessages.hpp>
 
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/Player.hpp"
 
 namespace mwmp
@@ -15,7 +15,7 @@ namespace mwmp
 
         player.restoreAcceptedPositionPacket();
 
-        PlayerPacket* packet = Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_POSITION);
+        PlayerPacket* packet = ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_POSITION);
         packet->setPlayer(&player);
         packet->SendWithReliability(player.guid, PacketReliability::ReliableOrdered);
     }

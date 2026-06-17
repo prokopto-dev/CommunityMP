@@ -437,12 +437,16 @@ namespace
 
         MWMechanics::CreatureStats& victimStats = victim.getClass().getCreatureStats(victim);
 
-        if (!attack.block && attack.knockdown)
+        if (attack.block)
+        {
+            victimStats.setBlock(true);
+        }
+        else if (attack.knockdown)
         {
             victimStats.setHitRecovery(false);
             victimStats.setKnockedDown(true);
         }
-        else if (!attack.block && appliedDamage >= 0.001f && !victimStats.getKnockedDown())
+        else if (appliedDamage >= 0.001f && !victimStats.getKnockedDown())
         {
             victimStats.setHitRecovery(true);
         }
@@ -505,9 +509,196 @@ osg::Vec3f MechanicsHelper::getLinearInterpolation(osg::Vec3f start, osg::Vec3f 
 
 float MechanicsHelper::getRemoteMovementInterpolationFactor(float dt)
 {
-    constexpr float targetCatchupWindow = 0.12f;
-    constexpr float maxFrameCatchup = 0.35f;
-    return std::clamp(dt / targetCatchupWindow, 0.f, maxFrameCatchup);
+    return getRemoteMovementInterpolationFactor(dt, 0.f, false);
+}
+
+float MechanicsHelper::getRemoteMovementInterpolationFactor(float dt, float distanceToTarget, bool hasTranslationIntent)
+{
+    return getRemoteMovementInterpolationFactor(dt, distanceToTarget, hasTranslationIntent, 0.f);
+}
+
+float MechanicsHelper::getRemoteMovementInterpolationFactor(
+    float dt, float distanceToTarget, bool hasTranslationIntent, float jitterSeconds)
+{
+    if (!std::isfinite(dt) || dt <= 0.f)
+        return 0.f;
+
+    const float clampedDistance = std::isfinite(distanceToTarget) ? std::max(0.f, distanceToTarget) : 0.f;
+    const float jitterPaddingSeconds = std::min(sanitizeRemoteMovementJitterSeconds(jitterSeconds) * 0.50f, 0.035f);
+    const float settledCatchupSeconds = (hasTranslationIntent ? 0.070f : 0.110f) + jitterPaddingSeconds;
+    constexpr float urgentCatchupSeconds = 0.045f;
+    constexpr float urgentDistance = 128.f;
+    constexpr float settledDistance = 32.f;
+
+    float catchupSeconds = settledCatchupSeconds;
+    if (clampedDistance > settledDistance)
+    {
+        const float urgency = std::clamp((clampedDistance - settledDistance) / (urgentDistance - settledDistance), 0.f, 1.f);
+        catchupSeconds = settledCatchupSeconds + (urgentCatchupSeconds - settledCatchupSeconds) * urgency;
+    }
+
+    const float factor = 1.f - std::exp(-dt / catchupSeconds);
+    const float maxFrameCatchup = hasTranslationIntent ? 0.42f : 0.30f;
+    return std::clamp(factor, 0.f, maxFrameCatchup);
+}
+
+float MechanicsHelper::getRemoteRotationInterpolationFactor(float dt)
+{
+    if (!std::isfinite(dt) || dt <= 0.f)
+        return 0.f;
+
+    constexpr float rotationCatchupSeconds = 0.060f;
+    constexpr float maxFrameCatchup = 0.50f;
+    const float factor = 1.f - std::exp(-dt / rotationCatchupSeconds);
+    return std::clamp(factor, 0.f, maxFrameCatchup);
+}
+
+osg::Vec3f MechanicsHelper::getInterpolatedRemoteRotation(
+    const ESM::Position& currentPosition, const ESM::Position& targetPosition, float interpolationFactor)
+{
+    const float factor = std::clamp(interpolationFactor, 0.f, 1.f);
+    osg::Vec3f rotation;
+
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        const float current = std::isfinite(currentPosition.rot[axis]) ? currentPosition.rot[axis] : 0.f;
+        const float target = std::isfinite(targetPosition.rot[axis]) ? targetPosition.rot[axis] : current;
+        const float delta = std::atan2(std::sin(target - current), std::cos(target - current));
+        rotation[axis] = current + delta * factor;
+    }
+
+    return rotation;
+}
+
+bool MechanicsHelper::hasRemoteTranslationIntent(const ESM::Position& direction)
+{
+    constexpr float intentEpsilon = 0.01f;
+    return std::abs(direction.pos[0]) > intentEpsilon || std::abs(direction.pos[1]) > intentEpsilon
+        || std::abs(direction.pos[2]) > intentEpsilon;
+}
+
+osg::Vec3f MechanicsHelper::estimateRemoteVelocity(
+    const ESM::Position& previousPosition, const ESM::Position& currentPosition, float deltaSeconds)
+{
+    if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.f)
+        return osg::Vec3f();
+
+    const osg::Vec3f delta = currentPosition.asVec3() - previousPosition.asVec3();
+    const float distanceSquared = delta.length2();
+    constexpr float minMovementDistance = 0.01f;
+    constexpr float maxMovementDistance = 512.f;
+
+    if (!std::isfinite(distanceSquared) || distanceSquared < minMovementDistance * minMovementDistance
+        || distanceSquared > maxMovementDistance * maxMovementDistance)
+        return osg::Vec3f();
+
+    osg::Vec3f velocity = delta / deltaSeconds;
+    const float speedSquared = velocity.length2();
+    constexpr float maxRemoteSpeed = 3600.f;
+    if (!std::isfinite(speedSquared))
+        return osg::Vec3f();
+
+    if (speedSquared > maxRemoteSpeed * maxRemoteSpeed)
+        velocity *= maxRemoteSpeed / std::sqrt(speedSquared);
+
+    return velocity;
+}
+
+osg::Vec3f MechanicsHelper::smoothRemoteVelocity(
+    const osg::Vec3f& previousVelocity, const osg::Vec3f& sampleVelocity, float deltaSeconds, bool hasPreviousVelocity)
+{
+    if (!hasPreviousVelocity || !std::isfinite(deltaSeconds) || deltaSeconds <= 0.f)
+        return sampleVelocity;
+
+    const float previousSpeedSquared = previousVelocity.length2();
+    const float sampleSpeedSquared = sampleVelocity.length2();
+    if (!std::isfinite(previousSpeedSquared) || !std::isfinite(sampleSpeedSquared))
+        return sampleVelocity;
+
+    if (previousSpeedSquared > 1.f && sampleSpeedSquared > 1.f && previousVelocity * sampleVelocity < 0.f)
+        return sampleVelocity;
+
+    constexpr float velocityBlendSeconds = 0.045f;
+    const float blend = std::clamp(1.f - std::exp(-deltaSeconds / velocityBlendSeconds), 0.20f, 0.80f);
+    return previousVelocity + (sampleVelocity - previousVelocity) * blend;
+}
+
+float MechanicsHelper::smoothRemoteTimingValue(float previousValue, float sampleValue, float deltaSeconds, bool hasPreviousValue)
+{
+    if (!std::isfinite(sampleValue))
+        return std::isfinite(previousValue) ? previousValue : 0.f;
+
+    if (!hasPreviousValue || !std::isfinite(previousValue) || !std::isfinite(deltaSeconds) || deltaSeconds <= 0.f)
+        return sampleValue;
+
+    constexpr float timingBlendSeconds = 0.20f;
+    const float blend = std::clamp(1.f - std::exp(-deltaSeconds / timingBlendSeconds), 0.05f, 0.35f);
+    return previousValue + (sampleValue - previousValue) * blend;
+}
+
+float MechanicsHelper::sanitizeRemoteMovementJitterSeconds(float seconds)
+{
+    constexpr float maxJitterSeconds = 0.12f;
+
+    if (!std::isfinite(seconds) || seconds <= 0.f)
+        return 0.f;
+
+    return std::min(seconds, maxJitterSeconds);
+}
+
+osg::Vec3f MechanicsHelper::getPredictedRemoteMovementTarget(
+    const ESM::Position& position, const ESM::Position& direction, const osg::Vec3f& velocity, bool hasVelocity,
+    float packetAgeSeconds, float sampleIntervalSeconds, float latencySeconds)
+{
+    return getPredictedRemoteMovementTarget(position, direction, velocity, hasVelocity, packetAgeSeconds,
+        sampleIntervalSeconds, latencySeconds, 0.f);
+}
+
+osg::Vec3f MechanicsHelper::getPredictedRemoteMovementTarget(
+    const ESM::Position& position, const ESM::Position& direction, const osg::Vec3f& velocity, bool hasVelocity,
+    float packetAgeSeconds, float sampleIntervalSeconds, float latencySeconds, float jitterSeconds)
+{
+    osg::Vec3f target = position.asVec3();
+    if (!hasVelocity || !hasRemoteTranslationIntent(direction))
+        return target;
+
+    const float speedSquared = velocity.length2();
+    if (!std::isfinite(speedSquared) || speedSquared < 1.f)
+        return target;
+
+    constexpr float baseVisualLeadSeconds = 0.f;
+    constexpr float sampleIntervalLeadScale = 0.10f;
+    constexpr float latencyLeadScale = 0.f;
+    constexpr float jitterLeadScale = 0.f;
+    constexpr float maxPacketAgeLeadSeconds = 0.012f;
+    constexpr float maxSampleIntervalLeadSeconds = 0.006f;
+    constexpr float maxLatencyLeadSeconds = 0.f;
+    constexpr float maxJitterLeadSeconds = 0.f;
+    constexpr float maxVisualLeadSeconds = 0.018f;
+    constexpr float maxVisualLeadDistance = 8.f;
+    const float packetAgeLeadSeconds = std::isfinite(packetAgeSeconds)
+        ? std::clamp(packetAgeSeconds, 0.f, maxPacketAgeLeadSeconds)
+        : 0.f;
+    const float sampleIntervalLeadSeconds = std::clamp(
+        sanitizeMovementSampleIntervalSeconds(sampleIntervalSeconds) * sampleIntervalLeadScale,
+        0.f, maxSampleIntervalLeadSeconds);
+    const float latencyLeadSeconds = std::clamp(
+        sanitizeMovementLatencySeconds(latencySeconds) * latencyLeadScale, 0.f, maxLatencyLeadSeconds);
+    const float jitterLeadSeconds = std::clamp(
+        sanitizeRemoteMovementJitterSeconds(jitterSeconds) * jitterLeadScale, 0.f, maxJitterLeadSeconds);
+    const float visualLeadSeconds = std::clamp(
+        baseVisualLeadSeconds + packetAgeLeadSeconds + sampleIntervalLeadSeconds + latencyLeadSeconds
+            + jitterLeadSeconds,
+        baseVisualLeadSeconds, maxVisualLeadSeconds);
+    osg::Vec3f lead = velocity * visualLeadSeconds;
+    const float leadDistanceSquared = lead.length2();
+    if (!std::isfinite(leadDistanceSquared))
+        return target;
+
+    if (leadDistanceSquared > maxVisualLeadDistance * maxVisualLeadDistance)
+        lead *= maxVisualLeadDistance / std::sqrt(leadDistanceSquared);
+
+    return target + lead;
 }
 
 float MechanicsHelper::sanitizeMovementComponent(float value)
@@ -1193,7 +1384,11 @@ void MechanicsHelper::processAttack(Attack attack, const MWWorld::Ptr& attacker,
         }
 
         if (!applyAuthoritativeState)
+        {
+            const float visualDamageCue = attack.success ? std::max(attack.damage, 1.f) : 0.f;
+            applyAttackReaction(attack, victim, visualDamageCue);
             return;
+        }
 
         bool isRanged = attack.type == attack.RANGED;
 

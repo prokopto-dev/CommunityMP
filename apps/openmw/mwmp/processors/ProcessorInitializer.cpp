@@ -33,6 +33,7 @@
 #include "player/ProcessorPlayerJail.hpp"
 #include "player/ProcessorPlayerJournal.hpp"
 #include "player/ProcessorPlayerLevel.hpp"
+#include "player/ProcessorPlayerLuaEvent.hpp"
 #include "player/ProcessorPlayerMiscellaneous.hpp"
 #include "player/ProcessorPlayerMomentum.hpp"
 #include "player/ProcessorPlayerPosition.hpp"
@@ -140,6 +141,7 @@ void ProcessorInitializer()
     PlayerProcessor::AddProcessor(new ProcessorPlayerJail());
     PlayerProcessor::AddProcessor(new ProcessorPlayerJournal());
     PlayerProcessor::AddProcessor(new ProcessorPlayerLevel());
+    PlayerProcessor::AddProcessor(new ProcessorPlayerLuaEvent());
     PlayerProcessor::AddProcessor(new ProcessorPlayerMiscellaneous());
     PlayerProcessor::AddProcessor(new ProcessorPlayerMomentum());
     PlayerProcessor::AddProcessor(new ProcessorPlayerPosition());

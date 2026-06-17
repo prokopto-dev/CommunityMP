@@ -4,7 +4,7 @@
 #include "../ObjectProcessor.hpp"
 #include <apps/openmw-mp/Cell.hpp>
 #include <apps/openmw-mp/CellController.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 #include <algorithm>
 
@@ -50,7 +50,7 @@ namespace mwmp
 
             for (BaseObject& object : objectList.baseObjects)
             {
-                object.mpNum = mwmp::Networking::getPtr()->incrementMpNum();
+                object.mpNum = mwmp::ServerNetworking::getPtr()->incrementMpNum();
             }
 
             Script::Call<Script::CallbackIdentity("OnObjectSpawn")>(player.getId(), objectList.cell.getDescription().c_str());

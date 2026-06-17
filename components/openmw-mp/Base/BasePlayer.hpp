@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadcrea.hpp>
@@ -133,6 +134,20 @@ namespace mwmp
         };
 
         int type; // 0 - Cell load, 1 - Cell unload
+    };
+
+    constexpr std::uint16_t clientLuaEventSchemaVersion = 1;
+    constexpr std::size_t clientLuaEventMaxNamespaceLength = 64;
+    constexpr std::size_t clientLuaEventMaxNameLength = 64;
+    constexpr std::size_t clientLuaEventMaxPayloadLength = 8 * 1024;
+
+    struct ClientLuaEvent
+    {
+        std::uint16_t schemaVersion = clientLuaEventSchemaVersion;
+        std::uint32_t sequence = 0;
+        std::string namespaceName;
+        std::string eventName;
+        std::string payload;
     };
 
     struct FactionChanges
@@ -273,8 +288,22 @@ namespace mwmp
             acceptedPositionSequence = positionSequence;
             acceptedPosition = position;
             acceptedDirection = direction;
+            acceptedMovementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(movementSampleIntervalSeconds);
+            movementSampleIntervalSeconds = acceptedMovementSampleIntervalSeconds;
+            acceptedMovementLatencySeconds = sanitizeMovementLatencySeconds(movementLatencySeconds);
+            movementLatencySeconds = acceptedMovementLatencySeconds;
             hasAcceptedPositionPacket = true;
             return true;
+        }
+
+        bool hasValidClientLuaEvent() const
+        {
+            return luaEvent.schemaVersion > 0 && luaEvent.schemaVersion <= clientLuaEventSchemaVersion
+                && !luaEvent.namespaceName.empty()
+                && luaEvent.namespaceName.size() <= clientLuaEventMaxNamespaceLength
+                && !luaEvent.eventName.empty()
+                && luaEvent.eventName.size() <= clientLuaEventMaxNameLength
+                && luaEvent.payload.size() <= clientLuaEventMaxPayloadLength;
         }
 
         bool hasFinitePositionPacket() const
@@ -296,6 +325,8 @@ namespace mwmp
             positionSequence = acceptedPositionSequence;
             position = acceptedPosition;
             direction = acceptedDirection;
+            movementSampleIntervalSeconds = acceptedMovementSampleIntervalSeconds;
+            movementLatencySeconds = acceptedMovementLatencySeconds;
         }
 
         bool acceptAnimFlagsPacket()
@@ -406,8 +437,11 @@ namespace mwmp
             if (hasAcceptedEquipmentPacket
                 && !isNewerPlayerEquipmentSequence(equipmentSequence, acceptedEquipmentSequence))
             {
-                restoreAcceptedEquipmentPacket();
-                return false;
+                if (!(exchangeFullInfo && equipmentSequence == acceptedEquipmentSequence))
+                {
+                    restoreAcceptedEquipmentPacket();
+                    return false;
+                }
             }
 
             acceptCurrentEquipmentPacket();
@@ -612,6 +646,7 @@ namespace mwmp
         std::vector<Book> bookChanges;
         bool bookChangesAreLoad = false;
         std::vector<CellState> cellStateChanges;
+        ClientLuaEvent luaEvent;
 
         std::vector<PacketGuid> alliedPlayers;
         CurrentContainer currentContainer;
@@ -642,10 +677,14 @@ namespace mwmp
 
         ESM::Position position;
         ESM::Position direction;
+        float movementSampleIntervalSeconds = 1.f / 60.f;
+        float movementLatencySeconds = 0.f;
         std::uint32_t positionSequence = 0;
         std::uint32_t acceptedPositionSequence = 0;
         ESM::Position acceptedPosition;
         ESM::Position acceptedDirection;
+        float acceptedMovementSampleIntervalSeconds = 1.f / 60.f;
+        float acceptedMovementLatencySeconds = 0.f;
         bool hasAcceptedPositionPacket = false;
         ESM::Position previousCellPosition;
         ESM::Position momentum;

@@ -1,10 +1,13 @@
 #include "ActorProcessor.hpp"
 #include "Cell.hpp"
 #include "CellController.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include "actor/ActorSequenceCoalescing.hpp"
 #include <components/openmw-mp/Transport/ReceivedPacket.hpp>
+#include <algorithm>
+#include <cstddef>
 #include <set>
+#include <vector>
 
 using namespace mwmp;
 
@@ -13,12 +16,54 @@ typename BasePacketProcessor<T>::processors_t BasePacketProcessor<T>::processors
 
 namespace
 {
+    float estimateOneWayLatencySeconds(mwmp::PacketGuid guid)
+    {
+        if (guid == mwmp::unassignedPacketGuid())
+            return 0.f;
+
+        const int pingMilliseconds = mwmp::ServerNetworking::get().getAvgPing(guid);
+        if (pingMilliseconds <= 0)
+            return 0.f;
+
+        return mwmp::sanitizeMovementLatencySeconds(static_cast<float>(pingMilliseconds) * 0.0005f);
+    }
+
+    float estimateRouteLatencySeconds(mwmp::PacketGuid sourceGuid, mwmp::PacketGuid destinationGuid)
+    {
+        return mwmp::sanitizeMovementLatencySeconds(
+            estimateOneWayLatencySeconds(sourceGuid) + estimateOneWayLatencySeconds(destinationGuid));
+    }
+
+    std::vector<float> captureMovementLatencies(const BaseActorList& actorList)
+    {
+        std::vector<float> latencies;
+        latencies.reserve(actorList.baseActors.size());
+        for (const BaseActor& actor : actorList.baseActors)
+            latencies.push_back(actor.movementLatencySeconds);
+        return latencies;
+    }
+
+    void setMovementLatencies(BaseActorList& actorList, float latencySeconds)
+    {
+        const float sanitizedLatencySeconds = mwmp::sanitizeMovementLatencySeconds(latencySeconds);
+        for (BaseActor& actor : actorList.baseActors)
+            actor.movementLatencySeconds = sanitizedLatencySeconds;
+    }
+
+    void restoreMovementLatencies(BaseActorList& actorList, const std::vector<float>& latencies)
+    {
+        const std::size_t count = std::min(actorList.baseActors.size(), latencies.size());
+        for (std::size_t i = 0; i < count; ++i)
+            actorList.baseActors[i].movementLatencySeconds = latencies[i];
+    }
+
     void sendToLoadedCellPlayers(ActorPacket &packet, BaseActorList &actorList, Cell *serverCell,
         std::set<PacketGuid>& sentGuids)
     {
         if (serverCell == nullptr)
             return;
 
+        const std::vector<float> originalLatencies = captureMovementLatencies(actorList);
         for (Player *pl : serverCell->getPlayers())
         {
             if (pl == nullptr || pl->npc.mName.empty() || pl->guid == actorList.guid)
@@ -27,9 +72,11 @@ namespace
             if (!sentGuids.insert(pl->guid).second)
                 continue;
 
+            setMovementLatencies(actorList, estimateRouteLatencySeconds(actorList.guid, pl->guid));
             packet.setActorList(&actorList);
             packet.Send(pl->guid);
         }
+        restoreMovementLatencies(actorList, originalLatencies);
     }
 
     bool isSameCell(const ESM::Cell& left, const ESM::Cell& right)
@@ -57,6 +104,9 @@ namespace
         movedActor.positionSequence = actor.positionSequence;
         movedActor.position = actor.position;
         movedActor.direction = actor.direction;
+        movedActor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+            actor.movementSampleIntervalSeconds);
+        movedActor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
         movedActor.hasPositionData = true;
         movedActor.isFollowerCellChange = actor.isFollowerCellChange;
 
@@ -143,7 +193,7 @@ bool ActorProcessor::Process(ReceivedPacket& packet, BaseActorList &actorList) n
                 return true;
             }
 
-            ActorPacket *myPacket = Networking::get().getActorPacketController()->GetPacket(packet.id());
+            ActorPacket *myPacket = ServerNetworking::get().getActorPacketController()->GetPacket(packet.id());
 
             myPacket->setActorList(&actorList);
             actorList.isValid = true;

@@ -4,7 +4,7 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 
 using namespace mwmp;
 
@@ -158,7 +158,7 @@ void QuestFunctions::SendJournalChanges(unsigned short pid, bool sendToOtherPlay
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_JOURNAL);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_JOURNAL);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)
@@ -172,7 +172,7 @@ void QuestFunctions::SendReputation(unsigned short pid, bool sendToOtherPlayers,
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_REPUTATION);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_REPUTATION);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)

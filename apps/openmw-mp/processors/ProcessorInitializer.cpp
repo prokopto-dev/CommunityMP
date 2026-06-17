@@ -1,6 +1,6 @@
 #include "ProcessorInitializer.hpp"
 
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include "Script/Script.hpp"
 
 #include "PlayerProcessor.hpp"
@@ -28,6 +28,7 @@
 #include "player/ProcessorPlayerPlaceholder.hpp"
 #include "player/ProcessorPlayerInput.hpp"
 #include "player/ProcessorPlayerLevel.hpp"
+#include "player/ProcessorPlayerLuaEvent.hpp"
 #include "player/ProcessorPlayerMiscellaneous.hpp"
 #include "player/ProcessorPlayerPosition.hpp"
 #include "player/ProcessorPlayerQuickKeys.hpp"
@@ -116,6 +117,7 @@ void ProcessorInitializer()
     PlayerProcessor::AddProcessor(new ProcessorPlayerPlaceholder());
     PlayerProcessor::AddProcessor(new ProcessorPlayerInput());
     PlayerProcessor::AddProcessor(new ProcessorPlayerLevel());
+    PlayerProcessor::AddProcessor(new ProcessorPlayerLuaEvent());
     PlayerProcessor::AddProcessor(new ProcessorPlayerMiscellaneous());
     PlayerProcessor::AddProcessor(new ProcessorPlayerPosition());
     PlayerProcessor::AddProcessor(new ProcessorPlayerQuickKeys());

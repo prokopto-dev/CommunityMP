@@ -2,7 +2,7 @@
 #define OPENMW_PROCESSORPLAYERCAST_HPP
 
 #include "../PlayerProcessor.hpp"
-#include "apps/openmw-mp/Networking.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 #include "apps/openmw-mp/ServerSimulation.hpp"
 #include "PlayerMovementSnapshot.hpp"
 
@@ -27,7 +27,7 @@ namespace mwmp
             if (!acceptSequencedPlayerCombatEvent(player))
                 return;
 
-            if (!Networking::getPtr()->getServerSimulation().acceptPlayerCast(player))
+            if (!ServerNetworking::getPtr()->getServerSimulation().acceptPlayerCast(player))
                 return;
 
             if (player.cast.target.isPlayer)

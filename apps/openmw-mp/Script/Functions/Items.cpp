@@ -4,7 +4,7 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw/mwworld/inventorystore.hpp>
 
 using namespace mwmp;
@@ -26,6 +26,9 @@ unsigned int ItemFunctions::GetEquipmentChangesSize(unsigned short pid) noexcept
 {
     Player* player;
     GET_PLAYER(pid, player, 0);
+
+    if (player->exchangeFullInfo)
+        return MWWorld::InventoryStore::Slots;
 
     return static_cast<unsigned int>(player->equipmentIndexChanges.size());
 }
@@ -109,6 +112,13 @@ int ItemFunctions::GetEquipmentChangesSlot(unsigned short pid, unsigned int chan
     Player* player;
     GET_PLAYER(pid, player, 0);
 
+    if (player->exchangeFullInfo)
+    {
+        if (changeIndex >= static_cast<unsigned int>(MWWorld::InventoryStore::Slots))
+            return 0;
+
+        return static_cast<int>(changeIndex);
+    }
 
     return player->equipmentIndexChanges[changeIndex];
 }
@@ -239,7 +249,7 @@ void ItemFunctions::SendEquipment(unsigned short pid) noexcept
     ++player->equipmentSequence;
     player->acceptCurrentEquipmentPacket();
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_EQUIPMENT);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_EQUIPMENT);
     packet->setPlayer(player);
 
     packet->Send(false);
@@ -256,7 +266,7 @@ void ItemFunctions::SendInventoryChanges(unsigned short pid, bool sendToOtherPla
     ++player->inventorySequence;
     player->acceptCurrentInventoryPacket();
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_INVENTORY);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_INVENTORY);
     packet->setPlayer(player);
 
     if (!skipAttachedPlayer)
@@ -270,7 +280,7 @@ void ItemFunctions::SendItemUse(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_ITEM_USE);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_ITEM_USE);
     packet->setPlayer(player);
 
     packet->Send(false);

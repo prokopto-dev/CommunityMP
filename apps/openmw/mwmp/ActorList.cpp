@@ -68,21 +68,6 @@ namespace
         actors.push_back(baseActor);
     }
 
-    void acceptNewestCombatActor(std::vector<BaseActor>& actors, const BaseActor& baseActor)
-    {
-        for (BaseActor& actor : actors)
-        {
-            if (!hasSameActorIdentity(actor, baseActor))
-                continue;
-
-            if (isNewerActorCombatSequence(baseActor.combatSequence, actor.combatSequence))
-                actor = baseActor;
-
-            return;
-        }
-
-        actors.push_back(baseActor);
-    }
 }
 
 ActorList::ActorList()
@@ -135,7 +120,7 @@ void ActorList::addAnimFlagsActor(BaseActor baseActor)
 
 void ActorList::addAnimPlayActor(BaseActor baseActor)
 {
-    acceptNewestCombatActor(animPlayActors, baseActor);
+    animPlayActors.push_back(baseActor);
 }
 
 void ActorList::addSpeechActor(BaseActor baseActor)
@@ -186,7 +171,7 @@ void ActorList::addAiActor(const MWWorld::Ptr& actorPtr, const MWWorld::Ptr& tar
         LocalActor* localActor = cellController->getLocalActor(actorPtr);
         if (localActor != nullptr)
         {
-            localActor->updatePosition(true);
+            localActor->updatePosition(true, false);
             baseActor = *localActor;
         }
     }
@@ -215,7 +200,7 @@ void ActorList::addAiActor(const MWWorld::Ptr& actorPtr, const MWWorld::Ptr& tar
 
 void ActorList::addAttackActor(BaseActor baseActor)
 {
-    acceptNewestCombatActor(attackActors, baseActor);
+    attackActors.push_back(baseActor);
 }
 
 void ActorList::addAttackActor(const MWWorld::Ptr& actorPtr, const mwmp::Attack &attack)
@@ -230,7 +215,7 @@ void ActorList::addAttackActor(const MWWorld::Ptr& actorPtr, const mwmp::Attack 
 
 void ActorList::addCastActor(BaseActor baseActor)
 {
-    acceptNewestCombatActor(castActors, baseActor);
+    castActors.push_back(baseActor);
 }
 
 void ActorList::addCellChangeActor(BaseActor baseActor)

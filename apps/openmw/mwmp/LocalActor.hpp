@@ -11,6 +11,8 @@
 #include "../mwworld/manualref.hpp"
 #include "../mwworld/timestamp.hpp"
 
+#include <chrono>
+
 namespace mwmp
 {
     class LocalActor : public BaseActor
@@ -23,7 +25,7 @@ namespace mwmp
         void update(bool forceUpdate);
 
         void updateCell();
-        void updatePosition(bool forceUpdate);
+        void updatePosition(bool forceUpdate, bool queuePacket = true);
         void updateAnimFlags(bool forceUpdate);
         void updateAnimPlay();
         void updateSpeech();
@@ -59,6 +61,7 @@ namespace mwmp
 
         bool wasJumping;
         bool wasFlying;
+        std::chrono::steady_clock::time_point mLastPositionPacketTime;
 
         MWMechanics::DrawState lastDrawState;
 

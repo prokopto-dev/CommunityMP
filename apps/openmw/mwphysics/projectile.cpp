@@ -119,4 +119,9 @@ namespace MWPhysics
             [target](const btCollisionObject* actor) { return target == actor; });
     }
 
+    osg::Vec3f Projectile::getHitPosition() const
+    {
+        return Misc::Convert::toOsg(mHitPosition);
+    }
+
 }

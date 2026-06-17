@@ -36,11 +36,14 @@ set(NativeScript_Headers
         )
 
 # local files
-set(SERVER
+set(SERVER_CORE
     main.cpp
     ConsoleInput.cpp
     Player.cpp
-    Networking.cpp
+    CommunityMpLuaEventSender.cpp
+    ServerEventDispatcher.cpp
+    SimulationRuntime.cpp
+    ServerNetworking.cpp
     ServerSimulation.cpp
     MasterClient.cpp
     Cell.cpp
@@ -65,16 +68,24 @@ set(SERVER
 
 )
 
+set(SERVER_STANDALONE
+    ServerStandaloneMain.cpp
+)
+
 set(SERVER_HEADER
         Script/Types.hpp Script/Script.hpp Script/SystemInterface.hpp
         Script/ScriptFunction.hpp Script/Platform.hpp Script/Language.hpp
         Script/ScriptFunctions.hpp Script/API/TimerAPI.hpp Script/API/PublicFnAPI.hpp
         ConsoleInput.hpp
+        CommunityMpLuaEventSender.hpp
+        ServerEventDispatcher.hpp
+        SimulationRuntime.hpp
         ServerSimulation.hpp
+        ServerApplication.hpp
         ${LuaScript_Headers}
         ${NativeScript_Headers}
 )
-source_group(tes3mp-server FILES ${SERVER} ${SERVER_HEADER})
+source_group(tes3mp-server FILES ${SERVER_CORE} ${SERVER_STANDALONE} ${SERVER_HEADER})
 
 set(PROCESSORS_ACTOR
         processors/actor/ProcessorActorAI.hpp processors/actor/ProcessorActorAnimFlags.hpp
@@ -101,6 +112,7 @@ set(PROCESSORS_PLAYER
         processors/player/ProcessorPlayerInput.hpp processors/player/ProcessorPlayerInventory.hpp
         processors/player/ProcessorPlayerItemUse.hpp processors/player/ProcessorPlayerJournal.hpp
         processors/player/ProcessorPlayerPlaceholder.hpp processors/player/ProcessorPlayerLevel.hpp
+        processors/player/ProcessorPlayerLuaEvent.hpp
         processors/player/ProcessorPlayerMiscellaneous.hpp processors/player/ProcessorPlayerPosition.hpp
         processors/player/ProcessorPlayerQuickKeys.hpp processors/player/ProcessorPlayerRest.hpp
         processors/player/ProcessorPlayerResurrect.hpp processors/player/ProcessorPlayerShapeshift.hpp
@@ -150,21 +162,49 @@ source_group(tes3mp-server\\processors FILES ${PROCESSORS})
 include_directories("./")
 include_directories(${CMAKE_SOURCE_DIR}/extern)
 
+# Server core library. Keeping the dedicated server entry point linkable as a
+# library is the first step toward running server mode inside communitymp.exe.
+add_library(tes3mp-server-core STATIC
+        ${SERVER_CORE} ${SERVER_HEADER}
+        ${PROCESSORS_ACTOR} ${PROCESSORS_PLAYER} ${PROCESSORS_OBJECT} ${PROCESSORS_WORLDSTATE} ${PROCESSORS}
+        ${APPLE_BUNDLE_RESOURCES}
+        )
+
+set_target_properties(tes3mp-server-core PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
+
+target_compile_options(tes3mp-server-core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/permissive->)
+
+if (OPENMW_MP_BUILD)
+	target_compile_options(tes3mp-server-core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/MP>)
+endif()
+
+set_target_properties(tes3mp-server-core PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
+
+if (UNIX)
+	target_compile_options(tes3mp-server-core PRIVATE -Wno-ignored-qualifiers)
+endif()
+
+target_link_libraries(tes3mp-server-core PUBLIC
+    Boost::filesystem
+    components
+    ${LUA_LIBRARIES}
+    ${Breakpad_Library}
+    GameNetworkingSockets::GameNetworkingSockets
+)
+
 # Main executable
 
 add_executable(tes3mp-server
-        ${SERVER} ${SERVER_HEADER}
-        ${PROCESSORS_ACTOR} ${PROCESSORS_PLAYER} ${PROCESSORS_OBJECT} ${PROCESSORS_WORLDSTATE} ${PROCESSORS}
-        ${APPLE_BUNDLE_RESOURCES}
+        ${SERVER_STANDALONE}
         )
 
 set_target_properties(tes3mp-server PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
 
 target_compile_options(tes3mp-server PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/permissive->)
-
-if (OPENMW_MP_BUILD)
-	target_compile_options(tes3mp-server PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/MP>)
-endif()
 
 set_target_properties(tes3mp-server PROPERTIES
     OUTPUT_NAME communitymp-server
@@ -182,18 +222,9 @@ add_custom_command(TARGET tes3mp-server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E rm -f
         "$<TARGET_FILE_DIR:tes3mp-server>/${OPENMW_MP_LEGACY_SERVER_EXECUTABLE}")
 
-if (UNIX)
-	target_compile_options(tes3mp-server PRIVATE -Wno-ignored-qualifiers)
-endif()
-
 target_link_libraries(tes3mp-server
-    Boost::filesystem
-    components
-    ${LUA_LIBRARIES}
-    ${Breakpad_Library}
+    tes3mp-server-core
 )
-
-target_link_libraries(tes3mp-server GameNetworkingSockets::GameNetworkingSockets)
 
 tes3mp_copy_runtime_dlls(tes3mp-server)
 

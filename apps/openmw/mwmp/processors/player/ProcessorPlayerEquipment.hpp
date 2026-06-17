@@ -22,8 +22,9 @@ namespace mwmp
 
                 if (isRequest())
                 {
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
-                        "Ignoring server request for full local equipment snapshot; server is authoritative");
+                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                        "Server requested a full local equipment snapshot");
+                    static_cast<LocalPlayer*>(player)->updateEquipment(true);
                     return;
                 }
                 else if (player->acceptEquipmentPacket())

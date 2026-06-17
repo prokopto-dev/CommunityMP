@@ -19,6 +19,8 @@ namespace mwmp
         virtual void Do(PlayerPacket &packet, BasePlayer *player) = 0;
 
         static bool Process(ReceivedPacket& packet);
+        static void replayPendingPacketsForPlayer(PacketGuid playerGuid);
+        static void clearPendingPacketsForPlayer(PacketGuid playerGuid);
 
         virtual ~PlayerProcessor();
     };

@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 #include <BulletCollision/CollisionShapes/btBoxShape.h>
 #include <BulletCollision/CollisionShapes/btCylinderShape.h>
@@ -52,11 +54,225 @@
 #include "../mwworld/class.hpp"
 
 #include "constants.hpp"
+#include "iprojectile.hpp"
 #include "joltactor.hpp"
 #include "joltshapeconverter.hpp"
 
 namespace MWPhysics
 {
+    class JoltProjectile final : public IProjectile
+    {
+    public:
+        JoltProjectile(const MWWorld::Ptr& caster, const osg::Vec3f& position,
+            JPH::RefConst<JPH::Shape> shape, JPH::BodyID bodyId)
+            : mCaster(caster)
+            , mPosition(position)
+            , mPreviousPosition(position)
+            , mSimulationPosition(position)
+            , mHitPosition(position)
+            , mShape(std::move(shape))
+            , mBodyId(bodyId)
+        {
+        }
+
+        JPH::BodyID getBodyId() const { return mBodyId; }
+
+        bool isActive() const override
+        {
+            return mActive.load(std::memory_order_acquire);
+        }
+
+        MWWorld::Ptr getTarget() const override
+        {
+            std::scoped_lock lock(mMutex);
+            return mTarget;
+        }
+
+        MWWorld::Ptr getCaster() const override
+        {
+            std::scoped_lock lock(mMutex);
+            return mCaster;
+        }
+
+        void setCaster(const MWWorld::Ptr& caster) override
+        {
+            std::scoped_lock lock(mMutex);
+            mCaster = caster;
+        }
+
+        void setValidTargets(const std::vector<MWWorld::Ptr>& targets) override
+        {
+            std::scoped_lock lock(mMutex);
+            mValidTargets = targets;
+        }
+
+        void setVelocity(osg::Vec3f velocity) override
+        {
+            std::scoped_lock lock(mMutex);
+            mVelocity = velocity;
+        }
+
+        osg::Vec3f getSimulationPosition() const override
+        {
+            std::scoped_lock lock(mMutex);
+            return mSimulationPosition;
+        }
+
+        osg::Vec3f getHitPosition() const override
+        {
+            std::scoped_lock lock(mMutex);
+            return mHitPosition;
+        }
+
+        bool getHitWater() const override
+        {
+            std::scoped_lock lock(mMutex);
+            return mHitWater;
+        }
+
+        void advance(float dt, JPH::PhysicsSystem& joltSystem,
+            const std::unordered_map<JPH::uint32, MWWorld::Ptr>& bodyOwners,
+            JPH::BodyID waterBody)
+        {
+            if (!isActive())
+                return;
+
+            osg::Vec3f from;
+            osg::Vec3f velocity;
+            MWWorld::Ptr caster;
+            std::vector<MWWorld::Ptr> validTargets;
+            {
+                std::scoped_lock lock(mMutex);
+                from = mPosition;
+                velocity = std::exchange(mVelocity, osg::Vec3f());
+                caster = mCaster;
+                validTargets = mValidTargets;
+            }
+
+            const osg::Vec3f to = from + velocity * dt;
+            if ((to - from).length2() <= 1e-6f)
+                return;
+
+            class ProjectileBodyFilter final : public JPH::BodyFilter
+            {
+            public:
+                ProjectileBodyFilter(JPH::BodyID self, const MWWorld::Ptr& caster,
+                    const std::vector<MWWorld::Ptr>& validTargets,
+                    const std::unordered_map<JPH::uint32, MWWorld::Ptr>& owners)
+                    : mSelf(self)
+                    , mCaster(caster)
+                    , mValidTargets(validTargets)
+                    , mOwners(owners)
+                {
+                }
+
+                bool ShouldCollide(const JPH::BodyID& bodyId) const override
+                {
+                    return bodyId != mSelf;
+                }
+
+                bool ShouldCollideLocked(const JPH::Body& body) const override
+                {
+                    if (body.GetID() == mSelf)
+                        return false;
+
+                    const auto owner = mOwners.find(body.GetID().GetIndexAndSequenceNumber());
+                    if (owner != mOwners.end() && !owner->second.isEmpty())
+                    {
+                        if (!mCaster.isEmpty() && owner->second.mRef == mCaster.mRef)
+                            return false;
+
+                        if (body.GetObjectLayer() == JoltLayers::ACTOR_PROBE && !mValidTargets.empty())
+                        {
+                            for (const MWWorld::Ptr& target : mValidTargets)
+                            {
+                                if (target.mRef == owner->second.mRef)
+                                    return true;
+                            }
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }
+
+            private:
+                JPH::BodyID mSelf;
+                MWWorld::Ptr mCaster;
+                std::vector<MWWorld::Ptr> mValidTargets;
+                const std::unordered_map<JPH::uint32, MWWorld::Ptr>& mOwners;
+            };
+
+            const JPH::Vec3 direction(to.x() - from.x(), to.y() - from.y(), to.z() - from.z());
+            const JPH::RShapeCast cast(mShape.GetPtr(), JPH::Vec3::sReplicate(1.0f),
+                JPH::RMat44::sTranslation(JPH::RVec3(from.x(), from.y(), from.z())), direction);
+
+            JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+            const JPH::ShapeCastSettings settings;
+            const ProjectileBodyFilter bodyFilter(mBodyId, caster, validTargets, bodyOwners);
+            joltSystem.GetNarrowPhaseQuery().CastShape(
+                cast, settings, JPH::RVec3::sZero(), collector,
+                JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), bodyFilter);
+
+            osg::Vec3f next = to;
+            bool hit = false;
+            bool hitWater = false;
+            MWWorld::Ptr target;
+            osg::Vec3f normal;
+
+            if (collector.HadHit())
+            {
+                hit = true;
+                const auto& hitResult = collector.mHit;
+                const float f = std::clamp(hitResult.mFraction, 0.0f, 1.0f);
+                next = osg::Vec3f(from.x() + f * (to.x() - from.x()),
+                    from.y() + f * (to.y() - from.y()), from.z() + f * (to.z() - from.z()));
+
+                const JPH::Vec3 joltNormal = -hitResult.mPenetrationAxis.NormalizedOr(JPH::Vec3::sZero());
+                normal = osg::Vec3f(joltNormal.GetX(), joltNormal.GetY(), joltNormal.GetZ());
+                hitWater = !waterBody.IsInvalid() && hitResult.mBodyID2 == waterBody;
+
+                const auto owner = bodyOwners.find(hitResult.mBodyID2.GetIndexAndSequenceNumber());
+                if (owner != bodyOwners.end())
+                    target = owner->second;
+            }
+
+            {
+                std::scoped_lock lock(mMutex);
+                mPreviousPosition = mPosition;
+                mPosition = next;
+                mSimulationPosition = next;
+                if (hit)
+                {
+                    mTarget = target;
+                    mHitPosition = next;
+                    mHitNormal = normal;
+                    mHitWater = hitWater;
+                    mActive.store(false, std::memory_order_release);
+                }
+            }
+
+            joltSystem.GetBodyInterface().SetPosition(
+                mBodyId, JPH::RVec3(next.x(), next.y(), next.z()), JPH::EActivation::Activate);
+        }
+
+    private:
+        mutable std::mutex mMutex;
+        std::atomic<bool> mActive{ true };
+        MWWorld::Ptr mCaster;
+        MWWorld::Ptr mTarget;
+        osg::Vec3f mPosition;
+        osg::Vec3f mPreviousPosition;
+        osg::Vec3f mSimulationPosition;
+        osg::Vec3f mVelocity;
+        osg::Vec3f mHitPosition;
+        osg::Vec3f mHitNormal;
+        bool mHitWater = false;
+        std::vector<MWWorld::Ptr> mValidTargets;
+        JPH::RefConst<JPH::Shape> mShape;
+        JPH::BodyID mBodyId;
+    };
+
     namespace
     {
         constexpr float kPhysicsDtDefault = 1.0f / 60.0f;
@@ -271,15 +487,16 @@ namespace MWPhysics
                 bi.RemoveBody(id);
                 bi.DestroyBody(id);
             }
-            for (auto& [_, id] : mProjectileBodies)
+            for (auto& [_, projectile] : mProjectiles)
             {
+                const JPH::BodyID id = projectile->getBodyId();
                 bi.RemoveBody(id);
                 bi.DestroyBody(id);
             }
         }
         mObjectBodies.clear();
         mHeightFieldBodies.clear();
-        mProjectileBodies.clear();
+        mProjectiles.clear();
         mObjectEntries.clear();
         mActors.clear(); // CharacterVirtual destructors run before
                          // mJoltSystem so they can deregister cleanly.
@@ -460,32 +677,32 @@ namespace MWPhysics
             = mJoltSystem->GetBodyInterface().CreateAndAddBody(bcs, JPH::EActivation::Activate);
 
         const int newId = ++mNextProjectileId;
-        mProjectileBodies.emplace(newId, id);
-        // Owner is the caster — castRay's ignore list filters out
-        // the caster's own projectile so the shooter isn't auto-hit
-        // by a self-fired arrow.
-        mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), caster);
+        mProjectiles.emplace(newId, std::make_unique<JoltProjectile>(caster, position, shape, id));
+        // Projectile bodies intentionally have no owning Ptr. Their
+        // caster lives on JoltProjectile, and hit resolution should
+        // not report a flying arrow as if it were the shooter.
+        mBodyOwners.emplace(id.GetIndexAndSequenceNumber(), MWWorld::Ptr());
         return newId;
     }
 
-    void JoltPhysicsSystem::setCaster(int /*projectileId*/, const MWWorld::Ptr& /*caster*/)
+    void JoltPhysicsSystem::setCaster(int projectileId, const MWWorld::Ptr& caster)
     {
-        // Phase 8b: the caster Ptr lives on the projectile so hit
-        // resolution can attribute damage. UserData on the body is
-        // the natural store; hooked up alongside the per-body Ptr
-        // resolution work.
+        const auto it = mProjectiles.find(projectileId);
+        if (it != mProjectiles.end())
+            it->second->setCaster(caster);
     }
 
     void JoltPhysicsSystem::removeProjectile(int projectileId)
     {
-        const auto it = mProjectileBodies.find(projectileId);
-        if (it == mProjectileBodies.end())
+        const auto it = mProjectiles.find(projectileId);
+        if (it == mProjectiles.end())
             return;
+        const JPH::BodyID bodyId = it->second->getBodyId();
         auto& bi = mJoltSystem->GetBodyInterface();
-        mBodyOwners.erase(it->second.GetIndexAndSequenceNumber());
-        bi.RemoveBody(it->second);
-        bi.DestroyBody(it->second);
-        mProjectileBodies.erase(it);
+        mBodyOwners.erase(bodyId.GetIndexAndSequenceNumber());
+        bi.RemoveBody(bodyId);
+        bi.DestroyBody(bodyId);
+        mProjectiles.erase(it);
     }
     void JoltPhysicsSystem::promoteToDynamic(
         const MWWorld::Ptr& ptr, DynamicShape shape, const osg::Vec3f& halfExtents, float mass,
@@ -731,6 +948,11 @@ namespace MWPhysics
                 if (!innerId.IsInvalid())
                     mBodyOwners[innerId.GetIndexAndSequenceNumber()] = updated;
             }
+        }
+        for (auto& [_, projectile] : mProjectiles)
+        {
+            if (projectile->getCaster() == old)
+                projectile->setCaster(updated);
         }
     }
 
@@ -1366,6 +1588,9 @@ namespace MWPhysics
             }
         }
 
+        for (auto& [_, projectile] : mProjectiles)
+            projectile->advance(dt, *mJoltSystem, mBodyOwners, mWaterBody);
+
         // Phase-A water diagnostic: player only, every trace frame, dump
         // active contacts so we can see what's actually supporting the CV
         // (sensor body? cell static? heightfield?). The contact list is
@@ -1877,7 +2102,11 @@ namespace MWPhysics
             return nullptr;
         return &it->second;
     }
-    Projectile* JoltPhysicsSystem::getProjectile(int) const { return nullptr; }
+    IProjectile* JoltPhysicsSystem::getProjectile(int projectileId) const
+    {
+        const auto it = mProjectiles.find(projectileId);
+        return it != mProjectiles.end() ? it->second.get() : nullptr;
+    }
 
     Resource::BulletShapeManager* JoltPhysicsSystem::getShapeManager() { return mShapeManager.get(); }
     float JoltPhysicsSystem::getPhysicsDt() const { return mPhysicsDt; }

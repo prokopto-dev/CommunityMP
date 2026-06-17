@@ -495,7 +495,7 @@ if (WIN32)
 endif()
 
 if(OPENMW_USE_SYSTEM_BULLET)
-    set(REQUIRED_BULLET_VERSION 286) # Bullet 286 required due to runtime bugfixes for btCapsuleShape
+    set(REQUIRED_BULLET_VERSION 325) # Keep the Bullet path on the current 3.x line.
     if (DEFINED ENV{TRAVIS_BRANCH} OR DEFINED ENV{APPVEYOR})
         set(REQUIRED_BULLET_VERSION 283) # but for build testing, 283 is fine
     endif()

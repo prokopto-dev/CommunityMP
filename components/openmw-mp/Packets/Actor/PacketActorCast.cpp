@@ -25,6 +25,7 @@ namespace
 PacketActorCast::PacketActorCast() : ActorPacket()
 {
     packetID = ID_ACTOR_CAST;
+    orderChannel = CHANNEL_COMBAT;
 }
 
 void PacketActorCast::Actor(BaseActor &actor, bool send)
@@ -43,6 +44,16 @@ void PacketActorCast::Actor(BaseActor &actor, bool send)
         if (!RW(actor.positionSequence, send) || !RW(actor.position, send, true)
             || !RW(actor.direction, send, true))
             return;
+
+        float sampleInterval = sanitizeMovementSampleIntervalSeconds(actor.movementSampleIntervalSeconds);
+        if (!RW(sampleInterval, send))
+            return;
+        actor.movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleInterval);
+
+        float latencySeconds = sanitizeMovementLatencySeconds(actor.movementLatencySeconds);
+        if (!RW(latencySeconds, send))
+            return;
+        actor.movementLatencySeconds = sanitizeMovementLatencySeconds(latencySeconds);
     }
 
     if (!RW(actor.cast.target.isPlayer, send))

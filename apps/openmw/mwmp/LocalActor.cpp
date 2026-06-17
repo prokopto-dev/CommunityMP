@@ -122,6 +122,13 @@ void LocalActor::updateCell()
 
     cell = makeActorPacketCell(*ptr.getCell()->getCell());
     position = ptr.getRefData().getPosition();
+    const auto now = std::chrono::steady_clock::now();
+    float sampleIntervalSeconds = 1.f / 60.f;
+    if (mLastPositionPacketTime != std::chrono::steady_clock::time_point())
+        sampleIntervalSeconds = std::chrono::duration<float>(now - mLastPositionPacketTime).count();
+    mLastPositionPacketTime = now;
+    movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleIntervalSeconds);
+    movementLatencySeconds = 0.f;
     const MWMechanics::Movement& movement = ptr.getClass().getMovementSettings(ptr);
     for (int axis = 0; axis < 3; ++axis)
     {
@@ -135,7 +142,7 @@ void LocalActor::updateCell()
     mwmp::Main::get().getNetworking()->getActorList()->addCellChangeActor(*this);
 }
 
-void LocalActor::updatePosition(bool forceUpdate)
+void LocalActor::updatePosition(bool forceUpdate, bool queuePacket)
 {
     refreshNetworkId();
 
@@ -149,13 +156,14 @@ void LocalActor::updatePosition(bool forceUpdate)
         direction.rot[axis] = MechanicsHelper::sanitizeMovementComponent(movement.mRotation[axis]);
     }
 
-    const float transformEpsilon = 0.0001f;
+    constexpr float positionEpsilon = 0.05f;
+    constexpr float rotationEpsilon = 0.0005f;
     bool transformWasChanged = false;
     for (int axis = 0; axis < 3; ++axis)
     {
         transformWasChanged = transformWasChanged ||
-            std::abs(ptrPosition.pos[axis] - position.pos[axis]) > transformEpsilon ||
-            std::abs(ptrPosition.rot[axis] - position.rot[axis]) > transformEpsilon;
+            std::abs(ptrPosition.pos[axis] - position.pos[axis]) > positionEpsilon ||
+            std::abs(ptrPosition.rot[axis] - position.rot[axis]) > rotationEpsilon;
     }
 
     if (!creatureStats.mDead)
@@ -174,11 +182,20 @@ void LocalActor::updatePosition(bool forceUpdate)
 
     if (forceUpdate || posIsChanging || posWasChanged)
     {
+        const auto now = std::chrono::steady_clock::now();
+        float sampleIntervalSeconds = 1.f / 60.f;
+        if (mLastPositionPacketTime != std::chrono::steady_clock::time_point())
+            sampleIntervalSeconds = std::chrono::duration<float>(now - mLastPositionPacketTime).count();
+        mLastPositionPacketTime = now;
+
+        movementSampleIntervalSeconds = sanitizeMovementSampleIntervalSeconds(sampleIntervalSeconds);
+        movementLatencySeconds = 0.f;
         posWasChanged = posIsChanging;
         position = ptr.getRefData().getPosition();
         hasPositionData = true;
         ++positionSequence;
-        mwmp::Main::get().getNetworking()->getActorList()->addPositionActor(*this);
+        if (queuePacket)
+            mwmp::Main::get().getNetworking()->getActorList()->addPositionActor(*this);
     }
 }
 
@@ -241,7 +258,7 @@ void LocalActor::updateAnimPlay()
 
     if (!animation.groupname.empty())
     {
-        updatePosition(true);
+        updatePosition(true, false);
         ++combatSequence;
         hasCombatData = true;
         mwmp::Main::get().getNetworking()->getActorList()->addAnimPlayActor(*this);
@@ -371,7 +388,7 @@ void LocalActor::updateAttackOrCast()
     const bool attackReady = attack.shouldSend && !MechanicsHelper::shouldDeferLocalAttack(attack);
 
     if (attackReady || cast.shouldSend)
-        updatePosition(true);
+        updatePosition(true, false);
 
     if (attackReady)
     {
@@ -514,7 +531,7 @@ void LocalActor::sendSpellsActiveRemoval(const std::string id, bool isStackingSp
 void LocalActor::sendDeath(char newDeathState)
 {
     refreshNetworkId();
-    updatePosition(true);
+    updatePosition(true, false);
     deathState = newDeathState;
     sendStatsDynamic();
 

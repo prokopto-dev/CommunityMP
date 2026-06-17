@@ -2,7 +2,7 @@
 
 #include <components/openmw-mp/NetworkMessages.hpp>
 
-#include <apps/openmw-mp/Networking.hpp>
+#include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 
 static std::string tempClassId;
@@ -147,7 +147,7 @@ void CharClassFunctions::SendClass(unsigned short pid) noexcept
     Player *player;
     GET_PLAYER(pid, player, );
 
-    mwmp::PlayerPacket *packet = mwmp::Networking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_CHARCLASS);
+    mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_CHARCLASS);
     packet->setPlayer(player);
 
     packet->Send(false);

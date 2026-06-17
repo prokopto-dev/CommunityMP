@@ -1,5 +1,5 @@
 #include "WorldstateProcessor.hpp"
-#include "Networking.hpp"
+#include "ServerNetworking.hpp"
 #include <components/openmw-mp/Transport/ReceivedPacket.hpp>
 
 using namespace mwmp;
@@ -28,7 +28,7 @@ bool WorldstateProcessor::Process(ReceivedPacket& packet, BaseWorldstate &worlds
                 return true;
             }
 
-            WorldstatePacket *myPacket = Networking::get().getWorldstatePacketController()->GetPacket(packet.id());
+            WorldstatePacket *myPacket = ServerNetworking::get().getWorldstatePacketController()->GetPacket(packet.id());
 
             myPacket->setWorldstate(&worldstate);
             worldstate.isValid = true;
