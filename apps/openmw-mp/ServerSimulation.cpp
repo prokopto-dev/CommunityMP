@@ -248,7 +248,7 @@ namespace
     bool freshLuaObservationConfirmsCell(const Player& player, const ESM::Cell& cell)
     {
         const std::optional<mwmp::CommunityMpPlayerObservation> observation
-            = mwmp::CommunityMpClientLuaEventHandler::getLatestObservation(player.guid);
+            = mwmp::CommunityMpClientLuaEventHandler::getLatestLocationObservation(player.guid);
         if (!observation)
             return false;
 

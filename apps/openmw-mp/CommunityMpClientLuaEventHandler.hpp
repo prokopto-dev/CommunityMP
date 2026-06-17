@@ -40,6 +40,7 @@ namespace mwmp
     {
     public:
         static bool handlePlayerEvent(Player& player);
+        static std::optional<CommunityMpPlayerObservation> getLatestLocationObservation(PacketGuid guid);
         static std::optional<CommunityMpPlayerObservation> getLatestObservation(PacketGuid guid);
         static void clearPlayer(PacketGuid guid);
     };

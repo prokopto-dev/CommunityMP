@@ -15,11 +15,16 @@ namespace
 {
     std::mutex sObservationMutex;
     std::map<mwmp::PacketGuid, std::uint32_t> sLastClientLuaEventSequences;
-    std::map<mwmp::PacketGuid, mwmp::CommunityMpPlayerObservation> sLatestObservations;
+    std::map<mwmp::PacketGuid, mwmp::CommunityMpPlayerObservation> sLatestLocationObservations;
 
     bool isObservationKind(const std::string& kind)
     {
         return kind == "hello" || kind == "cell_changed" || kind == "teleported";
+    }
+
+    bool isLocationObservationKind(const std::string& kind)
+    {
+        return kind == "cell_changed" || kind == "teleported";
     }
 
     std::string readString(const YAML::Node& node)
@@ -138,10 +143,10 @@ namespace
         return false;
     }
 
-    void storeObservation(Player& player, mwmp::CommunityMpPlayerObservation observation)
+    void storeLocationObservation(Player& player, mwmp::CommunityMpPlayerObservation observation)
     {
         std::lock_guard lock(sObservationMutex);
-        sLatestObservations[player.guid] = std::move(observation);
+        sLatestLocationObservations[player.guid] = std::move(observation);
     }
 }
 
@@ -192,11 +197,14 @@ namespace mwmp
             return true;
         }
 
-        storeObservation(player, observation);
-        LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
-            "Stored CommunityMP Lua observation from %s: kind=%s cell=%s position=(%.2f, %.2f, %.2f)",
-            player.npc.mName.c_str(), player.luaEvent.eventName.c_str(), observation.cellKey.c_str(),
-            observation.positionX, observation.positionY, observation.positionZ);
+        if (isLocationObservationKind(observation.kind))
+        {
+            storeLocationObservation(player, observation);
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
+                "Stored CommunityMP Lua location observation from %s: kind=%s cell=%s position=(%.2f, %.2f, %.2f)",
+                player.npc.mName.c_str(), player.luaEvent.eventName.c_str(), observation.cellKey.c_str(),
+                observation.positionX, observation.positionY, observation.positionZ);
+        }
 
         if (player.luaEvent.eventName == "hello")
         {
@@ -211,20 +219,26 @@ namespace mwmp
         return true;
     }
 
-    std::optional<CommunityMpPlayerObservation> CommunityMpClientLuaEventHandler::getLatestObservation(PacketGuid guid)
+    std::optional<CommunityMpPlayerObservation> CommunityMpClientLuaEventHandler::getLatestLocationObservation(
+        PacketGuid guid)
     {
         std::lock_guard lock(sObservationMutex);
-        const auto observation = sLatestObservations.find(guid);
-        if (observation == sLatestObservations.end())
+        const auto observation = sLatestLocationObservations.find(guid);
+        if (observation == sLatestLocationObservations.end())
             return std::nullopt;
 
         return observation->second;
+    }
+
+    std::optional<CommunityMpPlayerObservation> CommunityMpClientLuaEventHandler::getLatestObservation(PacketGuid guid)
+    {
+        return getLatestLocationObservation(guid);
     }
 
     void CommunityMpClientLuaEventHandler::clearPlayer(PacketGuid guid)
     {
         std::lock_guard lock(sObservationMutex);
         sLastClientLuaEventSequences.erase(guid);
-        sLatestObservations.erase(guid);
+        sLatestLocationObservations.erase(guid);
     }
 }
