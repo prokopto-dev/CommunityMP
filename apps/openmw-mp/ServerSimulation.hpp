@@ -43,6 +43,7 @@ namespace mwmp
         void removePlayer(PacketGuid guid);
         void noteCellLoadedByPlayer(unsigned short playerId, std::string cellDescription);
         void noteCellUnloadedByPlayer(unsigned short playerId, std::string cellDescription);
+        void auditShadowCellAuthority(const std::string& cellDescription, const char* context) const;
         std::optional<PacketGuid> getShadowCellAuthority(const std::string& cellDescription) const;
         std::size_t getShadowCellVisitorCount(const std::string& cellDescription) const;
 

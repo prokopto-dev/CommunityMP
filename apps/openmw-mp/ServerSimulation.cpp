@@ -77,6 +77,36 @@ namespace
         return mwmp::packetGuidToString(guid);
     }
 
+    std::string shadowAuthorityAuditName(std::optional<mwmp::PacketGuid> guid)
+    {
+        if (!guid || !mwmp::isPacketGuidAssigned(*guid))
+            return "unassigned";
+
+        return shadowAuthorityName(*guid);
+    }
+
+    std::string shadowAuthorityAuditName(mwmp::PacketGuid guid)
+    {
+        if (!mwmp::isPacketGuidAssigned(guid))
+            return "unassigned";
+
+        return shadowAuthorityName(guid);
+    }
+
+    Cell* findLoadedServerCellByDescription(const std::string& cellDescription)
+    {
+        if (cellDescription.empty())
+            return nullptr;
+
+        for (Cell* cell : CellController::get()->getCells())
+        {
+            if (cell != nullptr && cell->getShortDescription() == cellDescription)
+                return cell;
+        }
+
+        return nullptr;
+    }
+
     float squaredHorizontalLength(float x, float y)
     {
         return x * x + y * y;
@@ -1372,6 +1402,41 @@ namespace mwmp
 
         if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
             refreshShadowCellAuthority(cellDescription, state, "current authority left", unassignedPacketGuid(), player->guid);
+    }
+
+    void ServerSimulation::auditShadowCellAuthority(const std::string& cellDescription, const char* context) const
+    {
+        if (cellDescription.empty() || canAuthoritativelySimulateActors())
+            return;
+
+        const std::optional<PacketGuid> shadowAuthority = getShadowCellAuthority(cellDescription);
+        const std::size_t shadowVisitorCount = getShadowCellVisitorCount(cellDescription);
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+
+        if (liveCell == nullptr)
+        {
+            if (shadowAuthority || shadowVisitorCount > 0)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                    "C++ shadow authority for cell %s has %zu visitor(s) and authority %s after %s, but no live "
+                    "server cell was found",
+                    cellDescription.c_str(), shadowVisitorCount, shadowAuthorityAuditName(shadowAuthority).c_str(),
+                    context != nullptr ? context : "cell event");
+            }
+            return;
+        }
+
+        const PacketGuid liveAuthority = *liveCell->getAuthority();
+        const bool shadowAssigned = shadowAuthority && mwmp::isPacketGuidAssigned(*shadowAuthority);
+        const bool liveAssigned = mwmp::isPacketGuidAssigned(liveAuthority);
+        if (shadowAssigned == liveAssigned && (!shadowAssigned || *shadowAuthority == liveAuthority))
+            return;
+
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+            "C++ shadow authority mismatch for cell %s after %s: shadow=%s live=%s visitors=%zu",
+            cellDescription.c_str(), context != nullptr ? context : "cell event",
+            shadowAuthorityAuditName(shadowAuthority).c_str(), shadowAuthorityAuditName(liveAuthority).c_str(),
+            shadowVisitorCount);
     }
 
     std::optional<PacketGuid> ServerSimulation::getShadowCellAuthority(const std::string& cellDescription) const

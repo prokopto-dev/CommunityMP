@@ -32,6 +32,13 @@ namespace
             networking->getServerSimulation().noteCellUnloadedByPlayer(playerId, cellDescription);
     }
 
+    void auditShadowCellAuthority(const std::string& cellDescription, const char* context)
+    {
+        mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
+        if (networking != nullptr)
+            networking->getServerSimulation().auditShadowCellAuthority(cellDescription, context);
+    }
+
     std::string safeString(const char* value)
     {
         return value != nullptr ? value : "";
@@ -182,6 +189,7 @@ namespace mwmp::ServerEvents
                 { SimulationRuntimeEventArgument::integer(static_cast<int>(playerId)),
                     SimulationRuntimeEventArgument::string(cellDescriptionString) }))
             Script::Call<Script::CallbackIdentity("OnCellLoad")>(playerId, cellDescription);
+        auditShadowCellAuthority(cellDescriptionString, "OnCellLoad");
     }
 
     void cellUnload(unsigned short playerId, const char* cellDescription)
@@ -192,6 +200,7 @@ namespace mwmp::ServerEvents
                 { SimulationRuntimeEventArgument::integer(static_cast<int>(playerId)),
                     SimulationRuntimeEventArgument::string(cellDescriptionString) }))
             Script::Call<Script::CallbackIdentity("OnCellUnload")>(playerId, cellDescription);
+        auditShadowCellAuthority(cellDescriptionString, "OnCellUnload");
     }
 
     void cellDeletion(const char* cellDescription)
