@@ -1,5 +1,5 @@
 #include "ConsoleInput.hpp"
-#include "Script/Script.hpp"
+#include "ServerEventDispatcher.hpp"
 
 #include <iostream>
 #include <string>
@@ -16,7 +16,7 @@ namespace mwmp_input {
             std::cout << c << std::flush;
             if (mwmp::ConsoleInput::isEnter(c)) {
                 std::cout << std::endl;
-                Script::Call<Script::CallbackIdentity("OnServerWindowInput")>(windowInputBuffer.c_str());
+                mwmp::ServerEvents::serverWindowInput(windowInputBuffer.c_str());
                 windowInputBuffer.assign("");
             }
             else if (c == '\b') {

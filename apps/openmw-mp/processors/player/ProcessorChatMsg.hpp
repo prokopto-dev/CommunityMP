@@ -17,7 +17,7 @@ namespace mwmp
         {
             DEBUG_PRINTF(strPacketID.c_str());
 
-            Script::Call<Script::CallbackIdentity("OnPlayerSendMessage")>(player.getId(), player.chatMessage.c_str());
+            ServerEvents::playerSendMessage(player.getId(), player.chatMessage.c_str());
         }
     };
 }

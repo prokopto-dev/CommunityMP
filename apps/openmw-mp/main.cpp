@@ -31,6 +31,7 @@
 #include "ServerNetworking.hpp"
 #include "MasterClient.hpp"
 #include "ServerApplication.hpp"
+#include "ServerEventDispatcher.hpp"
 #include "Utils.hpp"
 
 #include <apps/openmw-mp/Script/Script.hpp>
@@ -313,7 +314,7 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, e.what());
         try
         {
-            Script::Call<Script::CallbackIdentity("OnServerScriptCrash")>(e.what());
+            ServerEvents::serverScriptCrash(e.what());
         }
         catch (std::exception& callbackError)
         {

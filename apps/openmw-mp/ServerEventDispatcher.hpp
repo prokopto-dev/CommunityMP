@@ -6,6 +6,8 @@ namespace mwmp::ServerEvents
     void serverInit();
     void serverPostInit();
     void serverExit(bool restart);
+    void serverScriptCrash(const char* error);
+    void serverWindowInput(const char* input);
     void requestDataFileList();
     void mpNumIncrement(int mpNum);
 
@@ -16,6 +18,8 @@ namespace mwmp::ServerEvents
     void playerEndCharGen(unsigned short playerId);
     void playerDeath(unsigned short playerId);
     void playerStatsDynamic(unsigned short playerId);
+    void playerSendMessage(unsigned short playerId, const char* message);
+    void guiAction(unsigned short playerId, int actionId, const char* data);
     void actorCellChange(unsigned short playerId, const char* cellDescription);
     void actorStatsDynamic(unsigned short playerId, const char* cellDescription);
 

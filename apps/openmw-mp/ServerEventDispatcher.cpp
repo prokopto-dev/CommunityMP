@@ -44,6 +44,34 @@ namespace mwmp::ServerEvents
             Script::Call<Script::CallbackIdentity("OnServerExit")>(restart);
     }
 
+    void serverScriptCrash(const char* error)
+    {
+        static thread_local bool handlingServerScriptCrash = false;
+        if (handlingServerScriptCrash)
+            return;
+
+        handlingServerScriptCrash = true;
+        try
+        {
+            const std::string errorString = safeString(error);
+            if (!dispatchRuntimeEvent("OnServerScriptCrash", { SimulationRuntimeEventArgument::string(errorString) }))
+                Script::Call<Script::CallbackIdentity("OnServerScriptCrash")>(errorString.c_str());
+            handlingServerScriptCrash = false;
+        }
+        catch (...)
+        {
+            handlingServerScriptCrash = false;
+            throw;
+        }
+    }
+
+    void serverWindowInput(const char* input)
+    {
+        const std::string inputString = safeString(input);
+        if (!dispatchRuntimeEvent("OnServerWindowInput", { SimulationRuntimeEventArgument::string(inputString) }))
+            Script::Call<Script::CallbackIdentity("OnServerWindowInput")>(inputString.c_str());
+    }
+
     void requestDataFileList()
     {
         if (!dispatchRuntimeEvent("OnRequestDataFileList"))
@@ -96,6 +124,24 @@ namespace mwmp::ServerEvents
     {
         if (!dispatchRuntimeEvent("OnPlayerStatsDynamic", { SimulationRuntimeEventArgument::integer(playerId) }))
             Script::Call<Script::CallbackIdentity("OnPlayerStatsDynamic")>(playerId);
+    }
+
+    void playerSendMessage(unsigned short playerId, const char* message)
+    {
+        const std::string messageString = safeString(message);
+        if (!dispatchRuntimeEvent("OnPlayerSendMessage",
+                { SimulationRuntimeEventArgument::integer(playerId),
+                    SimulationRuntimeEventArgument::string(messageString) }))
+            Script::Call<Script::CallbackIdentity("OnPlayerSendMessage")>(playerId, messageString.c_str());
+    }
+
+    void guiAction(unsigned short playerId, int actionId, const char* data)
+    {
+        const std::string dataString = safeString(data);
+        if (!dispatchRuntimeEvent("OnGUIAction",
+                { SimulationRuntimeEventArgument::integer(playerId), SimulationRuntimeEventArgument::integer(actionId),
+                    SimulationRuntimeEventArgument::string(dataString) }))
+            Script::Call<Script::CallbackIdentity("OnGUIAction")>(playerId, actionId, dataString.c_str());
     }
 
     void actorCellChange(unsigned short playerId, const char* cellDescription)

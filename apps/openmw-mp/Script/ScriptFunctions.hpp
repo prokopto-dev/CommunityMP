@@ -158,6 +158,7 @@ public:
             {"OnServerPostInit",         Callback<>()},
             {"OnServerExit",             Callback<bool>()},
             {"OnServerScriptCrash",      Callback<const char*>()},
+            {"OnServerWindowInput",      Callback<const char*>()},
             {"OnPlayerConnect",          Callback<unsigned short>()},
             {"OnPlayerDisconnect",       Callback<unsigned short>()},
             {"OnPlayerDeath",            Callback<unsigned short>()},
