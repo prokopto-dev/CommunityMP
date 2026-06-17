@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,6 +17,7 @@
 #include "Script/Script.hpp"
 #include "Cell.hpp"
 #include "CellController.hpp"
+#include "CommunityMpClientLuaEventHandler.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
@@ -39,6 +41,7 @@ namespace
     constexpr float cellSpaceTransitionDistanceSquared = cellSpaceTransitionDistance * cellSpaceTransitionDistance;
     constexpr float healthDeadEpsilon = 0.001f;
     constexpr float maxServerAttackDamage = 10000.f;
+    constexpr auto luaObservationFreshnessWindow = std::chrono::seconds(5);
     constexpr float aiCoordinateStopDistance = 64.f;
     constexpr float aiTargetStopDistance = 128.f;
     constexpr float aiMinimumStopDistance = 48.f;
@@ -215,6 +218,49 @@ namespace
             return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
 
         return "interior:" + cell.mName;
+    }
+
+    bool nearlyInteger(double value)
+    {
+        return std::abs(value - std::round(value)) < 0.001;
+    }
+
+    bool observationMatchesCell(const mwmp::CommunityMpPlayerObservation& observation, const ESM::Cell& cell)
+    {
+        if (cell.isExterior())
+        {
+            if (!observation.isExterior || !observation.hasGrid || !nearlyInteger(observation.gridX)
+                || !nearlyInteger(observation.gridY))
+                return false;
+
+            return static_cast<int>(std::lround(observation.gridX)) == cell.mData.mX
+                && static_cast<int>(std::lround(observation.gridY)) == cell.mData.mY;
+        }
+
+        if (observation.isExterior)
+            return false;
+
+        return observation.cellKey == getCellSimulationKey(cell)
+            || observation.cellId == cell.mName
+            || observation.cellName == cell.mName;
+    }
+
+    bool freshLuaObservationConfirmsCell(const Player& player, const ESM::Cell& cell)
+    {
+        const std::optional<mwmp::CommunityMpPlayerObservation> observation
+            = mwmp::CommunityMpClientLuaEventHandler::getLatestObservation(player.guid);
+        if (!observation)
+            return false;
+
+        if (observation->kind != "cell_changed" && observation->kind != "teleported")
+            return false;
+
+        const auto now = std::chrono::steady_clock::now();
+        if (observation->receivedAt == std::chrono::steady_clock::time_point()
+            || now - observation->receivedAt > luaObservationFreshnessWindow)
+            return false;
+
+        return observationMatchesCell(*observation, cell);
     }
 
     std::uint32_t mixWanderHash(std::uint32_t hash, std::uint32_t value)
@@ -1655,8 +1701,17 @@ namespace mwmp
 
         if (hasPreviousAcceptedCell && !isCellChangePlausibleFromAcceptedState(player, previousAcceptedCell))
         {
-            sendAcceptedPlayerCellCorrection(player, packet, previousAcceptedCell);
-            return false;
+            if (freshLuaObservationConfirmsCell(player, player.cell))
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Accepting cell change for %s to %s using fresh OpenMW Lua observation",
+                    player.npc.mName.c_str(), player.cell.getDescription().c_str());
+            }
+            else
+            {
+                sendAcceptedPlayerCellCorrection(player, packet, previousAcceptedCell);
+                return false;
+            }
         }
 
         if (!acceptServerAuthoredPlayerState(player, true))

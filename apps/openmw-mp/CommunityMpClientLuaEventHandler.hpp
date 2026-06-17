@@ -1,6 +1,7 @@
 #ifndef OPENMW_MP_COMMUNITYMPCLIENTLUAEVENTHANDLER_HPP
 #define OPENMW_MP_COMMUNITYMPCLIENTLUAEVENTHANDLER_HPP
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -29,6 +30,7 @@ namespace mwmp
         double positionX = 0.0;
         double positionY = 0.0;
         double positionZ = 0.0;
+        std::chrono::steady_clock::time_point receivedAt;
         bool isExterior = false;
         bool hasGrid = false;
         bool hasPosition = false;

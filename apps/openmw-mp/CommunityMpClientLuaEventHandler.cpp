@@ -88,6 +88,7 @@ namespace
         mwmp::CommunityMpPlayerObservation observation;
         observation.schemaVersion = readSchemaVersion(root["schema"]);
         observation.sequence = player.luaEvent.sequence;
+        observation.receivedAt = std::chrono::steady_clock::now();
         observation.kind = readString(root["kind"]);
         observation.objectId = readString(root["objectId"]);
         observation.cellKey = readString(root["cellKey"]);
