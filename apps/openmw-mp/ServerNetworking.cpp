@@ -24,6 +24,7 @@
 
 #include "ServerNetworking.hpp"
 #include "MasterClient.hpp"
+#include "CommunityMpClientLuaEventHandler.hpp"
 #include "CommunityMpLuaEventSender.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerSimulation.hpp"
@@ -542,6 +543,7 @@ void ServerNetworking::disconnectPlayer(PacketGuid guid)
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->setPlayer(player);
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->Send(true);
     serverSimulation->removePlayer(guid);
+    CommunityMpClientLuaEventHandler::clearPlayer(guid);
     CommunityMpLuaEventSender::clearPlayer(guid);
     Players::deletePlayer(guid);
 }

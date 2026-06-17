@@ -1,7 +1,7 @@
 #ifndef OPENMW_PROCESSORPLAYERLUAEVENT_HPP
 #define OPENMW_PROCESSORPLAYERLUAEVENT_HPP
 
-#include "../../CommunityMpLuaEventSender.hpp"
+#include "../../CommunityMpClientLuaEventHandler.hpp"
 #include "../PlayerProcessor.hpp"
 
 namespace mwmp
@@ -32,15 +32,7 @@ namespace mwmp
                 player.luaEvent.eventName.c_str(),
                 player.luaEvent.payload.size());
 
-            if (player.luaEvent.namespaceName == "communitymp.player" && player.luaEvent.eventName == "hello")
-            {
-                if (!CommunityMpLuaEventSender::sendToPlayer(
-                        player, "communitymp.server", "ready", "{\"schema\":1,\"kind\":\"ready\"}"))
-                {
-                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
-                        "Failed to send CommunityMP Lua ready event to %s", player.npc.mName.c_str());
-                }
-            }
+            static_cast<void>(CommunityMpClientLuaEventHandler::handlePlayerEvent(player));
         }
     };
 }

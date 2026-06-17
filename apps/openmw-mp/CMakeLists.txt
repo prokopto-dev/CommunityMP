@@ -40,6 +40,7 @@ set(SERVER_CORE
     main.cpp
     ConsoleInput.cpp
     Player.cpp
+    CommunityMpClientLuaEventHandler.cpp
     CommunityMpLuaEventSender.cpp
     ServerEventDispatcher.cpp
     SimulationRuntime.cpp
@@ -77,6 +78,7 @@ set(SERVER_HEADER
         Script/ScriptFunction.hpp Script/Platform.hpp Script/Language.hpp
         Script/ScriptFunctions.hpp Script/API/TimerAPI.hpp Script/API/PublicFnAPI.hpp
         ConsoleInput.hpp
+        CommunityMpClientLuaEventHandler.hpp
         CommunityMpLuaEventSender.hpp
         ServerEventDispatcher.hpp
         SimulationRuntime.hpp
