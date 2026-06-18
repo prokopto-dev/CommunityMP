@@ -98,6 +98,10 @@ public:
         std::size_t actorProfileAutocalcNpcCount = 0;
         std::size_t actorAiPackageListCount = 0;
         std::size_t actorAiPackageItemCount = 0;
+        std::size_t actorAiRoutePlanCount = 0;
+        std::size_t actorAiRouteReachableCount = 0;
+        std::size_t actorAiRouteUnreachableCount = 0;
+        std::size_t actorAiRouteWaypointCount = 0;
         std::size_t actorInventoryCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookCount = 0;

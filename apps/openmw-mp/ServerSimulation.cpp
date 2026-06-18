@@ -1145,6 +1145,40 @@ namespace
         return std::clamp(static_cast<float>(actor.aiDistance), aiMinimumStopDistance, aiMaximumStopDistance);
     }
 
+    bool choosePathgridSteeringDestination(Cell& cell, const ESM::Position& start, const ESM::Position& destination,
+        float stopDistance, ESM::Position& steeringDestination, bool& routeBlocked)
+    {
+        routeBlocked = false;
+        const mwmp::ServerPathgridNavigator& navigator = cell.getServerWorldPathgridNavigator();
+        if (!navigator.hasPathgrid())
+            return false;
+
+        const mwmp::ServerPathgridRoute route = navigator.buildRoute(start, destination);
+        if (!route.reachable)
+        {
+            routeBlocked = true;
+            return true;
+        }
+
+        constexpr float waypointReachedDistance = 32.f;
+        const float waypointThreshold = std::min(stopDistance, waypointReachedDistance);
+        const float waypointThresholdSquared = waypointThreshold * waypointThreshold;
+        for (const mwmp::ServerPathgridWaypoint& waypoint : route.waypoints)
+        {
+            const float deltaX = waypoint.position.pos[0] - start.pos[0];
+            const float deltaY = waypoint.position.pos[1] - start.pos[1];
+            const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+            if (std::isfinite(distanceSquared) && distanceSquared > waypointThresholdSquared)
+            {
+                steeringDestination = waypoint.position;
+                return true;
+            }
+        }
+
+        steeringDestination = destination;
+        return true;
+    }
+
     bool buildAiMovementIntent(Cell& cell, mwmp::BaseActor& actor, ESM::Position& direction)
     {
         if (!actor.hasAiData || !actor.hasPositionData)
@@ -1186,7 +1220,20 @@ namespace
         if (distanceSquared <= stopDistance * stopDistance)
             return true;
 
-        actor.position.rot[2] = std::atan2(deltaX, deltaY);
+        ESM::Position steeringDestination = destination;
+        bool routeBlocked = false;
+        const bool routeAvailable = choosePathgridSteeringDestination(
+            cell, actor.position, destination, stopDistance, steeringDestination, routeBlocked);
+        if (routeAvailable && routeBlocked)
+            return true;
+
+        const float steeringDeltaX = steeringDestination.pos[0] - actor.position.pos[0];
+        const float steeringDeltaY = steeringDestination.pos[1] - actor.position.pos[1];
+        const float steeringDistanceSquared = squaredHorizontalLength(steeringDeltaX, steeringDeltaY);
+        if (!std::isfinite(steeringDistanceSquared) || steeringDistanceSquared <= 0.f)
+            return true;
+
+        actor.position.rot[2] = std::atan2(steeringDeltaX, steeringDeltaY);
         direction.pos[1] = 1.f;
         sanitizeFinitePosition(actor.position);
         return true;
@@ -1220,7 +1267,7 @@ namespace
             + getUnitWanderValue(getActorWanderHash(cellKey, refNum, mpNum, sequence, 0x03u)) * decisionWindow;
     }
 
-    bool buildWanderMovementIntent(const std::string& cellKey, unsigned int refNum, unsigned int mpNum,
+    bool buildWanderMovementIntent(Cell& cell, const std::string& cellKey, unsigned int refNum, unsigned int mpNum,
         mwmp::BaseActor& actor, mwmp::ActorWanderState& wanderState, float deltaSeconds, ESM::Position& direction)
     {
         if (!actor.hasAiData || actor.aiAction != mwmp::BaseActorList::WANDER
@@ -1255,7 +1302,23 @@ namespace
         if (distanceSquared <= aiWanderStopDistance * aiWanderStopDistance)
             return true;
 
-        actor.position.rot[2] = std::atan2(deltaX, deltaY);
+        ESM::Position steeringDestination = wanderState.destination;
+        bool routeBlocked = false;
+        const bool routeAvailable = choosePathgridSteeringDestination(
+            cell, actor.position, wanderState.destination, aiWanderStopDistance, steeringDestination, routeBlocked);
+        if (routeAvailable && routeBlocked)
+        {
+            wanderState.hasDestination = false;
+            return true;
+        }
+
+        const float steeringDeltaX = steeringDestination.pos[0] - actor.position.pos[0];
+        const float steeringDeltaY = steeringDestination.pos[1] - actor.position.pos[1];
+        const float steeringDistanceSquared = squaredHorizontalLength(steeringDeltaX, steeringDeltaY);
+        if (!std::isfinite(steeringDistanceSquared) || steeringDistanceSquared <= 0.f)
+            return true;
+
+        actor.position.rot[2] = std::atan2(steeringDeltaX, steeringDeltaY);
         direction.pos[1] = 1.f;
         sanitizeFinitePosition(actor.position);
         return true;
@@ -2337,6 +2400,14 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiPackageListCount : 0);
         payload += ",\"serverWorldActorAiPackageItemCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiPackageItemCount : 0);
+        payload += ",\"serverWorldActorAiRoutePlanCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiRoutePlanCount : 0);
+        payload += ",\"serverWorldActorAiRouteReachableCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiRouteReachableCount : 0);
+        payload += ",\"serverWorldActorAiRouteUnreachableCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiRouteUnreachableCount : 0);
+        payload += ",\"serverWorldActorAiRouteWaypointCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiRouteWaypointCount : 0);
         payload += ",\"serverWorldActorProfileReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorProfileCount : 0);
         payload += ",\"serverWorldActorProfileNpcCount\":";
@@ -2441,6 +2512,10 @@ namespace mwmp
         std::size_t serverWorldActorAiReferenceCount = 0;
         std::size_t serverWorldActorAiPackageListCount = 0;
         std::size_t serverWorldActorAiPackageItemCount = 0;
+        std::size_t serverWorldActorAiRoutePlanCount = 0;
+        std::size_t serverWorldActorAiRouteReachableCount = 0;
+        std::size_t serverWorldActorAiRouteUnreachableCount = 0;
+        std::size_t serverWorldActorAiRouteWaypointCount = 0;
         std::size_t serverWorldActorProfileReferenceCount = 0;
         std::size_t serverWorldActorProfileNpcCount = 0;
         std::size_t serverWorldActorProfileCreatureCount = 0;
@@ -2496,6 +2571,10 @@ namespace mwmp
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
                 serverWorldActorAiPackageListCount += stats.actorAiPackageListCount;
                 serverWorldActorAiPackageItemCount += stats.actorAiPackageItemCount;
+                serverWorldActorAiRoutePlanCount += stats.actorAiRoutePlanCount;
+                serverWorldActorAiRouteReachableCount += stats.actorAiRouteReachableCount;
+                serverWorldActorAiRouteUnreachableCount += stats.actorAiRouteUnreachableCount;
+                serverWorldActorAiRouteWaypointCount += stats.actorAiRouteWaypointCount;
                 serverWorldActorProfileReferenceCount += stats.actorProfileCount;
                 serverWorldActorProfileNpcCount += stats.actorProfileNpcCount;
                 serverWorldActorProfileCreatureCount += stats.actorProfileCreatureCount;
@@ -2566,6 +2645,14 @@ namespace mwmp
         payload += std::to_string(serverWorldActorAiPackageListCount);
         payload += ",\"serverWorldActorAiPackageItemCount\":";
         payload += std::to_string(serverWorldActorAiPackageItemCount);
+        payload += ",\"serverWorldActorAiRoutePlanCount\":";
+        payload += std::to_string(serverWorldActorAiRoutePlanCount);
+        payload += ",\"serverWorldActorAiRouteReachableCount\":";
+        payload += std::to_string(serverWorldActorAiRouteReachableCount);
+        payload += ",\"serverWorldActorAiRouteUnreachableCount\":";
+        payload += std::to_string(serverWorldActorAiRouteUnreachableCount);
+        payload += ",\"serverWorldActorAiRouteWaypointCount\":";
+        payload += std::to_string(serverWorldActorAiRouteWaypointCount);
         payload += ",\"serverWorldActorProfileReferenceCount\":";
         payload += std::to_string(serverWorldActorProfileReferenceCount);
         payload += ",\"serverWorldActorProfileNpcCount\":";
@@ -3501,7 +3588,7 @@ namespace mwmp
                 {
                     ActorWanderState& wanderState = mActorWanderStates[actorKey];
                     hasWanderMovementIntent = buildWanderMovementIntent(
-                        cellKey, actor.refNum, actor.mpNum, actor, wanderState, deltaSeconds, direction);
+                        *cell, cellKey, actor.refNum, actor.mpNum, actor, wanderState, deltaSeconds, direction);
                 }
                 else
                     mActorWanderStates.erase(actorKey);

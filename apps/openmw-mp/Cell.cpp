@@ -111,6 +111,12 @@ namespace
             || category == "levelledItem" || category == "static" || category == "activator";
     }
 
+    bool hasCoordinateAiDestination(const Cell::ServerWorldReference& reference)
+    {
+        return reference.baseActorAiAction == mwmp::BaseActorList::TRAVEL
+            || reference.baseActorAiAction == mwmp::BaseActorList::ESCORT;
+    }
+
     std::pair<unsigned int, unsigned int> objectKey(const mwmp::BaseObject& object)
     {
         return { object.refNum, object.mpNum };
@@ -848,6 +854,20 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorAiPackageListCount;
                 serverWorldBootstrapStats.actorAiPackageItemCount += snapshot.baseActorAiPackageItemCount;
             }
+            if (snapshot.baseActorAiAvailable && hasCoordinateAiDestination(snapshot)
+                && serverWorldPathgridNavigator.hasPathgrid())
+            {
+                ++serverWorldBootstrapStats.actorAiRoutePlanCount;
+                const mwmp::ServerPathgridRoute route = serverWorldPathgridNavigator.buildRoute(
+                    snapshot.position, snapshot.baseActorAiCoordinates);
+                if (route.reachable)
+                {
+                    ++serverWorldBootstrapStats.actorAiRouteReachableCount;
+                    serverWorldBootstrapStats.actorAiRouteWaypointCount += route.waypoints.size();
+                }
+                else
+                    ++serverWorldBootstrapStats.actorAiRouteUnreachableCount;
+            }
             if (snapshot.baseActorInventoryImported)
             {
                 ++serverWorldBootstrapStats.actorInventoryCount;
@@ -899,10 +919,12 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu usable pathgrid directed edges, %zu pathgrid components, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor AI route plans, %zu reachable actor AI routes, %zu unreachable actor AI routes, %zu actor AI route waypoints, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu usable pathgrid directed edges, %zu pathgrid components, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorAiPackageListCount,
-        serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorProfileCount,
+        serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorAiRoutePlanCount,
+        serverWorldBootstrapStats.actorAiRouteReachableCount, serverWorldBootstrapStats.actorAiRouteUnreachableCount,
+        serverWorldBootstrapStats.actorAiRouteWaypointCount, serverWorldBootstrapStats.actorProfileCount,
         serverWorldBootstrapStats.actorProfileNpcCount, serverWorldBootstrapStats.actorProfileCreatureCount,
         serverWorldBootstrapStats.actorProfileAutocalcNpcCount, serverWorldBootstrapStats.actorInventoryCount,
         serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorSpellbookCount,
