@@ -2062,6 +2062,8 @@ namespace mwmp
         payload += std::to_string(questDatabase.dialogueResponseCount);
         payload += ",\"conditionCount\":";
         payload += std::to_string(questDatabase.conditionCount);
+        payload += ",\"questEffectCount\":";
+        payload += std::to_string(questDatabase.questEffectCount);
         payload += ",\"legacyEffectCount\":";
         payload += std::to_string(questDatabase.legacyEffectCount);
         payload += "}";

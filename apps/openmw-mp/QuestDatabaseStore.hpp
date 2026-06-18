@@ -27,6 +27,7 @@ namespace mwmp
         std::size_t dialogueTopicCount = 0;
         std::size_t dialogueResponseCount = 0;
         std::size_t conditionCount = 0;
+        std::size_t questEffectCount = 0;
         std::size_t legacyEffectCount = 0;
     };
 
@@ -112,6 +113,28 @@ namespace mwmp
         std::string script;
     };
 
+    struct QuestEffectRecord
+    {
+        std::string effectId;
+        std::string ownerKind;
+        std::string ownerId;
+        std::string effectKind;
+        std::string executionPolicy;
+        std::string rawCommand;
+        std::string target;
+        std::string targetKind;
+        std::string quest;
+        std::string topic;
+        std::string item;
+        std::string combatTarget;
+        int order = 0;
+        int sourceLine = 0;
+        int index = 0;
+        int count = 0;
+        int value = 0;
+        int choiceCount = 0;
+    };
+
     class QuestDatabaseStore
     {
     public:
@@ -132,6 +155,7 @@ namespace mwmp
         std::vector<DialogueResponseRecord> findDialogueResponsesBySourceTopicId(
             std::string_view sourceTopicId, std::string_view dialogueType) const;
         std::vector<QuestConditionRecord> findConditionsByOwnerId(std::string_view ownerId) const;
+        std::vector<QuestEffectRecord> findQuestEffectsByOwnerId(std::string_view ownerId) const;
         std::vector<LegacyQuestEffectRecord> findLegacyEffectsByOwnerId(std::string_view ownerId) const;
 
     private:
@@ -149,6 +173,7 @@ namespace mwmp
         std::map<std::pair<std::string, std::string>, std::string> mDialogueTopicIdBySourceTopicAndType;
         std::map<std::string, std::vector<DialogueResponseRecord>> mDialogueResponsesByTopicId;
         std::map<std::string, std::vector<QuestConditionRecord>> mConditionsByOwnerId;
+        std::map<std::string, std::vector<QuestEffectRecord>> mQuestEffectsByOwnerId;
         std::map<std::string, std::vector<LegacyQuestEffectRecord>> mLegacyEffectsByOwnerId;
     };
 }

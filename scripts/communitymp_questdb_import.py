@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -96,6 +97,124 @@ def row_has_script(row: dict[str, Any]) -> bool:
     return bool((row.get("resultScript") or "").strip())
 
 
+def strip_quotes(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def split_script_lines(script: str) -> Iterable[tuple[int, str]]:
+    for line_number, line in enumerate(script.splitlines(), start=1):
+        command = line.strip()
+        if not command or command.startswith(";"):
+            continue
+        yield line_number, command
+
+
+def split_target(command: str) -> tuple[str, str]:
+    if "->" not in command:
+        return "", command.strip()
+
+    target, remainder = command.split("->", 1)
+    return strip_quotes(target), remainder.strip()
+
+
+def tokenize_command(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=False)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return [strip_quotes(token) for token in lexer]
+
+
+def command_policy(effect_kind: str, target: str) -> str:
+    if effect_kind.startswith("journal.") or effect_kind.startswith("topic.") or effect_kind.startswith("dialogue."):
+        return "server-executable"
+    if effect_kind.startswith("inventory."):
+        return "inventory-transaction-required"
+    if effect_kind.startswith("actor."):
+        return "actor-authority-required"
+    return "server-review-required"
+
+
+def target_kind(target: str) -> str:
+    if not target:
+        return "dialogue-actor"
+    if target.lower() == "player":
+        return "player"
+    return "actor"
+
+
+def parse_result_command(command: str) -> dict[str, Any]:
+    target, body = split_target(command)
+    tokens = tokenize_command(body)
+    if not tokens:
+        return {"effectKind": "unsupported", "rawCommand": command}
+
+    verb = tokens[0].lower()
+    args = tokens[1:]
+    effect: dict[str, Any] = {
+        "rawCommand": command,
+        "target": target,
+        "targetKind": target_kind(target),
+    }
+
+    if verb in {"journal", "setjournalindex"} and len(args) >= 2:
+        effect["effectKind"] = "journal.set"
+        effect["quest"] = args[0]
+        effect["index"] = int(args[1]) if re.fullmatch(r"-?\d+", args[1]) else None
+    elif verb == "addtopic" and args:
+        effect["effectKind"] = "topic.add"
+        effect["topic"] = args[0]
+    elif verb in {"additem", "removeitem"} and len(args) >= 2:
+        effect["effectKind"] = f"inventory.{verb[:-4]}"
+        effect["item"] = args[0]
+        effect["count"] = int(args[1]) if re.fullmatch(r"-?\d+", args[1]) else None
+    elif verb == "goodbye":
+        effect["effectKind"] = "dialogue.goodbye"
+    elif verb == "choice":
+        effect["effectKind"] = "dialogue.choice"
+        effect["choiceCount"] = len(args) // 2
+        effect["choices"] = [
+            {"text": args[index], "id": args[index + 1]}
+            for index in range(0, len(args) - 1, 2)
+        ]
+    elif verb == "setfight" and args:
+        effect["effectKind"] = "actor.setFight"
+        effect["value"] = int(args[0]) if re.fullmatch(r"-?\d+", args[0]) else None
+    elif verb == "startcombat" and args:
+        effect["effectKind"] = "actor.startCombat"
+        effect["combatTarget"] = args[0]
+    elif verb == "moddisposition" and args:
+        effect["effectKind"] = "actor.modDisposition"
+        effect["value"] = int(args[0]) if re.fullmatch(r"-?\d+", args[0]) else None
+    else:
+        effect["effectKind"] = "unsupported"
+
+    effect["executionPolicy"] = command_policy(effect["effectKind"], target)
+    return effect
+
+
+def make_server_effects(owner_kind: str, owner_id: str, row: dict[str, Any]) -> list[dict[str, Any]]:
+    script = row.get("resultScript", "") or ""
+    result: list[dict[str, Any]] = []
+    for order, (line_number, command) in enumerate(split_script_lines(script)):
+        effect = parse_result_command(command)
+        result.append(
+            {
+                "schema": QUESTDB_SCHEMA,
+                "effectId": stable_key(owner_id, "effect", order, command),
+                "ownerKind": owner_kind,
+                "ownerId": owner_id,
+                "order": order,
+                "sourceLine": line_number,
+                **effect,
+                "source": source_ref(row),
+            }
+        )
+    return result
+
+
 def make_effect(owner_kind: str, owner_id: str, row: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema": QUESTDB_SCHEMA,
@@ -117,6 +236,7 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
         "dialogue_topics": [],
         "dialogue_responses": [],
         "conditions": [],
+        "quest_effects": [],
         "legacy_effects": [],
     }
     seen: set[tuple[str, str]] = set()
@@ -216,6 +336,7 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
             )
             tables["conditions"].extend(normalize_conditions("quest_step", step_id, row))
             if row_has_script(row):
+                tables["quest_effects"].extend(make_server_effects("quest_step", step_id, row))
                 tables["legacy_effects"].append(make_effect("quest_step", step_id, row))
         else:
             topic_id = stable_key(package_id, "dialogue", dialogue_type, dialogue_id or parent_dialogue.get("recordIndex"))
@@ -245,6 +366,7 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
             )
             tables["conditions"].extend(normalize_conditions("dialogue_response", response_id, row))
             if row_has_script(row):
+                tables["quest_effects"].extend(make_server_effects("dialogue_response", response_id, row))
                 tables["legacy_effects"].append(make_effect("dialogue_response", response_id, row))
 
     return tables

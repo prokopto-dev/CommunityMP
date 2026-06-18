@@ -22,6 +22,8 @@ namespace mwmp
     struct QuestLegacyEffectAnalysis
     {
         std::size_t effectCount = 0;
+        std::size_t normalizedEffectCount = 0;
+        std::size_t legacyScriptCount = 0;
         std::size_t recognizedCommands = 0;
         std::size_t journalCommands = 0;
         std::size_t topicCommands = 0;

@@ -26,6 +26,10 @@
       "primaryKey": "conditionId",
       "purpose": "Normalized predicates that can be evaluated by server-side player, actor, world, and encounter state."
     },
+    "quest_effects": {
+      "primaryKey": "effectId",
+      "purpose": "Normalized server-readable quest and dialogue effects derived from legacy result scripts."
+    },
     "legacy_effects": {
       "primaryKey": "effectId",
       "purpose": "Imported MWScript result blocks held as migration targets until they are converted into server-safe effects."

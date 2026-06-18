@@ -200,7 +200,14 @@ namespace
 
     int getInt(const boost::property_tree::ptree& row, std::string_view key, int fallback = 0)
     {
-        return row.get<int>(std::string(key), fallback);
+        try
+        {
+            return row.get<int>(std::string(key), fallback);
+        }
+        catch (const std::exception&)
+        {
+            return fallback;
+        }
     }
 
     std::string normalizedQuestLookupKey(std::string_view value)
@@ -265,6 +272,7 @@ namespace mwmp
         mDialogueTopicIdBySourceTopicAndType.clear();
         mDialogueResponsesByTopicId.clear();
         mConditionsByOwnerId.clear();
+        mQuestEffectsByOwnerId.clear();
         mLegacyEffectsByOwnerId.clear();
 
         try
@@ -402,6 +410,34 @@ namespace mwmp
                         mConditionsByOwnerId[condition.ownerId].push_back(std::move(condition));
                     });
 
+                mStats.questEffectCount += readJsonlTable(packageDir, "quest_effects.jsonl",
+                    [&](const boost::property_tree::ptree& row) {
+                        QuestEffectRecord effect;
+                        effect.effectId = getString(row, "effectId");
+                        effect.ownerKind = getString(row, "ownerKind");
+                        effect.ownerId = getString(row, "ownerId");
+                        if (effect.effectId.empty() || effect.ownerId.empty())
+                            return;
+
+                        effect.effectKind = getString(row, "effectKind");
+                        effect.executionPolicy = getString(row, "executionPolicy");
+                        effect.rawCommand = getString(row, "rawCommand");
+                        effect.target = getString(row, "target");
+                        effect.targetKind = getString(row, "targetKind");
+                        effect.quest = getString(row, "quest");
+                        effect.topic = getString(row, "topic");
+                        effect.item = getString(row, "item");
+                        effect.combatTarget = getString(row, "combatTarget");
+                        effect.order = getInt(row, "order");
+                        effect.sourceLine = getInt(row, "sourceLine");
+                        effect.index = getInt(row, "index");
+                        effect.count = getInt(row, "count");
+                        effect.value = getInt(row, "value");
+                        effect.choiceCount = getInt(row, "choiceCount");
+
+                        mQuestEffectsByOwnerId[effect.ownerId].push_back(std::move(effect));
+                    });
+
                 mStats.legacyEffectCount += readJsonlTable(packageDir, "legacy_effects.jsonl",
                     [&](const boost::property_tree::ptree& row) {
                         LegacyQuestEffectRecord effect;
@@ -441,11 +477,22 @@ namespace mwmp
                 });
             }
 
+            for (auto& [ownerId, effects] : mQuestEffectsByOwnerId)
+            {
+                static_cast<void>(ownerId);
+                std::sort(effects.begin(), effects.end(), [](const QuestEffectRecord& left,
+                                                           const QuestEffectRecord& right) {
+                    if (left.order != right.order)
+                        return left.order < right.order;
+                    return left.effectId < right.effectId;
+                });
+            }
+
             mStats.loaded = mStats.manifestCount > 0;
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP quest database root=%s packages=%zu quests=%zu steps=%zu topics=%zu responses=%zu",
+                "Loaded CommunityMP quest database root=%s packages=%zu quests=%zu steps=%zu topics=%zu responses=%zu effects=%zu",
                 pathToLogString(root).c_str(), mStats.packageCount, mStats.questDefinitionCount, mStats.questStepCount,
-                mStats.dialogueTopicCount, mStats.dialogueResponseCount);
+                mStats.dialogueTopicCount, mStats.dialogueResponseCount, mStats.questEffectCount);
         }
         catch (const std::exception& e)
         {
@@ -458,6 +505,7 @@ namespace mwmp
             mDialogueTopicIdBySourceTopicAndType.clear();
             mDialogueResponsesByTopicId.clear();
             mConditionsByOwnerId.clear();
+            mQuestEffectsByOwnerId.clear();
             mLegacyEffectsByOwnerId.clear();
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                 "CommunityMP quest database unavailable root=%s error=%s",
@@ -593,6 +641,16 @@ namespace mwmp
         std::lock_guard lock(mMutex);
         const auto it = mLegacyEffectsByOwnerId.find(std::string(ownerId));
         if (it == mLegacyEffectsByOwnerId.end())
+            return {};
+
+        return it->second;
+    }
+
+    std::vector<QuestEffectRecord> QuestDatabaseStore::findQuestEffectsByOwnerId(std::string_view ownerId) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mQuestEffectsByOwnerId.find(std::string(ownerId));
+        if (it == mQuestEffectsByOwnerId.end())
             return {};
 
         return it->second;

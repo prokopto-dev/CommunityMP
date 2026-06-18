@@ -461,6 +461,8 @@ namespace
             std::size_t evaluatedConditions = 0;
             std::size_t unsupportedConditions = 0;
             std::size_t legacyEffectCount = 0;
+            std::size_t normalizedEffectCount = 0;
+            std::size_t legacyScriptCount = 0;
             std::size_t inventoryEffectCount = 0;
             std::size_t actorEffectCount = 0;
             std::size_t unsupportedEffectCommandCount = 0;
@@ -476,6 +478,8 @@ namespace
                 evaluatedConditions += conditions.evaluatedConditions;
                 unsupportedConditions += conditions.unsupportedConditions;
                 legacyEffectCount += effects.effectCount;
+                normalizedEffectCount += effects.normalizedEffectCount;
+                legacyScriptCount += effects.legacyScriptCount;
                 inventoryEffectCount += effects.inventoryCommands;
                 actorEffectCount += effects.actorCommands;
                 unsupportedEffectCommandCount += effects.unsupportedCommands;
@@ -510,6 +514,10 @@ namespace
             payload += std::to_string(unsupportedConditions);
             payload += ",\"legacyEffectCount\":";
             payload += std::to_string(legacyEffectCount);
+            payload += ",\"normalizedEffectCount\":";
+            payload += std::to_string(normalizedEffectCount);
+            payload += ",\"legacyScriptCount\":";
+            payload += std::to_string(legacyScriptCount);
             payload += ",\"inventoryEffectCommandCount\":";
             payload += std::to_string(inventoryEffectCount);
             payload += ",\"actorEffectCommandCount\":";

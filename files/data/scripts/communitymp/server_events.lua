@@ -69,6 +69,8 @@ local questDialogueEvaluationStats = {
     evaluatedConditions = 0,
     unsupportedConditions = 0,
     legacyEffectCount = 0,
+    normalizedEffectCount = 0,
+    legacyScriptCount = 0,
     unsupportedEffectCommandCount = 0,
 }
 
@@ -496,6 +498,8 @@ local function storeQuestDialogueEvaluation(state)
     questDialogueEvaluationStats.evaluatedConditions = 0
     questDialogueEvaluationStats.unsupportedConditions = 0
     questDialogueEvaluationStats.legacyEffectCount = 0
+    questDialogueEvaluationStats.normalizedEffectCount = 0
+    questDialogueEvaluationStats.legacyScriptCount = 0
     questDialogueEvaluationStats.unsupportedEffectCommandCount = 0
 
     if type(state.topics) ~= 'table' then
@@ -515,6 +519,10 @@ local function storeQuestDialogueEvaluation(state)
             + (tonumber(topic.unsupportedConditions or 0) or 0)
         questDialogueEvaluationStats.legacyEffectCount = questDialogueEvaluationStats.legacyEffectCount
             + (tonumber(topic.legacyEffectCount or 0) or 0)
+        questDialogueEvaluationStats.normalizedEffectCount = questDialogueEvaluationStats.normalizedEffectCount
+            + (tonumber(topic.normalizedEffectCount or 0) or 0)
+        questDialogueEvaluationStats.legacyScriptCount = questDialogueEvaluationStats.legacyScriptCount
+            + (tonumber(topic.legacyScriptCount or 0) or 0)
         questDialogueEvaluationStats.unsupportedEffectCommandCount =
             questDialogueEvaluationStats.unsupportedEffectCommandCount
             + (tonumber(topic.unsupportedEffectCommandCount or 0) or 0)

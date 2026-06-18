@@ -169,6 +169,39 @@ namespace
 
         ++analysis.unsupportedCommands;
     }
+
+    void classifyNormalizedEffect(const mwmp::QuestEffectRecord& effect, mwmp::QuestLegacyEffectAnalysis& analysis)
+    {
+        ++analysis.normalizedEffectCount;
+        ++analysis.effectCount;
+
+        const std::string effectKind = normalizedLookupKey(effect.effectKind);
+        const std::string executionPolicy = normalizedLookupKey(effect.executionPolicy);
+
+        if (effectKind.starts_with("journal."))
+            ++analysis.journalCommands;
+        else if (effectKind.starts_with("topic."))
+            ++analysis.topicCommands;
+        else if (effectKind.starts_with("dialogue."))
+            ++analysis.dialogueFlowCommands;
+        else if (effectKind.starts_with("inventory."))
+            ++analysis.inventoryCommands;
+        else if (effectKind.starts_with("actor."))
+            ++analysis.actorCommands;
+        else
+        {
+            ++analysis.unsupportedCommands;
+            return;
+        }
+
+        ++analysis.recognizedCommands;
+        if (executionPolicy == "inventory-transaction-required")
+            analysis.requiresInventoryTransaction = true;
+        else if (executionPolicy == "actor-authority-required")
+            analysis.requiresActorAuthority = true;
+        else if (executionPolicy != "server-executable")
+            ++analysis.unsupportedCommands;
+    }
 }
 
 namespace mwmp
@@ -221,7 +254,21 @@ namespace mwmp
     QuestLegacyEffectAnalysis QuestRuntimeEvaluator::analyzeLegacyEffects(std::string_view ownerId) const
     {
         QuestLegacyEffectAnalysis analysis;
+        const std::vector<QuestEffectRecord> normalizedEffects = QuestDatabaseStore::get().findQuestEffectsByOwnerId(ownerId);
+        for (const QuestEffectRecord& effect : normalizedEffects)
+            classifyNormalizedEffect(effect, analysis);
+
+        if (!normalizedEffects.empty())
+        {
+            analysis.hasLegacyScript = true;
+            analysis.serverExecutable = analysis.unsupportedCommands == 0
+                && !analysis.requiresActorAuthority
+                && !analysis.requiresInventoryTransaction;
+            return analysis;
+        }
+
         const std::vector<LegacyQuestEffectRecord> effects = QuestDatabaseStore::get().findLegacyEffectsByOwnerId(ownerId);
+        analysis.legacyScriptCount = effects.size();
         analysis.effectCount = effects.size();
 
         for (const LegacyQuestEffectRecord& effect : effects)
