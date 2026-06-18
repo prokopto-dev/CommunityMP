@@ -3138,6 +3138,9 @@ function BaseCell:LoadActorList(pid, objectData, uniqueIndexArray)
 end
 
 function BaseCell:LoadActorAuthority(pid)
+    if config.cppClientActorAuthority == true then
+        return
+    end
 
     tes3mp.ClearActorList()
     tes3mp.SetActorListPid(pid)

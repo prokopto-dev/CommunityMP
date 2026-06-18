@@ -254,6 +254,12 @@ config.allowCellAuthorityTransferForLowerPing = false
 -- headless OpenMW nav/pathgrid, schedules, and local script execution.
 config.serverAuthoritativeActors = false
 
+-- Whether legacy Lua should defer client actor-authority packet emission to the
+-- C++ server simulation. Lua still chooses and stores the authority; C++ sends
+-- ID_ACTOR_AUTHORITY once per handoff/load so clients do not receive duplicate
+-- authority broadcasts from both layers.
+config.cppClientActorAuthority = true
+
 -- Which numerical IDs should be used by custom menus implemented in the Lua scripts,
 -- to prevent other menu inputs from being taken into account for them
 config.customMenuIds = { menuHelper = 9001, confiscate = 9002, recordPrint = 9003 }

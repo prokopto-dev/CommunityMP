@@ -12989,6 +12989,8 @@ namespace
                 capture(name)
             end
 
+            config.cppClientActorAuthority = false
+
             Players = {
                 [1] = { name = "Visitor" },
                 [2] = { name = "Remote" }
@@ -13020,6 +13022,59 @@ namespace
             assert(actual:find("SetActorListPid(2)", 1, true) == nil)
             assert(actual:find("SetActorListPid(1)", 1, true) ~= nil)
             assert(actual:find("SendActorAuthority()", 1, true) ~= nil)
+        )lua");
+    }
+
+    TEST(Tes3mpServerLuaCompatibilityTest, CellBaseDefersActorAuthorityPacketsToCppByDefault)
+    {
+        LuaStatePtr lua = createServerLuaState();
+        loadLegacyCellBase(lua.get());
+
+        runLua(lua.get(), R"lua(
+            local calls = {}
+
+            local function capture(name)
+                tes3mp[name] = function(...)
+                    local args = {}
+                    for index = 1, select("#", ...) do
+                        table.insert(args, tostring(select(index, ...)))
+                    end
+                    table.insert(calls, name .. "(" .. table.concat(args, ",") .. ")")
+                end
+            end
+
+            tes3mp.LogMessage = function(logLevel, message)
+                table.insert(calls, "LogMessage(" .. tostring(logLevel) .. "," .. message .. ")")
+            end
+
+            for _, name in ipairs({
+                "ClearActorList", "SetActorListPid", "SetActorListCell", "SendActorAuthority"
+            }) do
+                capture(name)
+            end
+
+            Players = {
+                [1] = { name = "Visitor" }
+            }
+
+            logicHandler = {
+                GetChatName = function(pid)
+                    return Players[pid].name .. " (" .. tostring(pid) .. ")"
+                end
+            }
+
+            local cell = BaseCell("Balmora")
+            cell.visitors = { 1 }
+
+            assert(config.cppClientActorAuthority == true)
+            assert(cell:SetAuthority(1) == true)
+            assert(cell.authority == 1)
+
+            local actual = table.concat(calls, "|")
+            assert(actual:find("ClearActorList()", 1, true) == nil)
+            assert(actual:find("SetActorListPid(1)", 1, true) == nil)
+            assert(actual:find("SetActorListCell(Balmora)", 1, true) == nil)
+            assert(actual:find("SendActorAuthority()", 1, true) == nil)
         )lua");
     }
 
