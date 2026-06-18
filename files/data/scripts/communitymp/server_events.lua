@@ -48,6 +48,7 @@ local questStateStats = {
     received = 0,
     loadSnapshots = 0,
     deltaChanges = 0,
+    truncatedDeltas = 0,
     lastRevision = 0,
     bySourcePacket = {},
 }
@@ -60,6 +61,18 @@ local function shallowCopy(value)
     local copy = {}
     for key, entry in pairs(value) do
         copy[key] = entry
+    end
+    return copy
+end
+
+local function deepCopy(value)
+    if type(value) ~= 'table' then
+        return value
+    end
+
+    local copy = {}
+    for key, entry in pairs(value) do
+        copy[key] = deepCopy(entry)
     end
     return copy
 end
@@ -374,13 +387,16 @@ local function storeQuestState(state)
         return
     end
 
-    latestQuestState = shallowCopy(state)
+    latestQuestState = deepCopy(state)
     questStateStats.received = questStateStats.received + 1
     questStateStats.lastRevision = tonumber(state.revision or questStateStats.lastRevision) or questStateStats.lastRevision
     if state.loadSnapshot == true then
         questStateStats.loadSnapshots = questStateStats.loadSnapshots + 1
     else
         questStateStats.deltaChanges = questStateStats.deltaChanges + 1
+    end
+    if state.deltaTruncated == true then
+        questStateStats.truncatedDeltas = questStateStats.truncatedDeltas + 1
     end
 
     local sourcePacket = type(state.sourcePacket) == 'string' and state.sourcePacket or ''
@@ -394,6 +410,7 @@ local function storeQuestState(state)
             received = 0,
             loadSnapshots = 0,
             deltaChanges = 0,
+            truncatedDeltas = 0,
             lastRevision = 0,
         }
         questStateStats.bySourcePacket[sourcePacket] = packetStats
@@ -405,6 +422,9 @@ local function storeQuestState(state)
         packetStats.loadSnapshots = packetStats.loadSnapshots + 1
     else
         packetStats.deltaChanges = packetStats.deltaChanges + 1
+    end
+    if state.deltaTruncated == true then
+        packetStats.truncatedDeltas = packetStats.truncatedDeltas + 1
     end
 end
 
@@ -532,7 +552,7 @@ return {
             if latestQuestState == nil then
                 return nil
             end
-            return shallowCopy(latestQuestState)
+            return deepCopy(latestQuestState)
         end,
         getQuestStateStats = copyQuestStateStats,
         getRuntimeStatus = getRuntimeStatus,

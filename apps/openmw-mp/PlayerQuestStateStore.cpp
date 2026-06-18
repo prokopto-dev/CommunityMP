@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <components/openmw-mp/Base/BasePlayer.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
@@ -34,6 +35,7 @@ namespace
 
     std::mutex sQuestStateMutex;
     std::map<mwmp::PacketGuid, PlayerQuestReadState> sQuestReadStateByPlayer;
+    constexpr std::size_t maxQuestStateDeltaItems = 32;
 
     void appendJsonString(std::string& result, std::string_view value)
     {
@@ -84,6 +86,76 @@ namespace
         return value ? "true" : "false";
     }
 
+    const char* journalItemTypeName(int type)
+    {
+        switch (type)
+        {
+            case mwmp::JournalItem::ENTRY:
+                return "entry";
+
+            case mwmp::JournalItem::INDEX:
+                return "index";
+
+            case mwmp::JournalItem::FINISHED:
+                return "finished";
+        }
+
+        return "unknown";
+    }
+
+    void appendJournalDelta(std::string& payload, const std::vector<mwmp::JournalItem>& changes)
+    {
+        payload.push_back('[');
+        const std::size_t count = std::min(changes.size(), maxQuestStateDeltaItems);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (i != 0)
+                payload.push_back(',');
+
+            const mwmp::JournalItem& item = changes[i];
+            payload += "{\"quest\":";
+            appendJsonString(payload, item.quest);
+            payload += ",\"type\":";
+            appendJsonString(payload, journalItemTypeName(item.type));
+            payload += ",\"index\":";
+            payload += std::to_string(item.index);
+            payload += ",\"actorRefId\":";
+            appendJsonString(payload, item.actorRefId);
+            payload += ",\"finished\":";
+            payload += jsonBool(item.isFinished);
+            payload += "}";
+        }
+        payload.push_back(']');
+    }
+
+    void appendTopicDelta(std::string& payload, const std::vector<mwmp::Topic>& changes)
+    {
+        payload.push_back('[');
+        const std::size_t count = std::min(changes.size(), maxQuestStateDeltaItems);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (i != 0)
+                payload.push_back(',');
+
+            appendJsonString(payload, changes[i].topicId);
+        }
+        payload.push_back(']');
+    }
+
+    void appendBookDelta(std::string& payload, const std::vector<mwmp::Book>& changes)
+    {
+        payload.push_back('[');
+        const std::size_t count = std::min(changes.size(), maxQuestStateDeltaItems);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (i != 0)
+                payload.push_back(',');
+
+            appendJsonString(payload, changes[i].bookId);
+        }
+        payload.push_back(']');
+    }
+
     void sendQuestStateSummary(Player& player, std::string_view sourcePacket, const PlayerQuestReadState& state,
         std::size_t changedCount, bool loadSnapshot)
     {
@@ -109,6 +181,25 @@ namespace
         payload += std::to_string(state.topics.size());
         payload += ",\"readBookCount\":";
         payload += std::to_string(state.books.size());
+        payload += ",\"deltaLimit\":";
+        payload += std::to_string(maxQuestStateDeltaItems);
+        payload += ",\"deltaTruncated\":";
+        payload += jsonBool(changedCount > maxQuestStateDeltaItems);
+        if (sourcePacket == "journal")
+        {
+            payload += ",\"journalDelta\":";
+            appendJournalDelta(payload, player.journalChanges);
+        }
+        else if (sourcePacket == "topic")
+        {
+            payload += ",\"topicDelta\":";
+            appendTopicDelta(payload, player.topicChanges);
+        }
+        else if (sourcePacket == "book")
+        {
+            payload += ",\"bookDelta\":";
+            appendBookDelta(payload, player.bookChanges);
+        }
         payload += "}";
 
         if (!mwmp::CommunityMpLuaEventSender::sendToPlayer(
