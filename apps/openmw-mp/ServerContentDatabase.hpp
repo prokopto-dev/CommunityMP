@@ -19,6 +19,7 @@ namespace mwmp
         std::string backend = "jsonl-package";
         std::filesystem::path rootPath;
         std::filesystem::path manifestPath;
+        std::filesystem::path generatedQuestDatabasePath;
         std::string lastError;
         std::string loadOrderSource;
         std::string loadOrderRule;
@@ -36,6 +37,15 @@ namespace mwmp
         std::size_t questSourceDialogueCount = 0;
         std::size_t questSourceInfoCount = 0;
         std::size_t questSourceImportErrorCount = 0;
+        std::size_t generatedQuestDatabasePackageCount = 0;
+        std::size_t generatedQuestDefinitionCount = 0;
+        std::size_t generatedQuestStepCount = 0;
+        std::size_t generatedDialogueTopicCount = 0;
+        std::size_t generatedDialogueResponseCount = 0;
+        std::size_t generatedConditionCount = 0;
+        std::size_t generatedQuestEffectCount = 0;
+        std::size_t generatedLegacyEffectCount = 0;
+        std::size_t generatedQuestDatabaseImportErrorCount = 0;
         std::size_t tableCount = 0;
     };
 
