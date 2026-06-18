@@ -17,6 +17,7 @@ local runtimeStatus = nil
 local latestMovementCorrection = nil
 local latestPlayerPacketDecisionByPacket = {}
 local latestQuestState = nil
+local latestQuestDialogueEvaluation = nil
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -58,6 +59,17 @@ local questStateStats = {
     eventJournalEventCount = 0,
     eventJournalWriteFailures = 0,
     bySourcePacket = {},
+}
+local questDialogueEvaluationStats = {
+    received = 0,
+    topicCount = 0,
+    authoritativelyAccepted = 0,
+    conditionRejected = 0,
+    requiresFallback = 0,
+    evaluatedConditions = 0,
+    unsupportedConditions = 0,
+    legacyEffectCount = 0,
+    unsupportedEffectCommandCount = 0,
 }
 
 local function shallowCopy(value)
@@ -123,6 +135,10 @@ local function copyQuestStateStats()
         copy.bySourcePacket[sourcePacket] = shallowCopy(stats)
     end
     return copy
+end
+
+local function copyQuestDialogueEvaluationStats()
+    return shallowCopy(questDialogueEvaluationStats)
 end
 
 local function updateSequenceStats(event)
@@ -309,6 +325,9 @@ local function storeRuntimeStatus(state)
     if type(state.questEventJournal) == 'table' then
         runtimeStatus.questEventJournal = shallowCopy(state.questEventJournal)
     end
+    if type(state.questRuntimeEvaluator) == 'table' then
+        runtimeStatus.questRuntimeEvaluator = shallowCopy(state.questRuntimeEvaluator)
+    end
 end
 
 local function storeMovementCorrection(state)
@@ -462,6 +481,46 @@ local function storeQuestState(state)
     end
 end
 
+local function storeQuestDialogueEvaluation(state)
+    if type(state) ~= 'table' then
+        return
+    end
+
+    latestQuestDialogueEvaluation = deepCopy(state)
+    questDialogueEvaluationStats.received = questDialogueEvaluationStats.received + 1
+    questDialogueEvaluationStats.topicCount = tonumber(state.topicCount or 0) or 0
+
+    questDialogueEvaluationStats.authoritativelyAccepted = 0
+    questDialogueEvaluationStats.conditionRejected = 0
+    questDialogueEvaluationStats.requiresFallback = 0
+    questDialogueEvaluationStats.evaluatedConditions = 0
+    questDialogueEvaluationStats.unsupportedConditions = 0
+    questDialogueEvaluationStats.legacyEffectCount = 0
+    questDialogueEvaluationStats.unsupportedEffectCommandCount = 0
+
+    if type(state.topics) ~= 'table' then
+        return
+    end
+
+    for _, topic in ipairs(state.topics) do
+        questDialogueEvaluationStats.authoritativelyAccepted = questDialogueEvaluationStats.authoritativelyAccepted
+            + (tonumber(topic.authoritativelyAccepted or 0) or 0)
+        questDialogueEvaluationStats.conditionRejected = questDialogueEvaluationStats.conditionRejected
+            + (tonumber(topic.conditionRejected or 0) or 0)
+        questDialogueEvaluationStats.requiresFallback = questDialogueEvaluationStats.requiresFallback
+            + (tonumber(topic.requiresFallback or 0) or 0)
+        questDialogueEvaluationStats.evaluatedConditions = questDialogueEvaluationStats.evaluatedConditions
+            + (tonumber(topic.evaluatedConditions or 0) or 0)
+        questDialogueEvaluationStats.unsupportedConditions = questDialogueEvaluationStats.unsupportedConditions
+            + (tonumber(topic.unsupportedConditions or 0) or 0)
+        questDialogueEvaluationStats.legacyEffectCount = questDialogueEvaluationStats.legacyEffectCount
+            + (tonumber(topic.legacyEffectCount or 0) or 0)
+        questDialogueEvaluationStats.unsupportedEffectCommandCount =
+            questDialogueEvaluationStats.unsupportedEffectCommandCount
+            + (tonumber(topic.unsupportedEffectCommandCount or 0) or 0)
+    end
+end
+
 local function getRuntimeStatus()
     if runtimeStatus == nil then
         return nil
@@ -479,6 +538,9 @@ local function getRuntimeStatus()
     end
     if type(runtimeStatus.questEventJournal) == 'table' then
         copy.questEventJournal = shallowCopy(runtimeStatus.questEventJournal)
+    end
+    if type(runtimeStatus.questRuntimeEvaluator) == 'table' then
+        copy.questRuntimeEvaluator = shallowCopy(runtimeStatus.questRuntimeEvaluator)
     end
     return copy
 end
@@ -547,6 +609,8 @@ local function dispatchServerEvent(event)
         storePlayerPacketDecision(event.decodedPayload)
     elseif event.serverEventName == 'quest_state' and type(event.decodedPayload) == 'table' then
         storeQuestState(event.decodedPayload)
+    elseif event.serverEventName == 'quest_dialogue_evaluation' and type(event.decodedPayload) == 'table' then
+        storeQuestDialogueEvaluation(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -595,6 +659,13 @@ return {
             return deepCopy(latestQuestState)
         end,
         getQuestStateStats = copyQuestStateStats,
+        getQuestDialogueEvaluation = function()
+            if latestQuestDialogueEvaluation == nil then
+                return nil
+            end
+            return deepCopy(latestQuestDialogueEvaluation)
+        end,
+        getQuestDialogueEvaluationStats = copyQuestDialogueEvaluationStats,
         getRuntimeStatus = getRuntimeStatus,
         getRuntimeCapabilities = function()
             local state = getRuntimeStatus()
@@ -623,6 +694,13 @@ return {
                 return nil
             end
             return shallowCopy(state.questEventJournal)
+        end,
+        getQuestRuntimeEvaluatorStatus = function()
+            local state = getRuntimeStatus()
+            if state == nil or type(state.questRuntimeEvaluator) ~= 'table' then
+                return nil
+            end
+            return shallowCopy(state.questRuntimeEvaluator)
         end,
         hasOpenMWWorld = function()
             local state = getRuntimeStatus()

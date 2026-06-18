@@ -24,6 +24,7 @@
 #include "CommunityMpLuaEventSender.hpp"
 #include "QuestDatabaseStore.hpp"
 #include "QuestEventJournalStore.hpp"
+#include "QuestRuntimeEvaluator.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
@@ -2079,6 +2080,15 @@ namespace mwmp
         payload += std::to_string(questEventJournal.eventCount);
         payload += ",\"writeFailures\":";
         payload += std::to_string(questEventJournal.writeFailures);
+        payload += "}";
+        payload += ",\"questRuntimeEvaluator\":{";
+        payload += "\"journalConditions\":";
+        payload += jsonBool(QuestRuntimeEvaluator::get().supportsJournalConditions());
+        payload += ",\"legacyEffectAnalysis\":";
+        payload += jsonBool(QuestRuntimeEvaluator::get().supportsLegacyEffectAnalysis());
+        payload += ",\"unsupportedConditionsRejectAuthoritativeSelection\":true";
+        payload += ",\"inventoryEffectsRequireTransactions\":true";
+        payload += ",\"actorEffectsRequireServerAuthority\":true";
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";

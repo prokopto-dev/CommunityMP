@@ -46,6 +46,7 @@ set(SERVER_CORE
     QuestEventJournalStore.cpp
     PlayerQuestStateStore.cpp
     QuestDatabaseStore.cpp
+    QuestRuntimeEvaluator.cpp
     ServerEventDispatcher.cpp
     SimulationRuntime.cpp
     ServerNetworking.cpp
@@ -88,6 +89,7 @@ set(SERVER_HEADER
         QuestEventJournalStore.hpp
         PlayerQuestStateStore.hpp
         QuestDatabaseStore.hpp
+        QuestRuntimeEvaluator.hpp
         ServerEventDispatcher.hpp
         SimulationRuntime.hpp
         ServerSimulation.hpp

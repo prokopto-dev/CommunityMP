@@ -390,7 +390,9 @@ namespace mwmp
                             return;
 
                         condition.order = getInt(row, "order");
+                        condition.functionCode = getInt(row, "functionCode", -1);
                         condition.functionName = getString(row, "function");
+                        condition.comparisonCode = getInt(row, "comparisonCode", -1);
                         condition.comparison = getString(row, "comparison");
                         condition.variable = getString(row, "variable");
                         condition.valueType = getString(row, "valueType");

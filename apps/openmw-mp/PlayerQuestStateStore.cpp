@@ -1,6 +1,7 @@
 #include "PlayerQuestStateStore.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -16,6 +17,7 @@
 #include "Player.hpp"
 #include "QuestEventJournalStore.hpp"
 #include "QuestDatabaseStore.hpp"
+#include "QuestRuntimeEvaluator.hpp"
 
 namespace
 {
@@ -53,6 +55,15 @@ namespace
     std::mutex sQuestStateMutex;
     std::map<mwmp::PacketGuid, PlayerQuestReadState> sQuestReadStateByPlayer;
     constexpr std::size_t maxQuestStateDeltaItems = 32;
+
+    std::string normalizedLookupKey(std::string_view value)
+    {
+        std::string result(value);
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return result;
+    }
 
     void appendJsonString(std::string& result, std::string_view value)
     {
@@ -428,6 +439,116 @@ namespace
                 player.npc.mName.c_str(), static_cast<int>(sourcePacket.size()), sourcePacket.data());
         }
     }
+
+    void appendDialogueEvaluationSummary(std::string& payload, Player& player, const std::vector<mwmp::Topic>& changes)
+    {
+        payload.push_back('[');
+        const std::size_t count = std::min(changes.size(), maxQuestStateDeltaItems);
+        std::size_t written = 0;
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const std::string& topicId = changes[i].topicId;
+            if (topicId.empty())
+                continue;
+
+            const std::vector<mwmp::DialogueResponseRecord> responses
+                = mwmp::QuestDatabaseStore::get().findDialogueResponsesBySourceTopicId(topicId, "Topic");
+
+            std::size_t authoritativelyAccepted = 0;
+            std::size_t conditionRejected = 0;
+            std::size_t requiresFallback = 0;
+            std::size_t totalConditions = 0;
+            std::size_t evaluatedConditions = 0;
+            std::size_t unsupportedConditions = 0;
+            std::size_t legacyEffectCount = 0;
+            std::size_t inventoryEffectCount = 0;
+            std::size_t actorEffectCount = 0;
+            std::size_t unsupportedEffectCommandCount = 0;
+
+            for (const mwmp::DialogueResponseRecord& response : responses)
+            {
+                const mwmp::QuestConditionEvaluationResult conditions
+                    = mwmp::QuestRuntimeEvaluator::get().evaluateConditionsForPlayer(player, response.responseId);
+                const mwmp::QuestLegacyEffectAnalysis effects
+                    = mwmp::QuestRuntimeEvaluator::get().analyzeLegacyEffects(response.responseId);
+
+                totalConditions += conditions.totalConditions;
+                evaluatedConditions += conditions.evaluatedConditions;
+                unsupportedConditions += conditions.unsupportedConditions;
+                legacyEffectCount += effects.effectCount;
+                inventoryEffectCount += effects.inventoryCommands;
+                actorEffectCount += effects.actorCommands;
+                unsupportedEffectCommandCount += effects.unsupportedCommands;
+
+                if (!conditions.complete)
+                    ++requiresFallback;
+                else if (conditions.accepted)
+                    ++authoritativelyAccepted;
+                else
+                    ++conditionRejected;
+            }
+
+            if (written != 0)
+                payload.push_back(',');
+
+            payload += "{\"topic\":";
+            appendJsonString(payload, topicId);
+            payload += ",\"dialogueType\":\"Topic\"";
+            payload += ",\"responseCount\":";
+            payload += std::to_string(responses.size());
+            payload += ",\"authoritativelyAccepted\":";
+            payload += std::to_string(authoritativelyAccepted);
+            payload += ",\"conditionRejected\":";
+            payload += std::to_string(conditionRejected);
+            payload += ",\"requiresFallback\":";
+            payload += std::to_string(requiresFallback);
+            payload += ",\"totalConditions\":";
+            payload += std::to_string(totalConditions);
+            payload += ",\"evaluatedConditions\":";
+            payload += std::to_string(evaluatedConditions);
+            payload += ",\"unsupportedConditions\":";
+            payload += std::to_string(unsupportedConditions);
+            payload += ",\"legacyEffectCount\":";
+            payload += std::to_string(legacyEffectCount);
+            payload += ",\"inventoryEffectCommandCount\":";
+            payload += std::to_string(inventoryEffectCount);
+            payload += ",\"actorEffectCommandCount\":";
+            payload += std::to_string(actorEffectCount);
+            payload += ",\"unsupportedEffectCommandCount\":";
+            payload += std::to_string(unsupportedEffectCommandCount);
+            payload += "}";
+            ++written;
+        }
+        payload.push_back(']');
+    }
+
+    void sendDialogueEvaluationSummary(Player& player, const std::vector<mwmp::Topic>& changes)
+    {
+        if (!player.isHandshaked() || player.getLoadState() != Player::POSTLOADED || changes.empty())
+            return;
+
+        std::string payload;
+        payload.reserve(480 + changes.size() * 96);
+        payload += "{\"schema\":";
+        payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
+        payload += ",\"kind\":\"quest_dialogue_evaluation\",\"sourcePacket\":\"topic\"";
+        payload += ",\"topicCount\":";
+        payload += std::to_string(changes.size());
+        payload += ",\"deltaLimit\":";
+        payload += std::to_string(maxQuestStateDeltaItems);
+        payload += ",\"deltaTruncated\":";
+        payload += jsonBool(changes.size() > maxQuestStateDeltaItems);
+        payload += ",\"topics\":";
+        appendDialogueEvaluationSummary(payload, player, changes);
+        payload += "}";
+
+        if (!mwmp::CommunityMpLuaEventSender::sendToPlayer(
+                player, "communitymp.server", "quest_dialogue_evaluation", std::move(payload)))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Failed to send quest dialogue evaluation summary for %s", player.npc.mName.c_str());
+        }
+    }
 }
 
 namespace mwmp
@@ -515,6 +636,7 @@ namespace mwmp
         }
 
         sendQuestStateSummary(player, "topic", snapshot, player.topicChanges.size(), player.topicChangesAreLoad);
+        sendDialogueEvaluationSummary(player, player.topicChanges);
     }
 
     void PlayerQuestStateStore::applyBookChanges(Player& player)
@@ -537,6 +659,62 @@ namespace mwmp
         }
 
         sendQuestStateSummary(player, "book", snapshot, player.bookChanges.size(), player.bookChangesAreLoad);
+    }
+
+    std::optional<int> PlayerQuestStateStore::getJournalIndex(PacketGuid guid, std::string_view sourceQuestId) const
+    {
+        std::lock_guard lock(sQuestStateMutex);
+        const auto stateIt = sQuestReadStateByPlayer.find(guid);
+        if (stateIt == sQuestReadStateByPlayer.end())
+            return std::nullopt;
+
+        auto progressIt = stateIt->second.journal.find(std::string(sourceQuestId));
+        if (progressIt == stateIt->second.journal.end())
+        {
+            const std::string normalizedQuestId = normalizedLookupKey(sourceQuestId);
+            progressIt = std::find_if(stateIt->second.journal.begin(), stateIt->second.journal.end(),
+                [&](const auto& entry) { return normalizedLookupKey(entry.first) == normalizedQuestId; });
+        }
+
+        if (progressIt == stateIt->second.journal.end())
+            return 0;
+
+        if (!progressIt->second.hasIndex)
+            return 0;
+
+        return progressIt->second.highestIndex;
+    }
+
+    bool PlayerQuestStateStore::hasTopic(PacketGuid guid, std::string_view topicId) const
+    {
+        std::lock_guard lock(sQuestStateMutex);
+        const auto stateIt = sQuestReadStateByPlayer.find(guid);
+        if (stateIt == sQuestReadStateByPlayer.end())
+            return false;
+
+        if (stateIt->second.topics.find(std::string(topicId)) != stateIt->second.topics.end())
+            return true;
+
+        const std::string normalizedTopicId = normalizedLookupKey(topicId);
+        return std::find_if(stateIt->second.topics.begin(), stateIt->second.topics.end(),
+            [&](const std::string& topic) { return normalizedLookupKey(topic) == normalizedTopicId; })
+            != stateIt->second.topics.end();
+    }
+
+    bool PlayerQuestStateStore::hasReadBook(PacketGuid guid, std::string_view bookId) const
+    {
+        std::lock_guard lock(sQuestStateMutex);
+        const auto stateIt = sQuestReadStateByPlayer.find(guid);
+        if (stateIt == sQuestReadStateByPlayer.end())
+            return false;
+
+        if (stateIt->second.books.find(std::string(bookId)) != stateIt->second.books.end())
+            return true;
+
+        const std::string normalizedBookId = normalizedLookupKey(bookId);
+        return std::find_if(stateIt->second.books.begin(), stateIt->second.books.end(),
+            [&](const std::string& book) { return normalizedLookupKey(book) == normalizedBookId; })
+            != stateIt->second.books.end();
     }
 
     void PlayerQuestStateStore::clearPlayer(PacketGuid guid)

@@ -97,6 +97,8 @@ namespace mwmp
         std::string valueType;
         std::string value;
         std::string evaluationScope;
+        int functionCode = -1;
+        int comparisonCode = -1;
         int order = 0;
     };
 
