@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <chrono>
 #include <future>
+#include <string_view>
 #include <system_error>
 
 #include <osgDB/ReaderWriter>
@@ -157,6 +158,29 @@ namespace
     {
         void operator()(std::string) const {}
     };
+
+    const MWState::Slot* findMostRecentSaveSlot(
+        MWState::StateManager& stateManager, const MWState::Character*& character)
+    {
+        character = nullptr;
+        const MWState::Slot* slot = nullptr;
+
+        for (auto characterIt = stateManager.characterBegin(); characterIt != stateManager.characterEnd(); ++characterIt)
+        {
+            const MWState::Character& candidateCharacter = *characterIt;
+            for (auto slotIt = candidateCharacter.begin(); slotIt != candidateCharacter.end(); ++slotIt)
+            {
+                const MWState::Slot& candidateSlot = *slotIt;
+                if (slot == nullptr || slot->mTimeStamp < candidateSlot.mTimeStamp)
+                {
+                    character = &candidateCharacter;
+                    slot = &candidateSlot;
+                }
+            }
+        }
+
+        return slot;
+    }
 
     class IdentifyOpenGLOperation : public osg::GraphicsOperation
     {
@@ -831,7 +855,10 @@ void OMW::Engine::setWindowIcon()
 
 void OMW::Engine::prepareEngine()
 {
-    mStateManager = std::make_unique<MWState::StateManager>(mCfgMgr.getUserDataPath() / "saves", mContentFiles);
+    const std::filesystem::path savesPath = mServerSimulationMode && !mServerSimulationSavesPath.empty()
+        ? mServerSimulationSavesPath
+        : mCfgMgr.getUserDataPath() / "saves";
+    mStateManager = std::make_unique<MWState::StateManager>(savesPath, mContentFiles);
     mEnvironment.setStateManager(*mStateManager);
 
     const bool stereoEnabled = Settings::stereo().mStereoEnabled || osg::DisplaySettings::instance().get()->getStereo();
@@ -1052,6 +1079,7 @@ void OMW::Engine::prepareServerSimulation()
         return;
 
     mServerSimulationMode = true;
+    Log(Debug::Info) << "Preparing server OpenMW simulation runtime";
 
     Log(Debug::Info) << "OSG version: " << osgGetVersion();
     SDL_version sdlVersion;
@@ -1079,14 +1107,44 @@ void OMW::Engine::prepareServerSimulation()
         return;
 
     if (!mSaveGameFile.empty())
+    {
+        Log(Debug::Info) << "Loading explicit server OpenMW world save " << mSaveGameFile;
         mStateManager->loadGame(mSaveGameFile);
+    }
+    else if (!mServerSimulationSavesPath.empty())
+    {
+        const MWState::Character* character = nullptr;
+        const MWState::Slot* slot = findMostRecentSaveSlot(*mStateManager, character);
+        if (slot != nullptr)
+        {
+            Log(Debug::Info) << "Loading server OpenMW world save " << slot->mPath;
+            mStateManager->loadGame(character, slot->mPath);
+        }
+
+        if (mStateManager->getState() != MWState::StateManager::State_Running)
+        {
+            if (slot != nullptr)
+                Log(Debug::Warning) << "Server OpenMW world save did not reach running state; initializing a fresh world";
+            else
+                Log(Debug::Info) << "Initializing new server OpenMW world in " << mServerSimulationSavesPath;
+
+            mStateManager->newGame(true);
+
+            if (mStateManager->getState() == MWState::StateManager::State_Running)
+                mStateManager->saveGame("CommunityMP Server World");
+        }
+    }
     else
-        mStateManager->newGame(!mNewGame);
+        mStateManager->newGame(true);
+
+    if (mStateManager->getState() != MWState::StateManager::State_Running)
+        return;
 
     if (!mStartupScript.empty() && mStateManager->getState() == MWState::StateManager::State_Running)
         mWindowManager->executeInConsole(mStartupScript);
 
     mServerSimulationPrepared = true;
+    Log(Debug::Info) << "Server OpenMW simulation runtime prepared";
 }
 
 bool OMW::Engine::tickServerSimulation(float deltaSeconds)
@@ -1452,6 +1510,11 @@ void OMW::Engine::enableFontExport(bool exportFonts)
 void OMW::Engine::setSaveGameFile(const std::filesystem::path& savegame)
 {
     mSaveGameFile = savegame;
+}
+
+void OMW::Engine::setServerSimulationSavesPath(const std::filesystem::path& path)
+{
+    mServerSimulationSavesPath = path;
 }
 
 void OMW::Engine::setRandomSeed(unsigned int seed)

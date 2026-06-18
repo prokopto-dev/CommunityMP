@@ -180,6 +180,7 @@ namespace OMW
         std::filesystem::path mStartupScript;
         int mActivationDistanceOverride;
         std::filesystem::path mSaveGameFile;
+        std::filesystem::path mServerSimulationSavesPath;
         // Grab mouse?
         bool mGrab;
 
@@ -291,6 +292,9 @@ namespace OMW
 
         /// Set the save game file to load after initialising the engine.
         void setSaveGameFile(const std::filesystem::path& savegame);
+
+        /// Set the dedicated save root used by the server-owned OpenMW world simulation.
+        void setServerSimulationSavesPath(const std::filesystem::path& path);
 
         void setRandomSeed(unsigned int seed);
 

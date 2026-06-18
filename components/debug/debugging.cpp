@@ -363,6 +363,16 @@ namespace Debug
         static boost::iostreams::stream_buffer<Tee<Buffer, Coloured>> bufferedOut;
         static boost::iostreams::stream_buffer<Tee<Buffer, Coloured>> bufferedErr;
 #endif
+
+        void ensureRawStreamsInitialized()
+        {
+            if (!rawStdout)
+                rawStdout = std::make_unique<std::ostream>(std::cout.rdbuf());
+            if (!rawStderr)
+                rawStderr = std::make_unique<std::ostream>(std::cerr.rdbuf());
+            if (!rawStderrMutex)
+                rawStderrMutex = std::make_unique<std::mutex>();
+        }
     }
 
     std::ostream& getRawStdout()
@@ -398,6 +408,8 @@ namespace Debug
 
     void setupLogging(const std::filesystem::path& logDir, std::string_view appName)
     {
+        ensureRawStreamsInitialized();
+
         Log::sMinDebugLevel = getDebugLevel();
         Log::sWriteLevel = true;
 

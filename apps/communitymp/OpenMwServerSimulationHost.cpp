@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <set>
 #include <string>
@@ -17,6 +18,7 @@
 #include <components/files/configurationmanager.hpp>
 #include <components/misc/osgpluginchecker.hpp>
 #include <components/platform/platform.hpp>
+#include <components/settings/settings.hpp>
 
 #include "../openmw/OpenMWApplication.hpp"
 #include "../openmw/engine.hpp"
@@ -46,8 +48,6 @@ namespace
         arguments.emplace_back("--no-sound");
         arguments.emplace_back("--skip-menu");
         arguments.emplace_back("--new-game");
-        arguments.emplace_back("--script-all");
-        arguments.emplace_back("--script-all-dialogue");
         if (!includeServerContent)
             return arguments;
 
@@ -97,6 +97,16 @@ namespace
         value = normalizeContentName(std::move(value));
         return value == "0" || value == "false" || value == "no" || value == "off"
             || value == "packet-mirror" || value == "mirror";
+    }
+
+    void logHeadlessOpenMwStage(std::string_view stage)
+    {
+        Log(Debug::Info) << "[CommunityMP headless] " << stage;
+    }
+
+    std::filesystem::path getServerOpenMwSavesPath()
+    {
+        return std::filesystem::current_path() / "server" / "data" / "world" / "openmw" / "saves";
     }
 
     bool shouldAttemptHeadlessOpenMwRuntime()
@@ -330,17 +340,25 @@ namespace
 
         auto engine = std::make_unique<OMW::Engine>(cfgMgr);
         engine->setRecastMaxLogLevel(Debug::getRecastMaxLogLevel());
+        engine->setServerSimulationSavesPath(getServerOpenMwSavesPath());
 
+        logHeadlessOpenMwStage("prepareOpenMwServerEngine: configuring OpenMW application");
+        Settings::Manager::clear();
         if (!configureOpenMwApplication(static_cast<int>(mutableArguments.size()), argv.data(), *engine, cfgMgr,
                 "CommunityMP-server-openmw"))
             return nullptr;
+        logHeadlessOpenMwStage("prepareOpenMwServerEngine: OpenMW application configured");
 
+        logHeadlessOpenMwStage("prepareOpenMwServerEngine: checking OSG plugins");
         if (!Misc::checkRequiredOSGPluginsArePresent())
             return nullptr;
+        logHeadlessOpenMwStage("prepareOpenMwServerEngine: OSG plugins ready");
 
+        logHeadlessOpenMwStage("prepareOpenMwServerEngine: preparing server simulation");
         engine->prepareServerSimulation();
         if (!engine->isServerSimulationPrepared())
             return nullptr;
+        logHeadlessOpenMwStage("prepareOpenMwServerEngine: server simulation prepared");
 
         return engine;
     }

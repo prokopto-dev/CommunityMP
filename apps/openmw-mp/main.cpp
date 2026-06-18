@@ -154,6 +154,26 @@ namespace
 
         return "unknown";
     }
+
+    struct MasterServerSettings
+    {
+        bool enabled = false;
+        std::string address;
+        int port = 0;
+        int updateRate = 0;
+        std::string hostname;
+    };
+
+    MasterServerSettings readMasterServerSettings(Settings::Manager& mgr)
+    {
+        MasterServerSettings settings;
+        settings.enabled = mgr.getBool("enabled", "MasterServer");
+        settings.address = mgr.getString("address", "MasterServer");
+        settings.port = mgr.getInt("port", "MasterServer");
+        settings.updateRate = mgr.getInt("rate", "MasterServer");
+        settings.hostname = mgr.getString("hostname", "General");
+        return settings;
+    }
 }
 
 std::string loadSettings(const Files::ConfigurationManager& cfgMgr)
@@ -266,6 +286,7 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
     const bool ignoreScriptErrors = Settings::Manager::getOrDefault<bool>("ignoreScriptErrors", "General", false);
     const bool requireOpenMwServerSimulation
         = Settings::Manager::getOrDefault<bool>("requireOpenMwServerSimulation", "General", false);
+    MasterServerSettings masterServerSettings = readMasterServerSettings(mgr);
 
     std::string pluginHome = mgr.getString("home", "Plugins");
     std::filesystem::path pluginHomePath = Files::pathFromUnicodeString(pluginHome);
@@ -331,24 +352,22 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
             }
         }
 
-        if (mgr.getBool("enabled", "MasterServer"))
+        if (masterServerSettings.enabled)
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Sharing server query info to master enabled.");
-            std::string masterAddr = mgr.getString("address", "MasterServer");
-            int masterPort = mgr.getInt("port", "MasterServer");
-            int updateRate = mgr.getInt("rate", "MasterServer");
 
-            if (updateRate < 8000)
+            if (masterServerSettings.updateRate < 8000)
             {
-                updateRate = 8000;
-                LOG_APPEND(TimedLog::LOG_INFO, "- switching to updateRate %i because the one in the server config was too low", updateRate);
+                masterServerSettings.updateRate = 8000;
+                LOG_APPEND(TimedLog::LOG_INFO,
+                    "- switching to updateRate %i because the one in the server config was too low",
+                    masterServerSettings.updateRate);
             }
 
-            serverNetworking.InitQuery(masterAddr, (unsigned short) masterPort);
+            serverNetworking.InitQuery(masterServerSettings.address, (unsigned short) masterServerSettings.port);
             serverNetworking.getMasterClient()->SetMaxPlayers((unsigned) players);
-            serverNetworking.getMasterClient()->SetUpdateRate((unsigned) updateRate);
-            std::string hostname = mgr.getString("hostname", "General");
-            serverNetworking.getMasterClient()->SetHostname(hostname);
+            serverNetworking.getMasterClient()->SetUpdateRate((unsigned) masterServerSettings.updateRate);
+            serverNetworking.getMasterClient()->SetHostname(masterServerSettings.hostname);
             serverNetworking.getMasterClient()->SetRuleString("CommitHash", commitHash.substr(0, 10));
 
             serverNetworking.getMasterClient()->Start();
