@@ -46,6 +46,7 @@ namespace mwmp
         void auditShadowCellAuthority(const std::string& cellDescription, const char* context) const;
         std::optional<PacketGuid> getShadowCellAuthority(const std::string& cellDescription) const;
         std::size_t getShadowCellVisitorCount(const std::string& cellDescription) const;
+        void sendLuaBridgeState(::Player& player) const;
 
         bool acceptActorAttacks(BaseActorList& actorList, ::Cell& serverCell);
         bool acceptActorCasts(BaseActorList& actorList, ::Cell& serverCell);
@@ -130,6 +131,8 @@ namespace mwmp
             const ShadowCellAuthorityState& state, bool localPlayerLoaded) const;
         void broadcastCellActivityEvent(const std::string& cellDescription,
             const ShadowCellAuthorityState& state) const;
+        void sendRuntimeStatusEvent(Player& player) const;
+        void sendLuaBridgeReadyEvent(Player& player) const;
         void tickActors(float deltaSeconds);
     };
 }

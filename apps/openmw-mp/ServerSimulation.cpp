@@ -1550,6 +1550,22 @@ namespace mwmp
         return stateIt->second.visitors.size();
     }
 
+    void ServerSimulation::sendLuaBridgeState(Player& player) const
+    {
+        sendRuntimeStatusEvent(player);
+
+        for (const auto& [cellDescription, state] : mShadowCellAuthority)
+        {
+            if (!containsGuid(state.visitors, player.guid))
+                continue;
+
+            sendCellActivityEvent(player, cellDescription, state, true);
+            sendShadowCellAuthorityEvent(player, cellDescription, state);
+        }
+
+        sendLuaBridgeReadyEvent(player);
+    }
+
     SimulationRuntime& ServerSimulation::runtime()
     {
         return *mRuntime;
@@ -1822,6 +1838,76 @@ namespace mwmp
             Player* visitor = Players::getPlayer(visitorGuid);
             if (visitor != nullptr)
                 sendCellActivityEvent(*visitor, cellDescription, state, true);
+        }
+    }
+
+    void ServerSimulation::sendRuntimeStatusEvent(Player& player) const
+    {
+        const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
+        const CellController* cellController = CellController::get();
+        std::size_t loadedCellCount = 0;
+        if (cellController != nullptr)
+            loadedCellCount = cellController->getCells().size();
+
+        std::size_t playerTrackedCellCount = 0;
+        for (const auto& [cellDescription, state] : mShadowCellAuthority)
+        {
+            static_cast<void>(cellDescription);
+            if (containsGuid(state.visitors, player.guid))
+                ++playerTrackedCellCount;
+        }
+
+        std::string payload;
+        payload.reserve(420);
+        payload += "{\"schema\":";
+        payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
+        payload += ",\"kind\":\"runtime_status\"";
+        payload += ",\"runtimeRequested\":";
+        payload += jsonString(runtime().requestedName());
+        payload += ",\"runtimeActive\":";
+        payload += jsonString(runtime().activeName());
+        payload += ",\"openmwWorld\":";
+        payload += jsonBool(runtime().hasOpenMwWorld());
+        payload += ",\"canSimulateActors\":";
+        payload += jsonBool(runtime().canSimulateActors());
+        payload += ",\"serverActorAuthority\":";
+        payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += ",\"loadedCellCount\":";
+        payload += std::to_string(loadedCellCount);
+        payload += ",\"trackedCellCount\":";
+        payload += std::to_string(mShadowCellAuthority.size());
+        payload += ",\"playerTrackedCellCount\":";
+        payload += std::to_string(playerTrackedCellCount);
+        payload += ",\"capabilities\":{";
+        payload += "\"ownsWorldState\":";
+        payload += jsonBool(runtimeCapabilities.ownsWorldState);
+        payload += ",\"resolvesCells\":";
+        payload += jsonBool(runtimeCapabilities.resolvesCells);
+        payload += ",\"runsScripts\":";
+        payload += jsonBool(runtimeCapabilities.runsScripts);
+        payload += ",\"runsActorAi\":";
+        payload += jsonBool(runtimeCapabilities.runsActorAi);
+        payload += ",\"ownsActorMovement\":";
+        payload += jsonBool(runtimeCapabilities.ownsActorMovement);
+        payload += ",\"ownsActorCombat\":";
+        payload += jsonBool(runtimeCapabilities.ownsActorCombat);
+        payload += "}}";
+
+        if (!CommunityMpLuaEventSender::sendToPlayer(
+                player, "communitymp.server", "runtime_status", std::move(payload)))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Failed to send CommunityMP runtime status event to %s", player.npc.mName.c_str());
+        }
+    }
+
+    void ServerSimulation::sendLuaBridgeReadyEvent(Player& player) const
+    {
+        if (!CommunityMpLuaEventSender::sendToPlayer(
+                player, "communitymp.server", "ready", "{\"schema\":1,\"kind\":\"ready\"}"))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Failed to send CommunityMP Lua ready event to %s", player.npc.mName.c_str());
         }
     }
 

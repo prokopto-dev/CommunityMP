@@ -10,6 +10,8 @@
 
 #include "CommunityMpLuaEventSender.hpp"
 #include "Player.hpp"
+#include "ServerNetworking.hpp"
+#include "ServerSimulation.hpp"
 
 namespace
 {
@@ -266,8 +268,11 @@ namespace mwmp
 
         if (player.luaEvent.eventName == "hello")
         {
-            if (!CommunityMpLuaEventSender::sendToPlayer(
-                    player, "communitymp.server", "ready", "{\"schema\":1,\"kind\":\"ready\"}"))
+            ServerNetworking* networking = ServerNetworking::getPtr();
+            if (networking != nullptr)
+                networking->getServerSimulation().sendLuaBridgeState(player);
+            else if (!CommunityMpLuaEventSender::sendToPlayer(
+                         player, "communitymp.server", "ready", "{\"schema\":1,\"kind\":\"ready\"}"))
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                     "Failed to send CommunityMP Lua ready event to %s", player.npc.mName.c_str());

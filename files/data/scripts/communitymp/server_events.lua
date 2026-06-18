@@ -13,6 +13,7 @@ local cellAuthorityByDescription = {}
 local cellAuthorityByKey = {}
 local cellActivityByDescription = {}
 local cellActivityByKey = {}
+local runtimeStatus = nil
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -205,6 +206,29 @@ local function getCellActivity(cellOrDescription)
     return nil
 end
 
+local function storeRuntimeStatus(state)
+    if type(state) ~= 'table' then
+        return
+    end
+
+    runtimeStatus = shallowCopy(state)
+    if type(state.capabilities) == 'table' then
+        runtimeStatus.capabilities = shallowCopy(state.capabilities)
+    end
+end
+
+local function getRuntimeStatus()
+    if runtimeStatus == nil then
+        return nil
+    end
+
+    local copy = shallowCopy(runtimeStatus)
+    if type(runtimeStatus.capabilities) == 'table' then
+        copy.capabilities = shallowCopy(runtimeStatus.capabilities)
+    end
+    return copy
+end
+
 local function addHandler(handlers, handler)
     if type(handler) ~= 'function' then
         error('CommunityMP server event handler must be a function')
@@ -261,6 +285,8 @@ local function dispatchServerEvent(event)
         storeCellAuthority(event.decodedPayload)
     elseif event.serverEventName == 'cell_activity' and type(event.decodedPayload) == 'table' then
         storeCellActivity(event.decodedPayload)
+    elseif event.serverEventName == 'runtime_status' and type(event.decodedPayload) == 'table' then
+        storeRuntimeStatus(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -286,6 +312,22 @@ return {
         addServerEventHandlerForName = addServerEventHandlerForName,
         cellKey = cellKey,
         getServerEventStats = statsSnapshot,
+        getRuntimeStatus = getRuntimeStatus,
+        getRuntimeCapabilities = function()
+            local state = getRuntimeStatus()
+            if state == nil or type(state.capabilities) ~= 'table' then
+                return nil
+            end
+            return shallowCopy(state.capabilities)
+        end,
+        hasOpenMWWorld = function()
+            local state = getRuntimeStatus()
+            return state ~= nil and state.openmwWorld == true
+        end,
+        isServerActorAuthorityEnabled = function()
+            local state = getRuntimeStatus()
+            return state ~= nil and state.serverActorAuthority == true
+        end,
         getCellAuthority = getCellAuthority,
         getCellAuthorityForCell = getCellAuthority,
         getCellActivity = getCellActivity,
