@@ -249,16 +249,13 @@ config.rankColors = { serverOwner = color.Orange, admin = color.Red, moderator =
 -- authority leaves or a script/admin explicitly changes it.
 config.allowCellAuthorityTransferForLowerPing = false
 
--- Whether NPC/creature movement, AI and combat should run without client-side
--- OpenMW AI observation. Keep this disabled until the server simulator has
--- headless OpenMW nav/pathgrid, schedules, and local script execution.
-config.serverAuthoritativeActors = false
+-- Whether NPC/creature movement, AI and combat should run from server-owned
+-- OpenMW simulation instead of client-side OpenMW AI observation.
+config.serverAuthoritativeActors = true
 
--- Whether legacy Lua should defer client actor-authority packet emission to the
--- C++ server simulation. Lua still chooses and stores the authority; C++ sends
--- ID_ACTOR_AUTHORITY once per handoff/load so clients do not receive duplicate
--- authority broadcasts from both layers.
-config.cppClientActorAuthority = true
+-- The C++ server simulation owns actor authority during the v2.0 cutover.
+-- Legacy Lua should not emit client authority packets in this mode.
+config.cppClientActorAuthority = false
 
 -- Which numerical IDs should be used by custom menus implemented in the Lua scripts,
 -- to prevent other menu inputs from being taken into account for them

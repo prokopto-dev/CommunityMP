@@ -33,6 +33,7 @@
 #include "ServerApplication.hpp"
 #include "ServerContentRegistry.hpp"
 #include "ServerEventDispatcher.hpp"
+#include "ServerSimulation.hpp"
 #include "Utils.hpp"
 
 #include <apps/openmw-mp/Script/Script.hpp>
@@ -123,6 +124,35 @@ namespace
             return legacy;
 
         return preferred;
+    }
+
+    std::string getRequiredSimulationRuntimeBlocker(const mwmp::SimulationRuntime& runtime)
+    {
+        if (runtime.canOwnActorAuthority())
+            return {};
+
+        if (!runtime.bootstrap().blockedBy.empty())
+            return runtime.bootstrap().blockedBy;
+
+        const mwmp::SimulationRuntimeTopology& topology = runtime.topology();
+        const mwmp::SimulationRuntimeCapabilities& capabilities = runtime.capabilities();
+
+        if (!topology.unifiedExecutable)
+            return "unified-executable-required";
+        if (!topology.linksOpenMwCore)
+            return "openmw-core-not-linked";
+        if (!topology.hasHeadlessOpenMwEngine)
+            return "headless-openmw-engine-missing";
+        if (!capabilities.ownsWorldState || !capabilities.resolvesCells)
+            return "openmw-world-state-not-owned";
+        if (!capabilities.runsScripts)
+            return "openmw-scripts-not-running";
+        if (!capabilities.runsActorAi || !capabilities.ownsActorMovement)
+            return "openmw-actor-ai-not-owned";
+        if (!capabilities.ownsActorCombat)
+            return "openmw-actor-combat-not-owned";
+
+        return "unknown";
     }
 }
 
@@ -234,6 +264,8 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
     std::string password = mgr.getString("password", "General");
     const bool enforceDataFiles = Settings::Manager::getOrDefault<bool>("enforceDataFiles", "General", true);
     const bool ignoreScriptErrors = Settings::Manager::getOrDefault<bool>("ignoreScriptErrors", "General", false);
+    const bool requireOpenMwServerSimulation
+        = Settings::Manager::getOrDefault<bool>("requireOpenMwServerSimulation", "General", true);
 
     std::string pluginHome = mgr.getString("home", "Plugins");
     std::filesystem::path pluginHomePath = Files::pathFromUnicodeString(pluginHome);
@@ -285,6 +317,19 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
         serverNetworking.setDataFileEnforcementState(enforceDataFiles);
         serverNetworking.setScriptErrorIgnoringState(ignoreScriptErrors);
         serverNetworking.setNativeServerPoliciesEnabled(true);
+
+        if (requireOpenMwServerSimulation)
+        {
+            const mwmp::SimulationRuntime& runtime = serverNetworking.getServerSimulation().runtime();
+            const std::string blocker = getRequiredSimulationRuntimeBlocker(runtime);
+            if (!blocker.empty())
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR,
+                    "OpenMW server simulation is required but not ready: requested=%s active=%s blockedBy=%s",
+                    runtime.requestedName(), runtime.activeName(), blocker.c_str());
+                throw std::runtime_error("OpenMW server simulation is required but not ready: " + blocker);
+            }
+        }
 
         if (mgr.getBool("enabled", "MasterServer"))
         {
