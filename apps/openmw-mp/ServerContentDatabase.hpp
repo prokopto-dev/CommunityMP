@@ -31,6 +31,11 @@ namespace mwmp
         std::size_t checksumCount = 0;
         std::size_t recordIndexCount = 0;
         std::size_t recordImportErrorCount = 0;
+        std::size_t questSourceRowCount = 0;
+        std::size_t questSourcePackageCount = 0;
+        std::size_t questSourceDialogueCount = 0;
+        std::size_t questSourceInfoCount = 0;
+        std::size_t questSourceImportErrorCount = 0;
         std::size_t tableCount = 0;
     };
 
@@ -41,6 +46,7 @@ namespace mwmp
 
         void updateFromOpenMwContentPlan(const std::vector<std::filesystem::path>& dataDirs,
             const std::vector<std::string>& contentFiles,
+            const std::string& encoding,
             const std::vector<ServerDataFileRequirement>& dataFileRequirements);
 
         ServerContentDatabaseStatistics statistics() const;
