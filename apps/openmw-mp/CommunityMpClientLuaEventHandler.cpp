@@ -18,16 +18,23 @@ namespace
     std::mutex sObservationMutex;
     std::map<mwmp::PacketGuid, std::uint32_t> sLastClientLuaEventSequences;
     std::map<mwmp::PacketGuid, mwmp::CommunityMpPlayerObservation> sLatestLocationObservations;
+    std::map<mwmp::PacketGuid, mwmp::CommunityMpPlayerObservation> sLatestMovementHealthObservations;
     std::map<mwmp::PacketGuid, mwmp::CommunityMpClientStateObservation> sLatestStateObservations;
 
     bool isObservationKind(const std::string& kind)
     {
-        return kind == "hello" || kind == "cell_changed" || kind == "teleported" || kind == "chargen_release";
+        return kind == "hello" || kind == "cell_changed" || kind == "teleported" || kind == "movement_health"
+            || kind == "chargen_release";
     }
 
     bool isLocationObservationKind(const std::string& kind)
     {
         return kind == "cell_changed" || kind == "teleported";
+    }
+
+    bool isMovementHealthObservationKind(const std::string& kind)
+    {
+        return kind == "movement_health";
     }
 
     bool isStateObservationKind(const std::string& kind)
@@ -157,6 +164,39 @@ namespace
             observation.hasPosition = validX && validY && validZ;
         }
 
+        const YAML::Node timing = root["timing"];
+        if (timing && timing.IsMap())
+        {
+            bool validInterval = false;
+            bool validAverageDt = false;
+            bool validMinDt = false;
+            bool validMaxDt = false;
+            bool validEstimatedHz = false;
+            bool validFrameCount = false;
+            observation.observationIntervalSeconds = readDouble(timing["observationInterval"], &validInterval);
+            observation.frameCount = readInt(timing["frameCount"], &validFrameCount);
+            observation.averageFrameSeconds = readDouble(timing["averageDt"], &validAverageDt);
+            observation.minFrameSeconds = readDouble(timing["minDt"], &validMinDt);
+            observation.maxFrameSeconds = readDouble(timing["maxDt"], &validMaxDt);
+            observation.estimatedFrameRate = readDouble(timing["estimatedHz"], &validEstimatedHz);
+            observation.hasFrameStats = validInterval && validFrameCount && validAverageDt && validMinDt
+                && validMaxDt && validEstimatedHz;
+        }
+
+        const YAML::Node motion = root["motion"];
+        if (motion && motion.IsMap())
+        {
+            bool validDistance = false;
+            bool validHorizontalDistance = false;
+            bool validSpeed = false;
+            bool validHorizontalSpeed = false;
+            observation.movementDistance = readDouble(motion["distance"], &validDistance);
+            observation.horizontalMovementDistance = readDouble(motion["horizontalDistance"], &validHorizontalDistance);
+            observation.movementSpeed = readDouble(motion["speed"], &validSpeed);
+            observation.horizontalMovementSpeed = readDouble(motion["horizontalSpeed"], &validHorizontalSpeed);
+            observation.hasMotionStats = validDistance && validHorizontalDistance && validSpeed && validHorizontalSpeed;
+        }
+
         return observation;
     }
 
@@ -191,6 +231,12 @@ namespace
     {
         std::lock_guard lock(sObservationMutex);
         sLatestLocationObservations[player.guid] = std::move(observation);
+    }
+
+    void storeMovementHealthObservation(Player& player, mwmp::CommunityMpPlayerObservation observation)
+    {
+        std::lock_guard lock(sObservationMutex);
+        sLatestMovementHealthObservations[player.guid] = std::move(observation);
     }
 
     void storeStateObservation(Player& player, mwmp::CommunityMpClientStateObservation observation)
@@ -255,6 +301,14 @@ namespace mwmp
                 player.npc.mName.c_str(), player.luaEvent.eventName.c_str(), observation.cellKey.c_str(),
                 observation.positionX, observation.positionY, observation.positionZ);
         }
+        else if (isMovementHealthObservationKind(observation.kind))
+        {
+            storeMovementHealthObservation(player, observation);
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
+                "Stored CommunityMP Lua movement health from %s: cell=%s frames=%i avgDt=%.4fs hz=%.1f speed=%.2f",
+                player.npc.mName.c_str(), observation.cellKey.c_str(), observation.frameCount,
+                observation.averageFrameSeconds, observation.estimatedFrameRate, observation.horizontalMovementSpeed);
+        }
         else if (isStateObservationKind(observation.kind))
         {
             CommunityMpClientStateObservation stateObservation = parseStateObservation(player, root);
@@ -293,6 +347,17 @@ namespace mwmp
         return observation->second;
     }
 
+    std::optional<CommunityMpPlayerObservation> CommunityMpClientLuaEventHandler::getLatestMovementHealthObservation(
+        PacketGuid guid)
+    {
+        std::lock_guard lock(sObservationMutex);
+        const auto observation = sLatestMovementHealthObservations.find(guid);
+        if (observation == sLatestMovementHealthObservations.end())
+            return std::nullopt;
+
+        return observation->second;
+    }
+
     std::optional<CommunityMpClientStateObservation> CommunityMpClientLuaEventHandler::getLatestStateObservation(
         PacketGuid guid)
     {
@@ -314,6 +379,7 @@ namespace mwmp
         std::lock_guard lock(sObservationMutex);
         sLastClientLuaEventSequences.erase(guid);
         sLatestLocationObservations.erase(guid);
+        sLatestMovementHealthObservations.erase(guid);
         sLatestStateObservations.erase(guid);
     }
 }

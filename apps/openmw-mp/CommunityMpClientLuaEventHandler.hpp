@@ -30,10 +30,22 @@ namespace mwmp
         double positionX = 0.0;
         double positionY = 0.0;
         double positionZ = 0.0;
+        double observationIntervalSeconds = 0.0;
+        double averageFrameSeconds = 0.0;
+        double minFrameSeconds = 0.0;
+        double maxFrameSeconds = 0.0;
+        double estimatedFrameRate = 0.0;
+        double movementDistance = 0.0;
+        double horizontalMovementDistance = 0.0;
+        double movementSpeed = 0.0;
+        double horizontalMovementSpeed = 0.0;
         std::chrono::steady_clock::time_point receivedAt;
+        int frameCount = 0;
         bool isExterior = false;
         bool hasGrid = false;
         bool hasPosition = false;
+        bool hasFrameStats = false;
+        bool hasMotionStats = false;
     };
 
     struct CommunityMpClientStateObservation
@@ -54,6 +66,7 @@ namespace mwmp
     public:
         static bool handlePlayerEvent(Player& player);
         static std::optional<CommunityMpPlayerObservation> getLatestLocationObservation(PacketGuid guid);
+        static std::optional<CommunityMpPlayerObservation> getLatestMovementHealthObservation(PacketGuid guid);
         static std::optional<CommunityMpClientStateObservation> getLatestStateObservation(PacketGuid guid);
         static std::optional<CommunityMpPlayerObservation> getLatestObservation(PacketGuid guid);
         static void clearPlayer(PacketGuid guid);
