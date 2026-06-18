@@ -3292,8 +3292,16 @@ namespace mwmp
         payload += std::to_string(runtimeFocusState.focusSuccessCount);
         payload += ",\"openMwRuntimeFocusFailureCount\":";
         payload += std::to_string(runtimeFocusState.focusFailureCount);
+        payload += ",\"openMwRuntimeFocusCatchupClampCount\":";
+        payload += std::to_string(runtimeFocusState.focusCatchupClampCount);
         payload += ",\"openMwRuntimeLastFocusCell\":";
         payload += jsonString(runtimeFocusState.lastCellDescription);
+        payload += ",\"openMwRuntimeLastFocusSimulationDeltaSeconds\":";
+        payload += std::to_string(runtimeFocusState.lastSimulationDeltaSeconds);
+        payload += ",\"openMwRuntimeLastFocusClockDeltaSeconds\":";
+        payload += std::to_string(runtimeFocusState.lastClockDeltaSeconds);
+        payload += ",\"openMwRuntimeLastFocusQueuedDeltaSeconds\":";
+        payload += std::to_string(runtimeFocusState.lastQueuedDeltaSeconds);
         payload += ",\"openMwRuntimeLastFocusHadPosition\":";
         payload += jsonBool(runtimeFocusState.lastFocusHadPosition);
         payload += ",\"openMwRuntimeLastFocusSucceeded\":";

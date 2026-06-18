@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -340,15 +341,26 @@ namespace
             mFocusState.configuredCellCount = mSimulationFocuses.size();
             if (mNextSimulationFocus >= mSimulationFocuses.size())
                 mNextSimulationFocus = 0;
+            pruneQueuedFocusDeltas();
         }
 
         void tick(float deltaSeconds) override
         {
-            if (mEngine != nullptr)
+            if (mEngine == nullptr)
+                return;
+
+            mFocusState.lastClockDeltaSeconds = deltaSeconds;
+            if (mSimulationFocuses.empty())
             {
-                focusNextSimulationCell();
                 static_cast<void>(mEngine->tickServerSimulation(deltaSeconds));
+                mFocusState.lastSimulationDeltaSeconds = deltaSeconds;
+                mFocusState.lastQueuedDeltaSeconds = deltaSeconds;
+                return;
             }
+
+            queueFocusElapsedTime(deltaSeconds);
+            const float simulationDeltaSeconds = focusNextSimulationCell(deltaSeconds);
+            static_cast<void>(mEngine->tickServerSimulation(simulationDeltaSeconds, deltaSeconds));
         }
 
         bool collectActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) override
@@ -366,31 +378,87 @@ namespace
         }
 
     private:
-        void focusNextSimulationCell()
+        static constexpr float maxQueuedSimulationDeltaSeconds = 0.2f;
+
+        static std::string focusDescription(const mwmp::SimulationCellFocus& focus)
+        {
+            return focus.cell.getDescription();
+        }
+
+        void pruneQueuedFocusDeltas()
+        {
+            std::set<std::string> activeFocuses;
+            for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
+            {
+                const std::string description = focusDescription(focus);
+                if (!description.empty())
+                    activeFocuses.insert(description);
+            }
+
+            for (auto it = mQueuedFocusDeltaSeconds.begin(); it != mQueuedFocusDeltaSeconds.end();)
+            {
+                if (activeFocuses.find(it->first) == activeFocuses.end())
+                    it = mQueuedFocusDeltaSeconds.erase(it);
+                else
+                    ++it;
+            }
+        }
+
+        void queueFocusElapsedTime(float deltaSeconds)
+        {
+            for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
+            {
+                const std::string description = focusDescription(focus);
+                if (!description.empty())
+                    mQueuedFocusDeltaSeconds[description] += deltaSeconds;
+            }
+        }
+
+        float focusNextSimulationCell(float fallbackDeltaSeconds)
         {
             if (mEngine == nullptr || mSimulationFocuses.empty())
-                return;
+                return fallbackDeltaSeconds;
 
             if (mNextSimulationFocus >= mSimulationFocuses.size())
                 mNextSimulationFocus = 0;
 
             const mwmp::SimulationCellFocus& focus = mSimulationFocuses[mNextSimulationFocus];
             mNextSimulationFocus = (mNextSimulationFocus + 1) % mSimulationFocuses.size();
+            const std::string description = focusDescription(focus);
+            const auto queuedIt = mQueuedFocusDeltaSeconds.find(description);
+            const float queuedDeltaSeconds = queuedIt != mQueuedFocusDeltaSeconds.end()
+                ? queuedIt->second
+                : fallbackDeltaSeconds;
+            const float simulationDeltaSeconds = std::min(queuedDeltaSeconds, maxQueuedSimulationDeltaSeconds);
 
             ++mFocusState.focusAttemptCount;
-            mFocusState.lastCellDescription = focus.cell.getDescription();
+            mFocusState.lastCellDescription = description;
             mFocusState.lastFocusHadPosition = focus.hasPosition;
             mFocusState.lastFocusSucceeded = mEngine->focusServerSimulationCell(
                 focus.cell, focus.hasPosition ? &focus.position : nullptr);
+            mFocusState.lastQueuedDeltaSeconds = queuedDeltaSeconds;
             if (mFocusState.lastFocusSucceeded)
+            {
                 ++mFocusState.focusSuccessCount;
+                mFocusState.lastSimulationDeltaSeconds = simulationDeltaSeconds;
+                if (queuedDeltaSeconds > maxQueuedSimulationDeltaSeconds)
+                    ++mFocusState.focusCatchupClampCount;
+                if (queuedIt != mQueuedFocusDeltaSeconds.end())
+                    queuedIt->second = 0.f;
+                return simulationDeltaSeconds;
+            }
             else
+            {
                 ++mFocusState.focusFailureCount;
+                mFocusState.lastSimulationDeltaSeconds = 0.f;
+                return 0.f;
+            }
         }
 
         std::unique_ptr<Files::ConfigurationManager> mCfgMgr;
         std::unique_ptr<OMW::Engine> mEngine;
         std::vector<mwmp::SimulationCellFocus> mSimulationFocuses;
+        std::map<std::string, float> mQueuedFocusDeltaSeconds;
         mwmp::SimulationRuntimeFocusState mFocusState;
         std::size_t mNextSimulationFocus = 0;
     };

@@ -1637,30 +1637,37 @@ void OMW::Engine::prepareServerSimulation()
 
 bool OMW::Engine::tickServerSimulation(float deltaSeconds)
 {
+    return tickServerSimulation(deltaSeconds, deltaSeconds);
+}
+
+bool OMW::Engine::tickServerSimulation(float simulationDeltaSeconds, float clockDeltaSeconds)
+{
     if (!mServerSimulationPrepared || mViewer == nullptr || mStateManager == nullptr || mWorld == nullptr
         || mStateManager->hasQuitRequest())
         return false;
 
     constexpr float maxSimulationInterval = 0.2f;
-    const float clampedDeltaSeconds = std::clamp(deltaSeconds, 0.f, maxSimulationInterval);
+    const float clampedSimulationDeltaSeconds = std::clamp(simulationDeltaSeconds, 0.f, maxSimulationInterval);
+    const float clampedClockDeltaSeconds = std::clamp(clockDeltaSeconds, 0.f, maxSimulationInterval);
 
     MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
-    const double dt = clampedDeltaSeconds * timeManager.getSimulationTimeScale();
+    const double simulationDt = clampedSimulationDeltaSeconds * timeManager.getSimulationTimeScale();
+    const double clockDt = clampedClockDeltaSeconds * timeManager.getSimulationTimeScale();
 
     mViewer->advance(timeManager.getRenderingSimulationTime());
 
     const unsigned frameNumber = mViewer->getFrameStamp()->getFrameNumber();
 
     neutralizeServerSimulationPlayer();
-    if (!frame(frameNumber, static_cast<float>(dt)))
+    if (!frame(frameNumber, static_cast<float>(simulationDt)))
         return false;
     neutralizeServerSimulationPlayer();
 
     timeManager.updateIsPaused();
     if (!timeManager.isPaused())
     {
-        timeManager.setSimulationTime(timeManager.getSimulationTime() + dt);
-        timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + dt);
+        timeManager.setSimulationTime(timeManager.getSimulationTime() + clockDt);
+        timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + clockDt);
     }
 
     return true;

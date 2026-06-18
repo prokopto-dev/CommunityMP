@@ -269,6 +269,7 @@ namespace OMW
 
         /// Advance one server-owned OpenMW simulation frame.
         bool tickServerSimulation(float deltaSeconds);
+        bool tickServerSimulation(float simulationDeltaSeconds, float clockDeltaSeconds);
 
         /// Move the server-owned OpenMW simulation scene to the requested cell.
         bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr);
