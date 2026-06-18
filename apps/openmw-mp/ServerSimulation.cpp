@@ -172,6 +172,24 @@ namespace
         return "unknown";
     }
 
+    const char* cellSimulationAuthorityMode(bool serverActorAuthority)
+    {
+        return serverActorAuthority ? "server-simulation" : "client-snapshot-reporter";
+    }
+
+    const char* cellSimulationOwner(bool serverActorAuthority)
+    {
+        return serverActorAuthority ? "server" : "client-snapshot-fallback";
+    }
+
+    const char* localClientCellRole(bool serverActorAuthority, bool isSnapshotReporter)
+    {
+        if (serverActorAuthority)
+            return "renderer";
+
+        return isSnapshotReporter ? "snapshot-reporter" : "observer";
+    }
+
     void appendJsonFloat(std::string& result, float value)
     {
         if (std::isfinite(value))
@@ -1801,7 +1819,7 @@ namespace mwmp
                 state.authority = mwmp::unassignedPacketGuid();
                 clearLiveCellActorAuthority(it->first, "final visitor disconnected");
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                    "Cleared C++ shadow authority of cell %s because its final visitor disconnected",
+                    "Cleared C++ snapshot reporter for cell %s because its final visitor disconnected",
                     it->first.c_str());
                 it = mShadowCellAuthority.erase(it);
                 continue;
@@ -1892,7 +1910,7 @@ namespace mwmp
             clearLiveCellActorAuthority(cellDescription, "no valid visitors remain");
             sendCellActivityEvent(*player, cellDescription, state, false);
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Cleared C++ shadow authority of cell %s because no valid visitors remain", cellDescription.c_str());
+                "Cleared C++ snapshot reporter for cell %s because no valid visitors remain", cellDescription.c_str());
             mShadowCellAuthority.erase(stateIt);
             return;
         }
@@ -1921,7 +1939,7 @@ namespace mwmp
             if (shadowAuthority || shadowVisitorCount > 0)
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
-                    "C++ shadow authority for cell %s has %zu visitor(s) and authority %s after %s, but no live "
+                    "C++ snapshot reporter for cell %s has %zu visitor(s) and reporter %s after %s, but no live "
                     "server cell was found",
                     cellDescription.c_str(), shadowVisitorCount, shadowAuthorityAuditName(shadowAuthority).c_str(),
                     context != nullptr ? context : "cell event");
@@ -1936,7 +1954,7 @@ namespace mwmp
             return;
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
-            "C++ shadow authority mismatch for cell %s after %s: shadow=%s live=%s visitors=%zu",
+            "C++ snapshot reporter mismatch for cell %s after %s: shadow=%s liveCellAuthority=%s visitors=%zu",
             cellDescription.c_str(), context != nullptr ? context : "cell event",
             shadowAuthorityAuditName(shadowAuthority).c_str(), shadowAuthorityAuditName(liveAuthority).c_str(),
             shadowVisitorCount);
@@ -2056,7 +2074,7 @@ namespace mwmp
             if (mwmp::isPacketGuidAssigned(state.authority))
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                    "Cleared C++ shadow authority of cell %s because no valid visitors remain",
+                    "Cleared C++ snapshot reporter for cell %s because no valid visitors remain",
                     cellDescription.c_str());
             }
             state.authority = mwmp::unassignedPacketGuid();
@@ -2070,7 +2088,7 @@ namespace mwmp
         if (authorityChanged)
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Assigning C++ shadow authority of cell %s to %s because %s",
+                "Assigning C++ snapshot reporter for cell %s to %s because %s",
                 cellDescription.c_str(), shadowAuthorityName(newAuthority).c_str(),
                 reason != nullptr ? reason : "authority was refreshed");
         }
@@ -2143,7 +2161,7 @@ namespace mwmp
         actorPacket->Send(true);
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-            "Applied C++ client actor authority of cell %s to %s%s",
+            "Applied C++ client snapshot reporter for cell %s to %s%s",
             cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
             forceBroadcast && !authorityChanged ? " for joining visitor" : "");
 
@@ -2193,7 +2211,7 @@ namespace mwmp
         actorPacket->Send(state.authority);
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-            "Requested C++ actor list snapshot for cell %s from %s because %s",
+            "Requested C++ actor list snapshot for cell %s from snapshot reporter %s because %s",
             cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
             reason != nullptr ? reason : "the authority needs to refresh server state");
         return true;
@@ -2209,6 +2227,7 @@ namespace mwmp
         const bool isAuthority = hasAuthority && state.authority == player.guid;
         const std::string authorityGuid = hasAuthority ? mwmp::packetGuidToString(state.authority) : "";
         const std::string authorityName = hasAuthority ? shadowAuthorityName(state.authority) : "";
+        const bool serverActorAuthority = canAuthoritativelySimulateActors();
         const Cell* serverCell = findLoadedServerCellByDescription(cellDescription);
         const std::string cellKey = serverCell != nullptr ? getLuaCellKey(serverCell->getCellData()) : "";
         const std::string serverCellKey = serverCell != nullptr ? getCellSimulationKey(serverCell->getCellData()) : "";
@@ -2228,19 +2247,31 @@ namespace mwmp
         payload += jsonString(authorityGuid);
         payload += ",\"authorityName\":";
         payload += jsonString(authorityName);
+        payload += ",\"snapshotReporterGuid\":";
+        payload += jsonString(authorityGuid);
+        payload += ",\"snapshotReporterName\":";
+        payload += jsonString(authorityName);
+        payload += ",\"authorityMode\":";
+        payload += jsonString(cellSimulationAuthorityMode(serverActorAuthority));
+        payload += ",\"simulationOwner\":";
+        payload += jsonString(cellSimulationOwner(serverActorAuthority));
+        payload += ",\"clientRole\":";
+        payload += jsonString(localClientCellRole(serverActorAuthority, isAuthority));
+        payload += ",\"serverOwnsSimulation\":";
+        payload += jsonBool(serverActorAuthority);
         payload += ",\"isAuthority\":";
         payload += jsonBool(isAuthority);
         payload += ",\"visitorCount\":";
         payload += std::to_string(state.visitors.size());
         payload += ",\"serverActorAuthority\":";
-        payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += jsonBool(serverActorAuthority);
         payload += "}";
 
         if (!CommunityMpLuaEventSender::sendToPlayer(
                 player, "communitymp.server", "cell_authority", std::move(payload)))
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
-                "Failed to send C++ shadow authority event for cell %s to %s",
+                "Failed to send C++ snapshot reporter event for cell %s to %s",
                 cellDescription.c_str(), player.npc.mName.c_str());
         }
     }
@@ -2461,6 +2492,7 @@ namespace mwmp
         const std::string cellKey = serverCell != nullptr ? getLuaCellKey(serverCell->getCellData()) : "";
         const std::string serverCellKey = serverCell != nullptr ? getCellSimulationKey(serverCell->getCellData()) : "";
         const bool simulationInterest = serverCell != nullptr && serverCell->hasSimulationInterest();
+        const bool serverActorAuthority = canAuthoritativelySimulateActors();
         const Cell::ServerWorldBootstrapStats* serverWorldStats = nullptr;
         if (serverCell != nullptr && serverCell->hasServerWorldStateBootstrap())
             serverWorldStats = &serverCell->getServerWorldBootstrapStats();
@@ -2565,8 +2597,14 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->doorCount : 0);
         payload += ",\"serverWorldUnresolvedReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->unresolvedCount : 0);
+        payload += ",\"authorityMode\":";
+        payload += jsonString(cellSimulationAuthorityMode(serverActorAuthority));
+        payload += ",\"simulationOwner\":";
+        payload += jsonString(cellSimulationOwner(serverActorAuthority));
+        payload += ",\"serverOwnsSimulation\":";
+        payload += jsonBool(serverActorAuthority);
         payload += ",\"serverActorAuthority\":";
-        payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += jsonBool(serverActorAuthority);
         payload += ",\"runtimeRequested\":";
         payload += jsonString(runtime().requestedName());
         payload += ",\"runtimeActive\":";
@@ -2598,6 +2636,7 @@ namespace mwmp
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
         const SimulationRuntimeTopology& runtimeTopology = runtime().topology();
         const SimulationRuntimeBootstrap& runtimeBootstrap = runtime().bootstrap();
+        const bool serverActorAuthority = canAuthoritativelySimulateActors();
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
         const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
         const ServerContentDatabaseStatistics serverContentDatabase = ServerContentDatabase::get().statistics();
@@ -2745,8 +2784,14 @@ namespace mwmp
         payload += jsonBool(runtime().hasOpenMwWorld());
         payload += ",\"canSimulateActors\":";
         payload += jsonBool(runtime().canSimulateActors());
+        payload += ",\"cellAuthorityMode\":";
+        payload += jsonString(cellSimulationAuthorityMode(serverActorAuthority));
+        payload += ",\"simulationOwner\":";
+        payload += jsonString(cellSimulationOwner(serverActorAuthority));
+        payload += ",\"serverOwnsSimulation\":";
+        payload += jsonBool(serverActorAuthority);
         payload += ",\"serverActorAuthority\":";
-        payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += jsonBool(serverActorAuthority);
         payload += ",\"serverActorAuthorityBlockedBy\":";
         payload += jsonString(authorityBlockReason);
         payload += ",\"serverActorPathgridRouteCacheCount\":";

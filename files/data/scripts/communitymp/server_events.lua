@@ -271,6 +271,37 @@ local function storeCellAuthority(state)
     end
 
     local copy = shallowCopy(state)
+    if type(copy.snapshotReporterGuid) ~= 'string' or copy.snapshotReporterGuid == '' then
+        copy.snapshotReporterGuid = copy.authorityGuid
+    end
+    if type(copy.snapshotReporterName) ~= 'string' or copy.snapshotReporterName == '' then
+        copy.snapshotReporterName = copy.authorityName
+    end
+    if type(copy.authorityMode) ~= 'string' or copy.authorityMode == '' then
+        if copy.serverActorAuthority == true then
+            copy.authorityMode = 'server-simulation'
+        elseif type(copy.snapshotReporterGuid) == 'string' and copy.snapshotReporterGuid ~= '' then
+            copy.authorityMode = 'client-snapshot-reporter'
+        else
+            copy.authorityMode = 'none'
+        end
+    end
+    if type(copy.simulationOwner) ~= 'string' or copy.simulationOwner == '' then
+        copy.simulationOwner = copy.serverActorAuthority == true and 'server' or 'client-snapshot-fallback'
+    end
+    if copy.serverOwnsSimulation == nil then
+        copy.serverOwnsSimulation = copy.serverActorAuthority == true
+    end
+    if type(copy.clientRole) ~= 'string' or copy.clientRole == '' then
+        if copy.serverActorAuthority == true then
+            copy.clientRole = 'renderer'
+        elseif copy.isAuthority == true then
+            copy.clientRole = 'snapshot-reporter'
+        else
+            copy.clientRole = 'observer'
+        end
+    end
+
     local cellDescription = copy.cellDescription
     if type(cellDescription) == 'string' and cellDescription ~= '' then
         cellAuthorityByDescription[cellDescription] = copy
@@ -293,6 +324,16 @@ local function storeCellActivity(state)
     end
 
     local copy = shallowCopy(state)
+    if type(copy.authorityMode) ~= 'string' or copy.authorityMode == '' then
+        copy.authorityMode = copy.serverActorAuthority == true and 'server-simulation' or 'client-snapshot-reporter'
+    end
+    if type(copy.simulationOwner) ~= 'string' or copy.simulationOwner == '' then
+        copy.simulationOwner = copy.serverActorAuthority == true and 'server' or 'client-snapshot-fallback'
+    end
+    if copy.serverOwnsSimulation == nil then
+        copy.serverOwnsSimulation = copy.serverActorAuthority == true
+    end
+
     local cellDescription = copy.cellDescription
     if type(cellDescription) == 'string' and cellDescription ~= '' then
         cellActivityByDescription[cellDescription] = copy
@@ -318,6 +359,19 @@ local function getCellAuthority(cellOrDescription)
     end
 
     return nil
+end
+
+local function getCellSnapshotReporter(cellOrDescription)
+    local state = getCellAuthority(cellOrDescription)
+    if state == nil then
+        return nil
+    end
+
+    if type(state.snapshotReporterGuid) ~= 'string' or state.snapshotReporterGuid == '' then
+        return nil
+    end
+
+    return state
 end
 
 local function getCellActivity(cellOrDescription)
@@ -782,6 +836,8 @@ return {
         end,
         getCellAuthority = getCellAuthority,
         getCellAuthorityForCell = getCellAuthority,
+        getCellSnapshotReporter = getCellSnapshotReporter,
+        getCellSnapshotReporterForCell = getCellSnapshotReporter,
         getCellActivity = getCellActivity,
         getCellActivityForCell = getCellActivity,
         isCellActive = function(cellOrDescription)
@@ -795,6 +851,32 @@ return {
         isLocalCellAuthority = function(cellOrDescription)
             local state = getCellAuthority(cellOrDescription)
             return state ~= nil and state.isAuthority == true
+        end,
+        isLocalCellSnapshotReporter = function(cellOrDescription)
+            local state = getCellSnapshotReporter(cellOrDescription)
+            return state ~= nil and state.clientRole == 'snapshot-reporter'
+        end,
+        getCellSimulationOwner = function(cellOrDescription)
+            local state = getCellAuthority(cellOrDescription)
+            if state ~= nil and type(state.simulationOwner) == 'string' then
+                return state.simulationOwner
+            end
+
+            local activity = getCellActivity(cellOrDescription)
+            if activity ~= nil and type(activity.simulationOwner) == 'string' then
+                return activity.simulationOwner
+            end
+
+            return nil
+        end,
+        isServerCellSimulationOwner = function(cellOrDescription)
+            local state = getCellAuthority(cellOrDescription)
+            if state ~= nil and state.serverOwnsSimulation == true then
+                return true
+            end
+
+            local activity = getCellActivity(cellOrDescription)
+            return activity ~= nil and activity.serverOwnsSimulation == true
         end,
     },
     engineHandlers = {
