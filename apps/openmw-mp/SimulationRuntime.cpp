@@ -282,6 +282,11 @@ namespace mwmp
         return mWorldState;
     }
 
+    const SimulationRuntimeFocusState& SimulationRuntime::focusState() const
+    {
+        return mFocusState;
+    }
+
     bool SimulationRuntime::hasOpenMwWorld() const
     {
         return mWorldState.prepared && mCapabilities.ownsWorldState && mCapabilities.resolvesCells;

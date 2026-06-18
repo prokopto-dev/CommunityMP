@@ -2,6 +2,7 @@
 #define OPENMW_MP_SIMULATIONRUNTIME_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -95,6 +96,17 @@ namespace mwmp
         std::string worldDatabaseFingerprint;
     };
 
+    struct SimulationRuntimeFocusState
+    {
+        std::size_t configuredCellCount = 0;
+        std::uint64_t focusAttemptCount = 0;
+        std::uint64_t focusSuccessCount = 0;
+        std::uint64_t focusFailureCount = 0;
+        std::string lastCellDescription;
+        bool lastFocusHadPosition = false;
+        bool lastFocusSucceeded = false;
+    };
+
     class SimulationRuntime
     {
     public:
@@ -118,6 +130,7 @@ namespace mwmp
         virtual const SimulationRuntimeTopology& topology() const;
         virtual const SimulationRuntimeBootstrap& bootstrap() const;
         virtual const SimulationRuntimeWorldState& worldState() const;
+        virtual const SimulationRuntimeFocusState& focusState() const;
 
         virtual bool hasOpenMwWorld() const;
         virtual bool hasPersistentWorld() const;
@@ -141,6 +154,7 @@ namespace mwmp
         SimulationRuntimeTopology mTopology;
         SimulationRuntimeBootstrap mBootstrap;
         SimulationRuntimeWorldState mWorldState;
+        SimulationRuntimeFocusState mFocusState;
     };
 
     using SimulationRuntimeFactory = std::unique_ptr<SimulationRuntime> (*)();

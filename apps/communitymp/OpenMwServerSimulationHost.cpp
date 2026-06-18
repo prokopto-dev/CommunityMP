@@ -309,6 +309,7 @@ namespace
         void setSimulationCellFocuses(const std::vector<mwmp::SimulationCellFocus>& focuses) override
         {
             mSimulationFocuses = focuses;
+            mFocusState.configuredCellCount = mSimulationFocuses.size();
             if (mNextSimulationFocus >= mSimulationFocuses.size())
                 mNextSimulationFocus = 0;
         }
@@ -331,6 +332,11 @@ namespace
             return !actorLists.empty();
         }
 
+        const mwmp::SimulationRuntimeFocusState& focusState() const override
+        {
+            return mFocusState;
+        }
+
     private:
         void focusNextSimulationCell()
         {
@@ -342,13 +348,22 @@ namespace
 
             const mwmp::SimulationCellFocus& focus = mSimulationFocuses[mNextSimulationFocus];
             mNextSimulationFocus = (mNextSimulationFocus + 1) % mSimulationFocuses.size();
-            static_cast<void>(mEngine->focusServerSimulationCell(
-                focus.cell, focus.hasPosition ? &focus.position : nullptr));
+
+            ++mFocusState.focusAttemptCount;
+            mFocusState.lastCellDescription = focus.cell.getDescription();
+            mFocusState.lastFocusHadPosition = focus.hasPosition;
+            mFocusState.lastFocusSucceeded = mEngine->focusServerSimulationCell(
+                focus.cell, focus.hasPosition ? &focus.position : nullptr);
+            if (mFocusState.lastFocusSucceeded)
+                ++mFocusState.focusSuccessCount;
+            else
+                ++mFocusState.focusFailureCount;
         }
 
         std::unique_ptr<Files::ConfigurationManager> mCfgMgr;
         std::unique_ptr<OMW::Engine> mEngine;
         std::vector<mwmp::SimulationCellFocus> mSimulationFocuses;
+        mwmp::SimulationRuntimeFocusState mFocusState;
         std::size_t mNextSimulationFocus = 0;
     };
 
