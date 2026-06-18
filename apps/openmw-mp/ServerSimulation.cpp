@@ -2429,6 +2429,70 @@ namespace mwmp
         return liveCell->hasSimulationInterest();
     }
 
+    bool ServerSimulation::ensurePlayerCurrentSimulationCell(Player& player, const char* reason)
+    {
+        if (!canAuthoritativelySimulateActors() || !mwmp::isPacketGuidAssigned(player.guid)
+            || player.getLoadState() == Player::KICKED)
+            return false;
+
+        const std::string cellDescription = player.cell.getDescription();
+        if (cellDescription.empty())
+            return false;
+
+        CellController* cellController = CellController::get();
+        if (cellController == nullptr)
+            return false;
+
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        if (liveCell == nullptr)
+            liveCell = cellController->addCell(player.cell);
+        if (liveCell == nullptr)
+            return false;
+
+        const auto stateIt = mShadowCellAuthority.find(cellDescription);
+        const bool stateTracksPlayer = stateIt != mShadowCellAuthority.end()
+            && containsGuid(stateIt->second.visitors, player.guid);
+        if (liveCell->hasPlayer(&player) && stateTracksPlayer)
+            return false;
+
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+            "Repairing server simulation interest for current player cell %s player=%s reason=%s",
+            cellDescription.c_str(), player.npc.mName.c_str(), reason != nullptr ? reason : "unspecified");
+
+        if (!liveCell->hasPlayer(&player))
+            liveCell->addPlayer(&player);
+        else
+            noteCellLoadedByPlayer(player.getId(), cellDescription);
+
+        return true;
+    }
+
+    void ServerSimulation::reconcileCurrentPlayerSimulationCells(RuntimeFocusSelectionStats& focusSelectionStats)
+    {
+        TPlayers* players = Players::getPlayers();
+        if (players == nullptr)
+            return;
+
+        for (const auto& [guid, player] : *players)
+        {
+            static_cast<void>(guid);
+            if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid)
+                || player->getLoadState() == Player::KICKED)
+                continue;
+
+            const std::string cellDescription = player->cell.getDescription();
+            if (cellDescription.empty())
+                continue;
+
+            ++focusSelectionStats.currentPlayerCellCount;
+            if (ensurePlayerCurrentSimulationCell(*player, "runtime focus reconciliation"))
+            {
+                ++focusSelectionStats.repairedCurrentPlayerCellCount;
+                focusSelectionStats.lastRepairedCurrentPlayerCellDescription = cellDescription;
+            }
+        }
+    }
+
     void ServerSimulation::updateRuntimeSimulationCells()
     {
         if (mRuntime == nullptr || !canAuthoritativelySimulateActors())
@@ -2465,6 +2529,7 @@ namespace mwmp
         std::set<std::string> focusedCellDescriptions;
         std::set<std::string> deferredLoadedCellDescriptions;
         RuntimeFocusSelectionStats focusSelectionStats;
+        reconcileCurrentPlayerSimulationCells(focusSelectionStats);
         for (const auto& [cellDescription, state] : mShadowCellAuthority)
         {
             if (state.visitors.empty() || !state.hasCell)
@@ -3213,8 +3278,14 @@ namespace mwmp
         payload += std::to_string(mRuntimeFocusSelectionStats.deferredLoadedCellCount);
         payload += ",\"openMwRuntimeScriptFocusCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.scriptFocusCellCount);
+        payload += ",\"openMwRuntimeCurrentPlayerCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.currentPlayerCellCount);
+        payload += ",\"openMwRuntimeRepairedCurrentPlayerCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.repairedCurrentPlayerCellCount);
         payload += ",\"openMwRuntimeLastDeferredLoadedCell\":";
         payload += jsonString(mRuntimeFocusSelectionStats.lastDeferredLoadedCellDescription);
+        payload += ",\"openMwRuntimeLastRepairedCurrentPlayerCell\":";
+        payload += jsonString(mRuntimeFocusSelectionStats.lastRepairedCurrentPlayerCellDescription);
         payload += ",\"openMwRuntimeFocusAttemptCount\":";
         payload += std::to_string(runtimeFocusState.focusAttemptCount);
         payload += ",\"openMwRuntimeFocusSuccessCount\":";
@@ -4451,6 +4522,8 @@ namespace mwmp
 
         if (!acceptServerAuthoredPlayerState(player, true))
             return false;
+
+        static_cast<void>(ensurePlayerCurrentSimulationCell(player, "accepted player cell change"));
 
         if (hasPreviousAcceptedCell)
             moveFollowingActorsAcrossPlayerCellChange(player, previousAcceptedCell);

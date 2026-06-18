@@ -147,7 +147,10 @@ namespace mwmp
             std::size_t directFocusCellCount = 0;
             std::size_t deferredLoadedCellCount = 0;
             std::size_t scriptFocusCellCount = 0;
+            std::size_t currentPlayerCellCount = 0;
+            std::size_t repairedCurrentPlayerCellCount = 0;
             std::string lastDeferredLoadedCellDescription;
+            std::string lastRepairedCurrentPlayerCellDescription;
         };
 
         std::map<PacketGuid, PlayerMovementState> mPlayerMovementStates;
@@ -183,6 +186,8 @@ namespace mwmp
             const std::string& cellDescription, const ShadowCellAuthorityState& state) const;
         bool updateCellSimulationInterest(const std::string& cellDescription,
             const ShadowCellAuthorityState& state) const;
+        bool ensurePlayerCurrentSimulationCell(Player& player, const char* reason);
+        void reconcileCurrentPlayerSimulationCells(RuntimeFocusSelectionStats& focusSelectionStats);
         void updateRuntimeSimulationCells();
         void applyRuntimeActorSnapshots(const std::vector<BaseActorList>& actorLists, float deltaSeconds);
         bool shouldUseRuntimeFallbackMovement(const ActorMovementKey& actorKey,
