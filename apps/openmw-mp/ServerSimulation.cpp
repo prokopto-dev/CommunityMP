@@ -1798,6 +1798,8 @@ namespace mwmp
             if (state.visitors.empty())
             {
                 updateCellSimulationInterest(it->first, state);
+                state.authority = mwmp::unassignedPacketGuid();
+                clearLiveCellActorAuthority(it->first, "final visitor disconnected");
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                     "Cleared C++ shadow authority of cell %s because its final visitor disconnected",
                     it->first.c_str());
@@ -1844,6 +1846,8 @@ namespace mwmp
 
             broadcastCellActivityEvent(cellDescription, state);
             state.authority = mwmp::unassignedPacketGuid();
+            clearLiveCellActorAuthority(cellDescription, "server actor authority owns the cell");
+            broadcastShadowCellAuthorityEvent(cellDescription, state);
             return;
         }
 
@@ -1884,6 +1888,8 @@ namespace mwmp
         if (state.visitors.empty())
         {
             updateCellSimulationInterest(cellDescription, state);
+            state.authority = mwmp::unassignedPacketGuid();
+            clearLiveCellActorAuthority(cellDescription, "no valid visitors remain");
             sendCellActivityEvent(*player, cellDescription, state, false);
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                 "Cleared C++ shadow authority of cell %s because no valid visitors remain", cellDescription.c_str());
@@ -2032,7 +2038,8 @@ namespace mwmp
         {
             const bool wasAssigned = mwmp::isPacketGuidAssigned(state.authority);
             state.authority = mwmp::unassignedPacketGuid();
-            if (wasAssigned)
+            const bool liveCleared = clearLiveCellActorAuthority(cellDescription, "server actor authority owns the cell");
+            if (wasAssigned || liveCleared)
                 broadcastShadowCellAuthorityEvent(cellDescription, state);
             return state.authority;
         }
@@ -2045,6 +2052,7 @@ namespace mwmp
 
         if (!mwmp::isPacketGuidAssigned(newAuthority))
         {
+            const bool wasAssigned = mwmp::isPacketGuidAssigned(state.authority);
             if (mwmp::isPacketGuidAssigned(state.authority))
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
@@ -2052,7 +2060,9 @@ namespace mwmp
                     cellDescription.c_str());
             }
             state.authority = mwmp::unassignedPacketGuid();
-            broadcastShadowCellAuthorityEvent(cellDescription, state);
+            const bool liveCleared = clearLiveCellActorAuthority(cellDescription, "no valid authority candidate remains");
+            if (wasAssigned || liveCleared)
+                broadcastShadowCellAuthorityEvent(cellDescription, state);
             return state.authority;
         }
 
@@ -2072,6 +2082,24 @@ namespace mwmp
             broadcastShadowCellAuthorityEvent(cellDescription, state);
         }
         return state.authority;
+    }
+
+    bool ServerSimulation::clearLiveCellActorAuthority(const std::string& cellDescription, const char* reason) const
+    {
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        if (liveCell == nullptr)
+            return false;
+
+        const PacketGuid previousAuthority = *liveCell->getAuthority();
+        if (!mwmp::isPacketGuidAssigned(previousAuthority))
+            return false;
+
+        liveCell->setAuthority(mwmp::unassignedPacketGuid());
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+            "Cleared live actor authority of cell %s from %s because %s",
+            cellDescription.c_str(), shadowAuthorityName(previousAuthority).c_str(),
+            reason != nullptr ? reason : "authority was cleared");
+        return true;
     }
 
     bool ServerSimulation::applyShadowCellAuthorityToLiveCell(const std::string& cellDescription,
