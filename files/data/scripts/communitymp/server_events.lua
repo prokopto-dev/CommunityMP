@@ -18,6 +18,7 @@ local latestMovementCorrection = nil
 local latestPlayerPacketDecisionByPacket = {}
 local latestQuestState = nil
 local latestQuestDialogueEvaluation = nil
+local latestQuestDialogueChoice = nil
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -76,6 +77,19 @@ local questDialogueEvaluationStats = {
     plannedTopicEffects = 0,
     plannedUnsupportedEffects = 0,
     unsupportedEffectCommandCount = 0,
+}
+local questDialogueChoiceStats = {
+    received = 0,
+    responseCount = 0,
+    authoritativeCandidates = 0,
+    fullyExecutable = 0,
+    authoritativeApplyEnabled = false,
+    applied = 0,
+    plannedJournalEffects = 0,
+    plannedTopicEffects = 0,
+    plannedUnsupportedEffects = 0,
+    appliedEffects = 0,
+    skippedDuplicateEffects = 0,
 }
 
 local function shallowCopy(value)
@@ -145,6 +159,10 @@ end
 
 local function copyQuestDialogueEvaluationStats()
     return shallowCopy(questDialogueEvaluationStats)
+end
+
+local function copyQuestDialogueChoiceStats()
+    return shallowCopy(questDialogueChoiceStats)
 end
 
 local function updateSequenceStats(event)
@@ -545,6 +563,25 @@ local function storeQuestDialogueEvaluation(state)
     end
 end
 
+local function storeQuestDialogueChoice(state)
+    if type(state) ~= 'table' then
+        return
+    end
+
+    latestQuestDialogueChoice = deepCopy(state)
+    questDialogueChoiceStats.received = questDialogueChoiceStats.received + 1
+    questDialogueChoiceStats.responseCount = tonumber(state.responseCount or 0) or 0
+    questDialogueChoiceStats.authoritativeCandidates = tonumber(state.authoritativeCandidates or 0) or 0
+    questDialogueChoiceStats.fullyExecutable = state.selectedFullyExecutable == true and 1 or 0
+    questDialogueChoiceStats.authoritativeApplyEnabled = state.authoritativeApplyEnabled == true
+    questDialogueChoiceStats.applied = state.applied == true and 1 or 0
+    questDialogueChoiceStats.plannedJournalEffects = tonumber(state.plannedJournalEffects or 0) or 0
+    questDialogueChoiceStats.plannedTopicEffects = tonumber(state.plannedTopicEffects or 0) or 0
+    questDialogueChoiceStats.plannedUnsupportedEffects = tonumber(state.plannedUnsupportedEffects or 0) or 0
+    questDialogueChoiceStats.appliedEffects = tonumber(state.appliedEffects or 0) or 0
+    questDialogueChoiceStats.skippedDuplicateEffects = tonumber(state.skippedDuplicateEffects or 0) or 0
+end
+
 local function getRuntimeStatus()
     if runtimeStatus == nil then
         return nil
@@ -635,6 +672,8 @@ local function dispatchServerEvent(event)
         storeQuestState(event.decodedPayload)
     elseif event.serverEventName == 'quest_dialogue_evaluation' and type(event.decodedPayload) == 'table' then
         storeQuestDialogueEvaluation(event.decodedPayload)
+    elseif event.serverEventName == 'quest_dialogue_choice' and type(event.decodedPayload) == 'table' then
+        storeQuestDialogueChoice(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -690,6 +729,13 @@ return {
             return deepCopy(latestQuestDialogueEvaluation)
         end,
         getQuestDialogueEvaluationStats = copyQuestDialogueEvaluationStats,
+        getQuestDialogueChoice = function()
+            if latestQuestDialogueChoice == nil then
+                return nil
+            end
+            return deepCopy(latestQuestDialogueChoice)
+        end,
+        getQuestDialogueChoiceStats = copyQuestDialogueChoiceStats,
         getRuntimeStatus = getRuntimeStatus,
         getRuntimeCapabilities = function()
             local state = getRuntimeStatus()
