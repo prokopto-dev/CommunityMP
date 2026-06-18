@@ -265,7 +265,7 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
     const bool enforceDataFiles = Settings::Manager::getOrDefault<bool>("enforceDataFiles", "General", true);
     const bool ignoreScriptErrors = Settings::Manager::getOrDefault<bool>("ignoreScriptErrors", "General", false);
     const bool requireOpenMwServerSimulation
-        = Settings::Manager::getOrDefault<bool>("requireOpenMwServerSimulation", "General", true);
+        = Settings::Manager::getOrDefault<bool>("requireOpenMwServerSimulation", "General", false);
 
     std::string pluginHome = mgr.getString("home", "Plugins");
     std::filesystem::path pluginHomePath = Files::pathFromUnicodeString(pluginHome);

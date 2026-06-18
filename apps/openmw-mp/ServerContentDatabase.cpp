@@ -126,42 +126,118 @@ namespace
     void appendJsonString(std::string& result, std::string_view value)
     {
         constexpr char hex[] = "0123456789abcdef";
+        const auto appendByteEscape = [&](const unsigned char c) {
+            result += "\\u00";
+            result.push_back(hex[(c >> 4) & 0x0f]);
+            result.push_back(hex[c & 0x0f]);
+        };
+        const auto isContinuation = [](const unsigned char c) {
+            return (c & 0xc0) == 0x80;
+        };
+        const auto utf8SequenceLength = [](const unsigned char c) -> std::size_t {
+            if (c < 0x80)
+                return 1;
+            if (c >= 0xc2 && c <= 0xdf)
+                return 2;
+            if (c >= 0xe0 && c <= 0xef)
+                return 3;
+            if (c >= 0xf0 && c <= 0xf4)
+                return 4;
+            return 0;
+        };
+        const auto isValidUtf8Sequence = [&](const std::size_t offset, const std::size_t length) {
+            if (offset + length > value.size())
+                return false;
+
+            const unsigned char first = static_cast<unsigned char>(value[offset]);
+            if (length == 1)
+                return first < 0x80;
+
+            const unsigned char second = static_cast<unsigned char>(value[offset + 1]);
+            if (!isContinuation(second))
+                return false;
+            if (length == 3)
+            {
+                if (!isContinuation(static_cast<unsigned char>(value[offset + 2])))
+                    return false;
+                if (first == 0xe0 && second < 0xa0)
+                    return false;
+                if (first == 0xed && second >= 0xa0)
+                    return false;
+            }
+            else if (length == 4)
+            {
+                if (!isContinuation(static_cast<unsigned char>(value[offset + 2]))
+                    || !isContinuation(static_cast<unsigned char>(value[offset + 3])))
+                    return false;
+                if (first == 0xf0 && second < 0x90)
+                    return false;
+                if (first == 0xf4 && second > 0x8f)
+                    return false;
+            }
+
+            return length == 2 || length == 3 || length == 4;
+        };
 
         result.push_back('"');
-        for (const unsigned char c : value)
+        for (std::size_t i = 0; i < value.size();)
         {
+            const unsigned char c = static_cast<unsigned char>(value[i]);
             switch (c)
             {
                 case '"':
                     result += "\\\"";
+                    ++i;
                     break;
                 case '\\':
                     result += "\\\\";
+                    ++i;
                     break;
                 case '\b':
                     result += "\\b";
+                    ++i;
                     break;
                 case '\f':
                     result += "\\f";
+                    ++i;
                     break;
                 case '\n':
                     result += "\\n";
+                    ++i;
                     break;
                 case '\r':
                     result += "\\r";
+                    ++i;
                     break;
                 case '\t':
                     result += "\\t";
+                    ++i;
                     break;
                 default:
                     if (c < 0x20)
                     {
-                        result += "\\u00";
-                        result.push_back(hex[(c >> 4) & 0x0f]);
-                        result.push_back(hex[c & 0x0f]);
+                        appendByteEscape(c);
+                        ++i;
+                    }
+                    else if (c < 0x80)
+                    {
+                        result.push_back(static_cast<char>(c));
+                        ++i;
                     }
                     else
-                        result.push_back(static_cast<char>(c));
+                    {
+                        const std::size_t length = utf8SequenceLength(c);
+                        if (length != 0 && isValidUtf8Sequence(i, length))
+                        {
+                            result.append(value.substr(i, length));
+                            i += length;
+                        }
+                        else
+                        {
+                            appendByteEscape(c);
+                            ++i;
+                        }
+                    }
             }
         }
         result.push_back('"');
@@ -2373,9 +2449,11 @@ namespace
     }
 
     RecordIndexTables buildRecordIndexTablesJsonl(const std::vector<std::filesystem::path>& dataDirs,
-        const std::vector<std::string>& contentFiles, mwmp::ServerContentDatabaseStatistics& stats)
+        const std::vector<std::string>& contentFiles, const std::string& encoding,
+        mwmp::ServerContentDatabaseStatistics& stats)
     {
         Files::Collections collections(dataDirs);
+        ToUTF8::Utf8Encoder encoder(ToUTF8::calculateEncoding(encoding));
         RecordIndexTables result;
         result.recordIndexJsonl.reserve(contentFiles.size() * 2048);
         result.recordWinnersJsonl.reserve(contentFiles.size() * 1024);
@@ -2394,6 +2472,7 @@ namespace
             try
             {
                 ESM::ESMReader esm;
+                esm.setEncoder(&encoder);
                 esm.setIndex(static_cast<int>(engineContentIndex));
                 esm.open(collections.getPath(contentFile));
 
@@ -4099,7 +4178,8 @@ namespace mwmp
             const std::string assetProvidersJsonl = buildAssetProvidersJsonl(dataDirs, archives, newStats);
             const std::string archiveFilesJsonl = buildArchiveFilesJsonl(dataDirs, archives, encoding, newStats);
             const std::string resolvedAssetsJsonl = buildResolvedAssetsJsonl(dataDirs, archives, encoding, newStats);
-            const RecordIndexTables recordIndexTables = buildRecordIndexTablesJsonl(dataDirs, contentFiles, newStats);
+            const RecordIndexTables recordIndexTables
+                = buildRecordIndexTablesJsonl(dataDirs, contentFiles, encoding, newStats);
             const CellWorldTables cellWorldTables = buildCellWorldTablesJsonl(dataDirs, contentFiles, encoding, newStats);
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb

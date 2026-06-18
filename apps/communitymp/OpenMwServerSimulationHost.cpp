@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <set>
@@ -82,6 +83,36 @@ namespace
             return static_cast<char>(std::tolower(c));
         });
         return value;
+    }
+
+    bool isTruthyRuntimeToggle(std::string value)
+    {
+        value = normalizeContentName(std::move(value));
+        return value == "1" || value == "true" || value == "yes" || value == "on"
+            || value == "openmw" || value == "openmw-headless";
+    }
+
+    bool isFalseRuntimeToggle(std::string value)
+    {
+        value = normalizeContentName(std::move(value));
+        return value == "0" || value == "false" || value == "no" || value == "off"
+            || value == "packet-mirror" || value == "mirror";
+    }
+
+    bool shouldAttemptHeadlessOpenMwRuntime()
+    {
+        if (const char* runtime = std::getenv("COMMUNITYMP_RUNTIME"))
+        {
+            if (isTruthyRuntimeToggle(runtime))
+                return true;
+            if (isFalseRuntimeToggle(runtime))
+                return false;
+        }
+
+        if (const char* enabled = std::getenv("COMMUNITYMP_ENABLE_HEADLESS_OPENMW"))
+            return isTruthyRuntimeToggle(enabled);
+
+        return false;
     }
 
     std::set<std::string> getServerContentNames()
@@ -323,8 +354,14 @@ namespace communitymp
         mwmp::SimulationRuntimeBootstrap bootstrap = buildOpenMwBootstrap(engineArguments);
         std::unique_ptr<Files::ConfigurationManager> cfgMgr;
         std::unique_ptr<OMW::Engine> engine;
+        const bool attemptHeadlessOpenMwRuntime = shouldAttemptHeadlessOpenMwRuntime();
 
-        if (bootstrap.blockedBy.empty() || bootstrap.blockedBy == "headless-openmw-engine-not-created")
+        if (!attemptHeadlessOpenMwRuntime
+            && (bootstrap.blockedBy.empty() || bootstrap.blockedBy == "headless-openmw-engine-not-created"))
+            bootstrap.blockedBy = "openmw-headless-runtime-disabled";
+
+        if (attemptHeadlessOpenMwRuntime
+            && (bootstrap.blockedBy.empty() || bootstrap.blockedBy == "headless-openmw-engine-not-created"))
         {
             try
             {

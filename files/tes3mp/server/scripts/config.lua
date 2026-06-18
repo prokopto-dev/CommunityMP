@@ -251,10 +251,12 @@ config.allowCellAuthorityTransferForLowerPing = false
 
 -- Whether NPC/creature movement, AI and combat should run from server-owned
 -- OpenMW simulation instead of client-side OpenMW AI observation.
-config.serverAuthoritativeActors = true
+-- Keep this off until the headless OpenMW runtime is explicitly enabled and
+-- ready to own actors without falling back to client-observed cell authority.
+config.serverAuthoritativeActors = false
 
--- The C++ server simulation owns actor authority during the v2.0 cutover.
--- Legacy Lua should not emit client authority packets in this mode.
+-- Set this true only when native C++ actor snapshots are ready to replace
+-- Lua's legacy client authority packets for cells.
 config.cppClientActorAuthority = false
 
 -- Which numerical IDs should be used by custom menus implemented in the Lua scripts,
