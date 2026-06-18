@@ -13,6 +13,7 @@
 #include <boost/property_tree/ptree.hpp>
 
 #include <components/files/conversion.hpp>
+#include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 
 namespace
@@ -21,6 +22,7 @@ namespace
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr std::string_view actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
+    constexpr std::string_view actorEquipmentRowSchema = "communitymp.worlddb.actor-equipment.v1";
     constexpr std::string_view containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
     constexpr std::string_view cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
     constexpr std::string_view cellReferenceWinnerRowSchema = "communitymp.worlddb.cell-reference-winner.v1";
@@ -345,6 +347,7 @@ namespace mwmp
         mRecordWinnersByWinnerKey.clear();
         mRecordWinnerKeysByRecordKey.clear();
         mActorInventoryByRecordKey.clear();
+        mActorEquipmentByRecordKey.clear();
         mContainerInventoryByRecordKey.clear();
         mCellsByKey.clear();
         mReferencesByKey.clear();
@@ -420,6 +423,8 @@ namespace mwmp
                     winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
                     winner.actorInventoryImported = getBool(row, "actorInventoryImported");
                     winner.actorInventoryItemCount = getSizeT(row, "actorInventoryItemCount");
+                    winner.actorEquipmentImported = getBool(row, "actorEquipmentImported");
+                    winner.actorEquipmentItemCount = getSizeT(row, "actorEquipmentItemCount");
                     winner.containerInventoryImported = getBool(row, "containerInventoryImported");
                     winner.containerInventoryItemCount = getSizeT(row, "containerInventoryItemCount");
 
@@ -428,6 +433,8 @@ namespace mwmp
                         ++mStats.recordWinnerDeletedCount;
                     if (!deletedWinner && winner.actorInventoryImported && !winner.recordKey.empty())
                         ++mStats.actorInventoryRecordCount;
+                    if (!deletedWinner && winner.actorEquipmentImported && !winner.recordKey.empty())
+                        ++mStats.actorEquipmentRecordCount;
                     if (!deletedWinner && winner.containerInventoryImported && !winner.recordKey.empty())
                         ++mStats.containerInventoryRecordCount;
 
@@ -462,6 +469,38 @@ namespace mwmp
                     [](const WorldActorInventoryItem& left, const WorldActorInventoryItem& right) {
                         if (left.itemOrder != right.itemOrder)
                             return left.itemOrder < right.itemOrder;
+                        if (left.itemRefId != right.itemRefId)
+                            return left.itemRefId < right.itemRefId;
+                        return left.count < right.count;
+                    });
+            }
+
+            mStats.actorEquipmentItemCount = readJsonlTable(root, "actor_equipment.jsonl",
+                actorEquipmentRowSchema, [&](const boost::property_tree::ptree& row) {
+                    WorldActorEquipmentItem item;
+                    item.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    item.recordId = getString(row, "recordId");
+                    item.sourceFile = getString(row, "sourceFile");
+                    item.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    item.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    item.recordIndex = getSizeT(row, "recordIndex");
+                    item.slot = getInt(row, "slot", -1);
+                    item.itemRefId = getString(row, "itemRefId");
+                    item.count = getInt(row, "count");
+                    item.charge = getInt(row, "charge", -1);
+                    item.enchantmentCharge = getFloat(row, "enchantmentCharge", -1.f);
+
+                    if (!item.recordKey.empty() && !item.itemRefId.empty() && item.count > 0
+                        && item.slot >= 0 && item.slot < mwmp::equipmentSlotCount)
+                        mActorEquipmentByRecordKey[item.recordKey].push_back(std::move(item));
+                });
+            for (auto& [recordKey, items] : mActorEquipmentByRecordKey)
+            {
+                static_cast<void>(recordKey);
+                std::sort(items.begin(), items.end(),
+                    [](const WorldActorEquipmentItem& left, const WorldActorEquipmentItem& right) {
+                        if (left.slot != right.slot)
+                            return left.slot < right.slot;
                         if (left.itemRefId != right.itemRefId)
                             return left.itemRefId < right.itemRefId;
                         return left.count < right.count;
@@ -596,9 +635,10 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
                 pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
                 mStats.actorInventoryRecordCount, mStats.actorInventoryItemCount,
+                mStats.actorEquipmentRecordCount, mStats.actorEquipmentItemCount,
                 mStats.containerInventoryRecordCount, mStats.containerInventoryItemCount,
                 mStats.cellRecordCount, mStats.activeCellRecordCount, mStats.cellReferenceCount,
                 mStats.activeCellReferenceCount, mStats.actorReferenceCount, mStats.containerReferenceCount,
@@ -708,6 +748,13 @@ namespace mwmp
             && importedActorInventoryItemCount == selected->actorInventoryItemCount;
         ref.baseActorInventoryItemCount
             = ref.baseActorInventoryImported ? importedActorInventoryItemCount : 0;
+        const auto actorEquipmentIt = mActorEquipmentByRecordKey.find(selected->recordKey);
+        const std::size_t importedActorEquipmentItemCount
+            = actorEquipmentIt != mActorEquipmentByRecordKey.end() ? actorEquipmentIt->second.size() : 0;
+        ref.baseActorEquipmentImported = selected->actorEquipmentImported
+            && importedActorEquipmentItemCount == selected->actorEquipmentItemCount;
+        ref.baseActorEquipmentItemCount
+            = ref.baseActorEquipmentImported ? importedActorEquipmentItemCount : 0;
         const auto inventoryIt = mContainerInventoryByRecordKey.find(selected->recordKey);
         const std::size_t importedInventoryItemCount
             = inventoryIt != mContainerInventoryByRecordKey.end() ? inventoryIt->second.size() : 0;
@@ -936,6 +983,17 @@ namespace mwmp
         std::lock_guard lock(mMutex);
         const auto it = mActorInventoryByRecordKey.find(normalizedLookupKey(recordKey));
         if (it == mActorInventoryByRecordKey.end())
+            return {};
+
+        return it->second;
+    }
+
+    std::vector<WorldActorEquipmentItem> WorldDatabaseStore::findActorEquipmentByRecordKey(
+        std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mActorEquipmentByRecordKey.find(normalizedLookupKey(recordKey));
+        if (it == mActorEquipmentByRecordKey.end())
             return {};
 
         return it->second;

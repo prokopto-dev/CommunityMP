@@ -149,6 +149,23 @@ namespace
             actor.aiShouldRepeat = reference.baseActorAiShouldRepeat;
             actor.aiCoordinates = reference.baseActorAiCoordinates;
         }
+        if (reference.baseActorEquipmentImported)
+        {
+            actor.hasEquipmentData = true;
+            actor.equipmentSequence = 1;
+            for (const mwmp::WorldActorEquipmentItem& item :
+                mwmp::WorldDatabaseStore::get().findActorEquipmentByRecordKey(reference.baseRecordKey))
+            {
+                if (item.slot < 0 || item.slot >= mwmp::equipmentSlotCount)
+                    continue;
+
+                mwmp::Item& equipmentItem = actor.equipmentItems[item.slot];
+                equipmentItem.refId = item.itemRefId;
+                equipmentItem.count = item.count;
+                equipmentItem.charge = item.charge;
+                equipmentItem.enchantmentCharge = item.enchantmentCharge;
+            }
+        }
         return actor;
     }
 
@@ -723,6 +740,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
         snapshot.baseActorInventoryImported = ref.baseActorInventoryImported;
         snapshot.baseActorInventoryItemCount = ref.baseActorInventoryItemCount;
+        snapshot.baseActorEquipmentImported = ref.baseActorEquipmentImported;
+        snapshot.baseActorEquipmentItemCount = ref.baseActorEquipmentItemCount;
         snapshot.baseContainerInventoryImported = ref.baseContainerInventoryImported;
         snapshot.baseContainerInventoryItemCount = ref.baseContainerInventoryItemCount;
         snapshot.baseActorAiAvailable = ref.baseActorAiAvailable;
@@ -770,6 +789,11 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorInventoryCount;
                 serverWorldBootstrapStats.actorInventoryItemCount += snapshot.baseActorInventoryItemCount;
             }
+            if (snapshot.baseActorEquipmentImported)
+            {
+                ++serverWorldBootstrapStats.actorEquipmentCount;
+                serverWorldBootstrapStats.actorEquipmentItemCount += snapshot.baseActorEquipmentItemCount;
+            }
             serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell));
         }
         else
@@ -799,10 +823,11 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorInventoryCount,
-        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.objectCount,
+        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorEquipmentCount,
+        serverWorldBootstrapStats.actorEquipmentItemCount, serverWorldBootstrapStats.objectCount,
         serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);
 }

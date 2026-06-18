@@ -5,11 +5,14 @@
 #include <components/esm/esmcommon.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/formatversion.hpp>
+#include <components/esm3/loadarmo.hpp>
+#include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadcont.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadweap.hpp>
 #include <components/esm3/readerscache.hpp>
 #include <components/bsa/ba2dx10file.hpp>
 #include <components/bsa/ba2gnrlfile.hpp>
@@ -26,6 +29,7 @@
 #include <components/vfs/registerarchives.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -51,6 +55,7 @@ namespace
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr const char* actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
+    constexpr const char* actorEquipmentRowSchema = "communitymp.worlddb.actor-equipment.v1";
     constexpr const char* containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
     constexpr const char* cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
     constexpr const char* cellReferenceRowSchema = "communitymp.worlddb.cell-reference.v1";
@@ -473,7 +478,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_inventory.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_inventory.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -503,6 +508,12 @@ namespace
         appendJsonNumberField(result, "actorInventoryRecordCount", stats.actorInventoryRecordCount);
         result += ",\n  ";
         appendJsonNumberField(result, "actorInventoryItemCount", stats.actorInventoryItemCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "itemEquipmentRecordCount", stats.itemEquipmentRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorEquipmentRecordCount", stats.actorEquipmentRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorEquipmentItemCount", stats.actorEquipmentItemCount);
         result += ",\n  ";
         appendJsonNumberField(result, "containerInventoryRecordCount", stats.containerInventoryRecordCount);
         result += ",\n  ";
@@ -961,6 +972,35 @@ namespace
         int count = 0;
     };
 
+    struct ImportedEquipmentItem
+    {
+        std::string refId;
+        int count = 0;
+        int charge = -1;
+        float enchantmentCharge = -1.f;
+    };
+
+    enum class ImportedEquipmentKind
+    {
+        None,
+        Weapon,
+        Armor,
+        Clothing,
+    };
+
+    struct ImportedEquipmentMetadata
+    {
+        ImportedEquipmentKind kind = ImportedEquipmentKind::None;
+        std::vector<int> slots;
+        bool stacks = false;
+        int value = 0;
+        int health = -1;
+        int armor = 0;
+        int weaponType = ESM::Weapon::None;
+        int weaponMaxDamage = 0;
+        int weaponAmmoType = ESM::Weapon::None;
+    };
+
     struct IndexedRecordRow
     {
         std::size_t engineContentIndex = 0;
@@ -989,6 +1029,11 @@ namespace
         unsigned int actorAiAlarm = 0;
         bool actorInventoryImported = false;
         std::vector<ImportedInventoryItem> actorInventory;
+        bool itemEquipmentImported = false;
+        ImportedEquipmentMetadata itemEquipment;
+        bool actorEquipmentImported = false;
+        std::array<ImportedEquipmentItem, mwmp::equipmentSlotCount> actorEquipment;
+        std::size_t actorEquipmentItemCount = 0;
         bool containerInventoryImported = false;
         std::vector<ImportedInventoryItem> containerInventory;
     };
@@ -998,6 +1043,7 @@ namespace
         std::string recordIndexJsonl;
         std::string recordWinnersJsonl;
         std::string actorInventoryJsonl;
+        std::string actorEquipmentJsonl;
         std::string containerInventoryJsonl;
     };
 
@@ -1023,6 +1069,127 @@ namespace
     bool isDeletedRecord(const IndexedRecordRow& row)
     {
         return (row.flags & ESM::FLAG_Deleted) != 0 || row.identity.deletedSubrecord;
+    }
+
+    namespace EquipmentSlot
+    {
+        constexpr int Helmet = 0;
+        constexpr int Cuirass = 1;
+        constexpr int Greaves = 2;
+        constexpr int LeftPauldron = 3;
+        constexpr int RightPauldron = 4;
+        constexpr int LeftGauntlet = 5;
+        constexpr int RightGauntlet = 6;
+        constexpr int Boots = 7;
+        constexpr int Shirt = 8;
+        constexpr int Pants = 9;
+        constexpr int Skirt = 10;
+        constexpr int Robe = 11;
+        constexpr int LeftRing = 12;
+        constexpr int RightRing = 13;
+        constexpr int Amulet = 14;
+        constexpr int Belt = 15;
+        constexpr int CarriedRight = 16;
+        constexpr int CarriedLeft = 17;
+        constexpr int Ammunition = 18;
+    }
+
+    bool isValidEquipmentSlot(const int slot)
+    {
+        return slot >= 0 && slot < mwmp::equipmentSlotCount;
+    }
+
+    std::vector<int> armorEquipmentSlots(const int armorType)
+    {
+        switch (armorType)
+        {
+            case ESM::Armor::Helmet:
+                return { EquipmentSlot::Helmet };
+            case ESM::Armor::Cuirass:
+                return { EquipmentSlot::Cuirass };
+            case ESM::Armor::LPauldron:
+                return { EquipmentSlot::LeftPauldron };
+            case ESM::Armor::RPauldron:
+                return { EquipmentSlot::RightPauldron };
+            case ESM::Armor::Greaves:
+                return { EquipmentSlot::Greaves };
+            case ESM::Armor::Boots:
+                return { EquipmentSlot::Boots };
+            case ESM::Armor::LGauntlet:
+            case ESM::Armor::LBracer:
+                return { EquipmentSlot::LeftGauntlet };
+            case ESM::Armor::RGauntlet:
+            case ESM::Armor::RBracer:
+                return { EquipmentSlot::RightGauntlet };
+            case ESM::Armor::Shield:
+                return { EquipmentSlot::CarriedLeft };
+        }
+
+        return {};
+    }
+
+    std::vector<int> clothingEquipmentSlots(const int clothingType)
+    {
+        switch (clothingType)
+        {
+            case ESM::Clothing::Pants:
+                return { EquipmentSlot::Pants };
+            case ESM::Clothing::Shoes:
+                return { EquipmentSlot::Boots };
+            case ESM::Clothing::Shirt:
+                return { EquipmentSlot::Shirt };
+            case ESM::Clothing::Belt:
+                return { EquipmentSlot::Belt };
+            case ESM::Clothing::Robe:
+                return { EquipmentSlot::Robe };
+            case ESM::Clothing::RGlove:
+                return { EquipmentSlot::RightGauntlet };
+            case ESM::Clothing::LGlove:
+                return { EquipmentSlot::LeftGauntlet };
+            case ESM::Clothing::Skirt:
+                return { EquipmentSlot::Skirt };
+            case ESM::Clothing::Ring:
+                return { EquipmentSlot::LeftRing, EquipmentSlot::RightRing };
+            case ESM::Clothing::Amulet:
+                return { EquipmentSlot::Amulet };
+        }
+
+        return {};
+    }
+
+    std::vector<int> weaponEquipmentSlots(const int weaponType)
+    {
+        switch (weaponType)
+        {
+            case ESM::Weapon::Arrow:
+            case ESM::Weapon::Bolt:
+                return { EquipmentSlot::Ammunition };
+            case ESM::Weapon::MarksmanThrown:
+                return { EquipmentSlot::CarriedRight };
+            case ESM::Weapon::ShortBladeOneHand:
+            case ESM::Weapon::LongBladeOneHand:
+            case ESM::Weapon::LongBladeTwoHand:
+            case ESM::Weapon::BluntOneHand:
+            case ESM::Weapon::BluntTwoClose:
+            case ESM::Weapon::BluntTwoWide:
+            case ESM::Weapon::SpearTwoWide:
+            case ESM::Weapon::AxeOneHand:
+            case ESM::Weapon::AxeTwoHand:
+            case ESM::Weapon::MarksmanBow:
+            case ESM::Weapon::MarksmanCrossbow:
+                return { EquipmentSlot::CarriedRight };
+        }
+
+        return {};
+    }
+
+    int requiredAmmoTypeForWeapon(const int weaponType)
+    {
+        if (weaponType == ESM::Weapon::MarksmanBow)
+            return ESM::Weapon::Arrow;
+        if (weaponType == ESM::Weapon::MarksmanCrossbow)
+            return ESM::Weapon::Bolt;
+        return ESM::Weapon::None;
     }
 
     void skipUnreadSubrecordBytes(ESM::ESMReader& esm, const std::size_t bytesRead)
@@ -1470,6 +1637,66 @@ namespace
         }
     }
 
+    bool loadEquippableItemRecordRowData(ESM::ESMReader& esm, const ESM::NAME recordName, IndexedRecordRow& row)
+    {
+        if (recordName.toInt() == ESM::REC_WEAP)
+        {
+            ESM::Weapon weapon;
+            bool deletedSubrecord = false;
+            weapon.load(esm, deletedSubrecord);
+            row.identity = makeRecordIdentity(refIdToString(weapon.mId), normalizedLookupKey(refIdToString(weapon.mId)),
+                "record-id", deletedSubrecord);
+            row.itemEquipmentImported = true;
+            row.itemEquipment.kind = ImportedEquipmentKind::Weapon;
+            row.itemEquipment.slots = weaponEquipmentSlots(weapon.mData.mType);
+            row.itemEquipment.stacks = weapon.mData.mType == ESM::Weapon::Arrow
+                || weapon.mData.mType == ESM::Weapon::Bolt
+                || weapon.mData.mType == ESM::Weapon::MarksmanThrown;
+            row.itemEquipment.value = weapon.mData.mValue;
+            row.itemEquipment.health = weapon.mData.mHealth;
+            row.itemEquipment.weaponType = weapon.mData.mType;
+            row.itemEquipment.weaponMaxDamage = std::max<int>(
+                { weapon.mData.mChop[1], weapon.mData.mSlash[1], weapon.mData.mThrust[1] });
+            row.itemEquipment.weaponAmmoType = weapon.mData.mType == ESM::Weapon::Arrow
+                || weapon.mData.mType == ESM::Weapon::Bolt
+                ? weapon.mData.mType
+                : requiredAmmoTypeForWeapon(weapon.mData.mType);
+            return true;
+        }
+
+        if (recordName.toInt() == ESM::REC_ARMO)
+        {
+            ESM::Armor armor;
+            bool deletedSubrecord = false;
+            armor.load(esm, deletedSubrecord);
+            row.identity = makeRecordIdentity(refIdToString(armor.mId), normalizedLookupKey(refIdToString(armor.mId)),
+                "record-id", deletedSubrecord);
+            row.itemEquipmentImported = true;
+            row.itemEquipment.kind = ImportedEquipmentKind::Armor;
+            row.itemEquipment.slots = armorEquipmentSlots(armor.mData.mType);
+            row.itemEquipment.value = armor.mData.mValue;
+            row.itemEquipment.health = armor.mData.mHealth;
+            row.itemEquipment.armor = armor.mData.mArmor;
+            return true;
+        }
+
+        if (recordName.toInt() == ESM::REC_CLOT)
+        {
+            ESM::Clothing clothing;
+            bool deletedSubrecord = false;
+            clothing.load(esm, deletedSubrecord);
+            row.identity = makeRecordIdentity(refIdToString(clothing.mId),
+                normalizedLookupKey(refIdToString(clothing.mId)), "record-id", deletedSubrecord);
+            row.itemEquipmentImported = true;
+            row.itemEquipment.kind = ImportedEquipmentKind::Clothing;
+            row.itemEquipment.slots = clothingEquipmentSlots(clothing.mData.mType);
+            row.itemEquipment.value = clothing.mData.mValue;
+            return true;
+        }
+
+        return false;
+    }
+
     bool loadActorRecordRowData(ESM::ESMReader& esm, const ESM::NAME recordName, IndexedRecordRow& row)
     {
         if (recordName.toInt() == ESM::REC_NPC_)
@@ -1640,6 +1867,30 @@ namespace
         result.push_back(',');
         appendJsonNumberField(result, "actorInventoryItemCount", row.actorInventory.size());
         result.push_back(',');
+        appendJsonBoolField(result, "itemEquipmentImported", row.itemEquipmentImported);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentSlotCount", row.itemEquipment.slots.size());
+        result.push_back(',');
+        appendJsonBoolField(result, "itemEquipmentStacks", row.itemEquipment.stacks);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentKind", static_cast<int>(row.itemEquipment.kind));
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentValue", row.itemEquipment.value);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentHealth", row.itemEquipment.health);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentArmor", row.itemEquipment.armor);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponType", row.itemEquipment.weaponType);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponMaxDamage", row.itemEquipment.weaponMaxDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponAmmoType", row.itemEquipment.weaponAmmoType);
+        result.push_back(',');
+        appendJsonBoolField(result, "actorEquipmentImported", row.actorEquipmentImported);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorEquipmentItemCount", row.actorEquipmentItemCount);
+        result.push_back(',');
         appendJsonBoolField(result, "containerInventoryImported", row.containerInventoryImported);
         result.push_back(',');
         appendJsonNumberField(result, "containerInventoryItemCount", row.containerInventory.size());
@@ -1702,6 +1953,262 @@ namespace
             stats.containerInventoryRecordCount, stats.containerInventoryItemCount);
     }
 
+    struct EquipmentSlotCandidate
+    {
+        bool assigned = false;
+        ImportedEquipmentItem item;
+        int score = 0;
+    };
+
+    struct WeaponEquipmentCandidate
+    {
+        ImportedEquipmentItem item;
+        int weaponType = ESM::Weapon::None;
+        int requiredAmmoType = ESM::Weapon::None;
+        int score = 0;
+    };
+
+    ImportedEquipmentItem makeEquippedItem(const ImportedInventoryItem& inventoryItem,
+        const ImportedEquipmentMetadata& metadata)
+    {
+        ImportedEquipmentItem item;
+        item.refId = inventoryItem.refId;
+        item.count = metadata.stacks ? inventoryItem.count : 1;
+        item.charge = metadata.health;
+        item.enchantmentCharge = -1.f;
+        return item;
+    }
+
+    int equipmentScore(const ImportedEquipmentMetadata& metadata)
+    {
+        switch (metadata.kind)
+        {
+            case ImportedEquipmentKind::Weapon:
+                return metadata.weaponMaxDamage * 1000 + metadata.value;
+            case ImportedEquipmentKind::Armor:
+                return 1000000 + metadata.armor * 1000 + metadata.value;
+            case ImportedEquipmentKind::Clothing:
+                return metadata.value;
+            case ImportedEquipmentKind::None:
+                return 0;
+        }
+
+        return 0;
+    }
+
+    void assignEquipmentSlot(std::array<EquipmentSlotCandidate, mwmp::equipmentSlotCount>& slots,
+        const std::vector<int>& possibleSlots, const ImportedEquipmentItem& item, const int score)
+    {
+        if (item.refId.empty() || item.count <= 0 || possibleSlots.empty())
+            return;
+
+        int selectedSlot = -1;
+        for (const int slot : possibleSlots)
+        {
+            if (!isValidEquipmentSlot(slot))
+                continue;
+
+            if (!slots[slot].assigned)
+            {
+                selectedSlot = slot;
+                break;
+            }
+        }
+
+        if (selectedSlot == -1)
+        {
+            for (const int slot : possibleSlots)
+            {
+                if (!isValidEquipmentSlot(slot))
+                    continue;
+
+                if (selectedSlot == -1 || slots[slot].score < slots[selectedSlot].score)
+                    selectedSlot = slot;
+            }
+
+            if (selectedSlot == -1 || slots[selectedSlot].score >= score)
+                return;
+        }
+
+        slots[selectedSlot].assigned = true;
+        slots[selectedSlot].item = item;
+        slots[selectedSlot].score = score;
+    }
+
+    void assignAmmoCandidate(WeaponEquipmentCandidate& target, const ImportedEquipmentItem& item, const int score)
+    {
+        if (item.refId.empty() || item.count <= 0)
+            return;
+
+        if (target.item.refId.empty() || score > target.score)
+        {
+            target.item = item;
+            target.score = score;
+        }
+    }
+
+    bool canActorUsePassiveEquipment(const IndexedRecordRow& actor, const ImportedEquipmentMetadata& metadata)
+    {
+        if (actor.recordName.toInt() != ESM::REC_CREA)
+            return true;
+
+        // OpenMW creatures do not use humanoid clothing/body armor. Keep their initial
+        // derived equipment limited to shield/weapon-style slots until server-side
+        // creature-specific auto-equip can mirror MWMechanics exactly.
+        if (metadata.kind == ImportedEquipmentKind::Armor)
+            return metadata.slots.size() == 1 && metadata.slots.front() == EquipmentSlot::CarriedLeft;
+
+        return metadata.kind == ImportedEquipmentKind::Weapon;
+    }
+
+    void deriveActorEquipmentForWinningRows(std::map<std::string, IndexedRecordRow>& winningRows)
+    {
+        std::map<std::string, const IndexedRecordRow*> equippableItems;
+        for (const auto& [_, row] : winningRows)
+        {
+            if (!isDeletedRecord(row) && row.identity.available && row.itemEquipmentImported
+                && !row.itemEquipment.slots.empty())
+                equippableItems[row.identity.recordKey] = &row;
+        }
+
+        for (auto& [_, actor] : winningRows)
+        {
+            if (!actor.actorInventoryImported || isDeletedRecord(actor) || !actor.identity.available)
+                continue;
+
+            std::array<EquipmentSlotCandidate, mwmp::equipmentSlotCount> selectedSlots;
+            std::vector<WeaponEquipmentCandidate> weaponCandidates;
+            WeaponEquipmentCandidate bestArrow;
+            WeaponEquipmentCandidate bestBolt;
+
+            for (const ImportedInventoryItem& inventoryItem : actor.actorInventory)
+            {
+                if (inventoryItem.refId.empty() || inventoryItem.count <= 0)
+                    continue;
+
+                const auto itemIt = equippableItems.find(normalizedLookupKey(inventoryItem.refId));
+                if (itemIt == equippableItems.end())
+                    continue;
+
+                const IndexedRecordRow& itemRow = *itemIt->second;
+                const ImportedEquipmentMetadata& metadata = itemRow.itemEquipment;
+                if (!canActorUsePassiveEquipment(actor, metadata))
+                    continue;
+
+                ImportedEquipmentItem equipmentItem = makeEquippedItem(inventoryItem, metadata);
+                if (equipmentItem.count <= 0)
+                    continue;
+
+                const int score = equipmentScore(metadata);
+                if (metadata.kind == ImportedEquipmentKind::Weapon)
+                {
+                    if (metadata.weaponType == ESM::Weapon::Arrow)
+                        assignAmmoCandidate(bestArrow, equipmentItem, score);
+                    else if (metadata.weaponType == ESM::Weapon::Bolt)
+                        assignAmmoCandidate(bestBolt, equipmentItem, score);
+                    else
+                    {
+                        WeaponEquipmentCandidate candidate;
+                        candidate.item = equipmentItem;
+                        candidate.weaponType = metadata.weaponType;
+                        candidate.requiredAmmoType = requiredAmmoTypeForWeapon(metadata.weaponType);
+                        candidate.score = score;
+                        weaponCandidates.push_back(std::move(candidate));
+                    }
+                    continue;
+                }
+
+                assignEquipmentSlot(selectedSlots, metadata.slots, equipmentItem, score);
+            }
+
+            std::sort(weaponCandidates.begin(), weaponCandidates.end(),
+                [](const WeaponEquipmentCandidate& left, const WeaponEquipmentCandidate& right) {
+                    if (left.score != right.score)
+                        return left.score > right.score;
+                    return left.item.refId < right.item.refId;
+                });
+
+            for (const WeaponEquipmentCandidate& candidate : weaponCandidates)
+            {
+                if (candidate.requiredAmmoType == ESM::Weapon::Arrow && bestArrow.item.refId.empty())
+                    continue;
+                if (candidate.requiredAmmoType == ESM::Weapon::Bolt && bestBolt.item.refId.empty())
+                    continue;
+
+                selectedSlots[EquipmentSlot::CarriedRight].assigned = true;
+                selectedSlots[EquipmentSlot::CarriedRight].item = candidate.item;
+                selectedSlots[EquipmentSlot::CarriedRight].score = candidate.score;
+
+                if (candidate.requiredAmmoType == ESM::Weapon::Arrow)
+                {
+                    selectedSlots[EquipmentSlot::Ammunition].assigned = true;
+                    selectedSlots[EquipmentSlot::Ammunition].item = bestArrow.item;
+                    selectedSlots[EquipmentSlot::Ammunition].score = bestArrow.score;
+                }
+                else if (candidate.requiredAmmoType == ESM::Weapon::Bolt)
+                {
+                    selectedSlots[EquipmentSlot::Ammunition].assigned = true;
+                    selectedSlots[EquipmentSlot::Ammunition].item = bestBolt.item;
+                    selectedSlots[EquipmentSlot::Ammunition].score = bestBolt.score;
+                }
+                break;
+            }
+
+            actor.actorEquipmentItemCount = 0;
+            for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
+            {
+                if (!selectedSlots[slot].assigned)
+                    continue;
+
+                actor.actorEquipment[slot] = selectedSlots[slot].item;
+                ++actor.actorEquipmentItemCount;
+            }
+            actor.actorEquipmentImported = actor.actorEquipmentItemCount != 0;
+        }
+    }
+
+    void appendActorEquipmentRows(std::string& result, const IndexedRecordRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        if (!row.actorEquipmentImported || isDeletedRecord(row) || !row.identity.available)
+            return;
+
+        ++stats.actorEquipmentRecordCount;
+        for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
+        {
+            const ImportedEquipmentItem& item = row.actorEquipment[slot];
+            if (item.refId.empty() || item.count <= 0)
+                continue;
+
+            result.push_back('{');
+            appendJsonStringField(result, "schema", actorEquipmentRowSchema);
+            result.push_back(',');
+            appendJsonStringField(result, "recordKey", row.identity.recordKey);
+            result.push_back(',');
+            appendJsonStringField(result, "recordId", row.identity.recordId);
+            result.push_back(',');
+            appendJsonStringField(result, "sourceFile", row.contentFile);
+            result.push_back(',');
+            appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "recordIndex", row.recordIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "slot", slot);
+            result.push_back(',');
+            appendJsonStringField(result, "itemRefId", item.refId);
+            result.push_back(',');
+            appendJsonNumberField(result, "count", item.count);
+            result.push_back(',');
+            appendJsonNumberField(result, "charge", item.charge);
+            result.push_back(',');
+            appendJsonNumberField(result, "enchantmentCharge", item.enchantmentCharge);
+            result += "}\n";
+            ++stats.actorEquipmentItemCount;
+        }
+    }
+
     RecordIndexTables buildRecordIndexTablesJsonl(const std::vector<std::filesystem::path>& dataDirs,
         const std::vector<std::string>& contentFiles, mwmp::ServerContentDatabaseStatistics& stats)
     {
@@ -1747,6 +2254,7 @@ namespace
                     row.dataOffset = dataOffset;
                     if ((flags & ESM::FLAG_Ignored) != 0
                         || (!loadActorRecordRowData(esm, recordName, row)
+                            && !loadEquippableItemRecordRowData(esm, recordName, row)
                             && !loadContainerRecordRowData(esm, recordName, row)))
                     {
                         row.identity = extractRecordIdentity(esm, recordName, flags, currentDialogueId);
@@ -1783,11 +2291,16 @@ namespace
             }
         }
 
+        deriveActorEquipmentForWinningRows(winningRows);
         for (const auto& [_, row] : winningRows)
         {
             appendRecordWinnerRow(result.recordWinnersJsonl, row);
             appendActorInventoryRows(result.actorInventoryJsonl, row, stats);
+            appendActorEquipmentRows(result.actorEquipmentJsonl, row, stats);
             appendContainerInventoryRows(result.containerInventoryJsonl, row, stats);
+            if (!isDeletedRecord(row) && row.identity.available && row.itemEquipmentImported
+                && !row.itemEquipment.slots.empty())
+                ++stats.itemEquipmentRecordCount;
             ++stats.recordWinnerCount;
             if (isDeletedRecord(row))
                 ++stats.recordWinnerDeletedCount;
@@ -3409,7 +3922,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 14;
+        mStats.tableCount = 15;
 
         try
         {
@@ -3439,6 +3952,8 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_inventory.jsonl",
                 recordIndexTables.actorInventoryJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "actor_equipment.jsonl",
+                recordIndexTables.actorEquipmentJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "container_inventory.jsonl",
                 recordIndexTables.containerInventoryJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "cells.jsonl", cellWorldTables.cellsJsonl) || changed;

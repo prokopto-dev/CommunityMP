@@ -37,6 +37,8 @@ namespace mwmp
         std::size_t recordWinnerDeletedCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
+        std::size_t actorEquipmentRecordCount = 0;
+        std::size_t actorEquipmentItemCount = 0;
         std::size_t containerInventoryRecordCount = 0;
         std::size_t containerInventoryItemCount = 0;
         std::size_t baseRecordResolvedReferenceCount = 0;
@@ -132,6 +134,8 @@ namespace mwmp
         unsigned int actorAiAlarm = 0;
         bool actorInventoryImported = false;
         std::size_t actorInventoryItemCount = 0;
+        bool actorEquipmentImported = false;
+        std::size_t actorEquipmentItemCount = 0;
         bool containerInventoryImported = false;
         std::size_t containerInventoryItemCount = 0;
     };
@@ -151,6 +155,21 @@ namespace mwmp
 
     using WorldActorInventoryItem = WorldRecordInventoryItem;
     using WorldContainerInventoryItem = WorldRecordInventoryItem;
+
+    struct WorldActorEquipmentItem
+    {
+        std::string recordKey;
+        std::string recordId;
+        std::string sourceFile;
+        std::size_t loadOrderIndex = 0;
+        std::size_t engineContentIndex = 0;
+        std::size_t recordIndex = 0;
+        int slot = -1;
+        std::string itemRefId;
+        int count = 0;
+        int charge = -1;
+        float enchantmentCharge = -1.f;
+    };
 
     struct WorldCellReferenceRecord
     {
@@ -213,6 +232,8 @@ namespace mwmp
         std::size_t baseRecordLoadOrderIndex = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
+        bool baseActorEquipmentImported = false;
+        std::size_t baseActorEquipmentItemCount = 0;
         bool baseContainerInventoryImported = false;
         std::size_t baseContainerInventoryItemCount = 0;
         bool baseActorAiAvailable = false;
@@ -252,6 +273,7 @@ namespace mwmp
         std::vector<WorldCellReferenceRecord> findReferencesByCellKey(
             std::string_view cellKey, bool includeDeleted = false) const;
         std::vector<WorldActorInventoryItem> findActorInventoryByRecordKey(std::string_view recordKey) const;
+        std::vector<WorldActorEquipmentItem> findActorEquipmentByRecordKey(std::string_view recordKey) const;
         std::vector<WorldContainerInventoryItem> findContainerInventoryByRecordKey(std::string_view recordKey) const;
 
     private:
@@ -269,6 +291,7 @@ namespace mwmp
         std::map<std::string, WorldRecordWinner> mRecordWinnersByWinnerKey;
         std::map<std::string, std::vector<std::string>> mRecordWinnerKeysByRecordKey;
         std::map<std::string, std::vector<WorldActorInventoryItem>> mActorInventoryByRecordKey;
+        std::map<std::string, std::vector<WorldActorEquipmentItem>> mActorEquipmentByRecordKey;
         std::map<std::string, std::vector<WorldContainerInventoryItem>> mContainerInventoryByRecordKey;
         std::map<std::string, WorldCellRecord> mCellsByKey;
         std::map<std::string, WorldCellReferenceRecord> mReferencesByKey;

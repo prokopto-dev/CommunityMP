@@ -2337,6 +2337,10 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryCount : 0);
         payload += ",\"serverWorldActorInventoryItemCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryItemCount : 0);
+        payload += ",\"serverWorldActorEquipmentReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorEquipmentCount : 0);
+        payload += ",\"serverWorldActorEquipmentItemCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorEquipmentItemCount : 0);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->objectCount : 0);
         payload += ",\"serverWorldActorListSeeded\":";
@@ -2401,6 +2405,8 @@ namespace mwmp
         std::size_t serverWorldActorAiReferenceCount = 0;
         std::size_t serverWorldActorInventoryReferenceCount = 0;
         std::size_t serverWorldActorInventoryItemCount = 0;
+        std::size_t serverWorldActorEquipmentReferenceCount = 0;
+        std::size_t serverWorldActorEquipmentItemCount = 0;
         std::size_t serverWorldObjectReferenceCount = 0;
         std::size_t serverWorldContainerReferenceCount = 0;
         std::size_t serverWorldDoorReferenceCount = 0;
@@ -2436,6 +2442,8 @@ namespace mwmp
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
                 serverWorldActorInventoryReferenceCount += stats.actorInventoryCount;
                 serverWorldActorInventoryItemCount += stats.actorInventoryItemCount;
+                serverWorldActorEquipmentReferenceCount += stats.actorEquipmentCount;
+                serverWorldActorEquipmentItemCount += stats.actorEquipmentItemCount;
                 serverWorldObjectReferenceCount += stats.objectCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
                 serverWorldDoorReferenceCount += stats.doorCount;
@@ -2484,6 +2492,10 @@ namespace mwmp
         payload += std::to_string(serverWorldActorInventoryReferenceCount);
         payload += ",\"serverWorldActorInventoryItemCount\":";
         payload += std::to_string(serverWorldActorInventoryItemCount);
+        payload += ",\"serverWorldActorEquipmentReferenceCount\":";
+        payload += std::to_string(serverWorldActorEquipmentReferenceCount);
+        payload += ",\"serverWorldActorEquipmentItemCount\":";
+        payload += std::to_string(serverWorldActorEquipmentItemCount);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldObjectReferenceCount);
         payload += ",\"serverWorldActorSeededCellCount\":";
@@ -2638,6 +2650,12 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
         payload += std::to_string(serverContentDatabase.actorInventoryItemCount);
+        payload += ",\"itemEquipmentRecordCount\":";
+        payload += std::to_string(serverContentDatabase.itemEquipmentRecordCount);
+        payload += ",\"actorEquipmentRecordCount\":";
+        payload += std::to_string(serverContentDatabase.actorEquipmentRecordCount);
+        payload += ",\"actorEquipmentItemCount\":";
+        payload += std::to_string(serverContentDatabase.actorEquipmentItemCount);
         payload += ",\"containerInventoryRecordCount\":";
         payload += std::to_string(serverContentDatabase.containerInventoryRecordCount);
         payload += ",\"containerInventoryItemCount\":";
@@ -2748,6 +2766,10 @@ namespace mwmp
         payload += std::to_string(worldDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
         payload += std::to_string(worldDatabase.actorInventoryItemCount);
+        payload += ",\"actorEquipmentRecordCount\":";
+        payload += std::to_string(worldDatabase.actorEquipmentRecordCount);
+        payload += ",\"actorEquipmentItemCount\":";
+        payload += std::to_string(worldDatabase.actorEquipmentItemCount);
         payload += ",\"containerInventoryRecordCount\":";
         payload += std::to_string(worldDatabase.containerInventoryRecordCount);
         payload += ",\"containerInventoryItemCount\":";
