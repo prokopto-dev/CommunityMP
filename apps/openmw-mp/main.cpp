@@ -143,6 +143,10 @@ namespace
             return "openmw-core-not-linked";
         if (!topology.hasHeadlessOpenMwEngine)
             return "headless-openmw-engine-missing";
+        if (!runtime.worldState().prepared)
+            return "openmw-world-not-prepared";
+        if (!runtime.worldState().persistent)
+            return "openmw-world-save-not-bound";
         if (!capabilities.ownsWorldState || !capabilities.resolvesCells)
             return "openmw-world-state-not-owned";
         if (!capabilities.runsScripts)

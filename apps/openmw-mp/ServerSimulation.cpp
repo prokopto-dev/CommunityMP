@@ -154,12 +154,17 @@ namespace
     {
         const mwmp::SimulationRuntimeTopology& topology = runtime.topology();
         const mwmp::SimulationRuntimeCapabilities& capabilities = runtime.capabilities();
+        const mwmp::SimulationRuntimeWorldState& worldState = runtime.worldState();
 
         if (runtime.canOwnActorAuthority())
             return {};
 
         if (!topology.hasHeadlessOpenMwEngine)
             return "headless-openmw-engine-missing";
+        if (!worldState.prepared)
+            return "openmw-world-not-prepared";
+        if (!worldState.persistent)
+            return "openmw-world-save-not-bound";
         if (!capabilities.ownsWorldState || !capabilities.resolvesCells)
             return "openmw-world-state-not-owned";
         if (!capabilities.runsScripts)
@@ -1763,12 +1768,15 @@ namespace mwmp
         QuestDatabaseStore::get().ensureLoaded();
         QuestEventJournalStore::get().ensureOpened();
 
+        const SimulationRuntimeWorldState& worldState = mRuntime->worldState();
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Server simulation runtime requested=%s active=%s openmwLinked=%s headlessEngine=%s openmwWorld=%s "
-            "actorAuthority=%s",
+            "persistentWorld=%s loadedFromSave=%s initializedNewWorld=%s actorAuthority=%s savePath=%s",
             mRuntime->requestedName(), mRuntime->activeName(), mRuntime->topology().linksOpenMwCore ? "yes" : "no",
             mRuntime->hasHeadlessOpenMwEngine() ? "yes" : "no", mRuntime->hasOpenMwWorld() ? "yes" : "no",
-            mRuntime->canOwnActorAuthority() ? "yes" : "no");
+            mRuntime->hasPersistentWorld() ? "yes" : "no", worldState.loadedFromSave ? "yes" : "no",
+            worldState.initializedNewWorld ? "yes" : "no", mRuntime->canOwnActorAuthority() ? "yes" : "no",
+            worldState.savePath.c_str());
     }
 
     void ServerSimulation::tick()
@@ -2636,6 +2644,7 @@ namespace mwmp
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
         const SimulationRuntimeTopology& runtimeTopology = runtime().topology();
         const SimulationRuntimeBootstrap& runtimeBootstrap = runtime().bootstrap();
+        const SimulationRuntimeWorldState& runtimeWorldState = runtime().worldState();
         const bool serverActorAuthority = canAuthoritativelySimulateActors();
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
         const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
@@ -2782,6 +2791,18 @@ namespace mwmp
         payload += jsonString(runtime().activeName());
         payload += ",\"openmwWorld\":";
         payload += jsonBool(runtime().hasOpenMwWorld());
+        payload += ",\"persistentOpenMwWorld\":";
+        payload += jsonBool(runtime().hasPersistentWorld());
+        payload += ",\"openMwWorldPrepared\":";
+        payload += jsonBool(runtimeWorldState.prepared);
+        payload += ",\"openMwWorldLoadedFromSave\":";
+        payload += jsonBool(runtimeWorldState.loadedFromSave);
+        payload += ",\"openMwWorldInitializedNew\":";
+        payload += jsonBool(runtimeWorldState.initializedNewWorld);
+        payload += ",\"openMwWorldSavePath\":";
+        payload += jsonString(runtimeWorldState.savePath);
+        payload += ",\"openMwWorldManifestPath\":";
+        payload += jsonString(runtimeWorldState.manifestPath);
         payload += ",\"canSimulateActors\":";
         payload += jsonBool(runtime().canSimulateActors());
         payload += ",\"cellAuthorityMode\":";
@@ -3331,6 +3352,24 @@ namespace mwmp
         payload += std::to_string(runtimeBootstrap.engineArgumentCount);
         payload += ",\"blockedBy\":";
         payload += jsonString(runtimeBootstrap.blockedBy);
+        payload += "}";
+        payload += ",\"openMwWorldState\":{";
+        payload += "\"prepared\":";
+        payload += jsonBool(runtimeWorldState.prepared);
+        payload += ",\"persistent\":";
+        payload += jsonBool(runtimeWorldState.persistent);
+        payload += ",\"loadedFromSave\":";
+        payload += jsonBool(runtimeWorldState.loadedFromSave);
+        payload += ",\"initializedNewWorld\":";
+        payload += jsonBool(runtimeWorldState.initializedNewWorld);
+        payload += ",\"savePath\":";
+        payload += jsonString(runtimeWorldState.savePath);
+        payload += ",\"manifestPath\":";
+        payload += jsonString(runtimeWorldState.manifestPath);
+        payload += ",\"contentPlanFingerprint\":";
+        payload += jsonString(runtimeWorldState.contentPlanFingerprint);
+        payload += ",\"worldDatabaseFingerprint\":";
+        payload += jsonString(runtimeWorldState.worldDatabaseFingerprint);
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";

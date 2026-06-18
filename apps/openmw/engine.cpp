@@ -1275,6 +1275,10 @@ void OMW::Engine::prepareServerSimulation()
         return;
 
     mServerSimulationMode = true;
+    mServerSimulationWorldSavePath.clear();
+    mServerSimulationWorldManifestPath = serverWorldManifestPath(mServerSimulationSavesPath);
+    mServerSimulationWorldLoadedFromSave = false;
+    mServerSimulationWorldInitializedNew = false;
     Log(Debug::Info) << "Preparing server OpenMW simulation runtime";
 
     Log(Debug::Info) << "OSG version: " << osgGetVersion();
@@ -1303,13 +1307,16 @@ void OMW::Engine::prepareServerSimulation()
         return;
 
     std::filesystem::path serverWorldSavePath;
-    const std::filesystem::path manifestPath = serverWorldManifestPath(mServerSimulationSavesPath);
+    bool loadedServerWorldFromSave = false;
+    bool initializedNewServerWorld = false;
+    const std::filesystem::path manifestPath = mServerSimulationWorldManifestPath;
 
     if (!mSaveGameFile.empty())
     {
         Log(Debug::Info) << "Loading explicit server OpenMW world save " << mSaveGameFile;
         serverWorldSavePath = mSaveGameFile;
         mStateManager->loadGame(mSaveGameFile);
+        loadedServerWorldFromSave = mStateManager->getState() == MWState::StateManager::State_Running;
     }
     else if (!mServerSimulationSavesPath.empty())
     {
@@ -1339,6 +1346,7 @@ void OMW::Engine::prepareServerSimulation()
 
         if (mStateManager->getState() != MWState::StateManager::State_Running)
         {
+            loadedServerWorldFromSave = false;
             if (manifest.exists && manifest.matches && !manifest.savePath.empty()
                 && std::filesystem::is_regular_file(manifest.savePath))
                 Log(Debug::Warning) << "Server OpenMW world save did not reach running state; initializing a fresh world";
@@ -1349,6 +1357,7 @@ void OMW::Engine::prepareServerSimulation()
                     << "Server OpenMW world manifest has no save path; initializing a fresh world";
 
             mStateManager->newGame(true);
+            initializedNewServerWorld = true;
 
             if (mStateManager->getState() == MWState::StateManager::State_Running)
             {
@@ -1358,12 +1367,21 @@ void OMW::Engine::prepareServerSimulation()
                     serverWorldSavePath = savedSlot->mPath;
             }
         }
+        else if (!serverWorldSavePath.empty())
+            loadedServerWorldFromSave = true;
     }
     else
+    {
         mStateManager->newGame(true);
+        initializedNewServerWorld = true;
+    }
 
     if (mStateManager->getState() != MWState::StateManager::State_Running)
         return;
+
+    mServerSimulationWorldSavePath = serverWorldSavePath;
+    mServerSimulationWorldLoadedFromSave = loadedServerWorldFromSave;
+    mServerSimulationWorldInitializedNew = initializedNewServerWorld;
 
     if (!serverWorldSavePath.empty())
         writeServerWorldManifestIfChanged(manifestPath, mServerSimulationContentPlanFingerprint,

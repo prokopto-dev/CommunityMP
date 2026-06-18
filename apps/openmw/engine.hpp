@@ -183,6 +183,8 @@ namespace OMW
         std::filesystem::path mServerSimulationSavesPath;
         std::string mServerSimulationContentPlanFingerprint;
         std::string mServerSimulationWorldDatabaseFingerprint;
+        std::filesystem::path mServerSimulationWorldSavePath;
+        std::filesystem::path mServerSimulationWorldManifestPath;
         // Grab mouse?
         bool mGrab;
 
@@ -201,6 +203,8 @@ namespace OMW
         int mGlMaxTextureImageUnits;
         bool mServerSimulationMode = false;
         bool mServerSimulationPrepared = false;
+        bool mServerSimulationWorldLoadedFromSave = false;
+        bool mServerSimulationWorldInitializedNew = false;
         std::string mServerSimulationFocusCellDescription;
         ESM::Position mServerSimulationFocusPosition;
         bool mServerSimulationFocusPositionSet = false;
@@ -269,6 +273,13 @@ namespace OMW
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;
 
         bool isServerSimulationPrepared() const { return mServerSimulationPrepared; }
+        bool wasServerSimulationWorldLoadedFromSave() const { return mServerSimulationWorldLoadedFromSave; }
+        bool wasServerSimulationWorldInitializedNew() const { return mServerSimulationWorldInitializedNew; }
+        const std::filesystem::path& getServerSimulationWorldSavePath() const { return mServerSimulationWorldSavePath; }
+        const std::filesystem::path& getServerSimulationWorldManifestPath() const
+        {
+            return mServerSimulationWorldManifestPath;
+        }
 
         /// Compile all scripts (excludign dialogue scripts) at startup?
         void setCompileAll(bool all);

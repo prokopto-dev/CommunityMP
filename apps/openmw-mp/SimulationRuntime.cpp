@@ -236,11 +236,19 @@ namespace mwmp
 
     SimulationRuntime::SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
         SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology, SimulationRuntimeBootstrap bootstrap)
+        : SimulationRuntime(requestedKind, activeKind, capabilities, topology, std::move(bootstrap), {})
+    {
+    }
+
+    SimulationRuntime::SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+        SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology, SimulationRuntimeBootstrap bootstrap,
+        SimulationRuntimeWorldState worldState)
         : mRequestedKind(requestedKind)
         , mActiveKind(activeKind)
         , mCapabilities(capabilities)
         , mTopology(topology)
         , mBootstrap(std::move(bootstrap))
+        , mWorldState(std::move(worldState))
     {
     }
 
@@ -269,9 +277,19 @@ namespace mwmp
         return mBootstrap;
     }
 
+    const SimulationRuntimeWorldState& SimulationRuntime::worldState() const
+    {
+        return mWorldState;
+    }
+
     bool SimulationRuntime::hasOpenMwWorld() const
     {
-        return mCapabilities.ownsWorldState && mCapabilities.resolvesCells;
+        return mWorldState.prepared && mCapabilities.ownsWorldState && mCapabilities.resolvesCells;
+    }
+
+    bool SimulationRuntime::hasPersistentWorld() const
+    {
+        return mWorldState.prepared && mWorldState.persistent;
     }
 
     bool SimulationRuntime::hasHeadlessOpenMwEngine() const
@@ -281,12 +299,13 @@ namespace mwmp
 
     bool SimulationRuntime::canSimulateActors() const
     {
-        return hasHeadlessOpenMwEngine() && mCapabilities.runsActorAi && mCapabilities.ownsActorMovement;
+        return hasHeadlessOpenMwEngine() && hasOpenMwWorld() && mCapabilities.runsActorAi
+            && mCapabilities.ownsActorMovement;
     }
 
     bool SimulationRuntime::canOwnActorAuthority() const
     {
-        return canSimulateActors() && mCapabilities.ownsActorCombat;
+        return canSimulateActors() && hasPersistentWorld() && mCapabilities.ownsActorCombat;
     }
 
     void SimulationRuntime::tick(float deltaSeconds)

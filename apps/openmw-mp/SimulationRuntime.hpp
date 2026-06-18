@@ -83,6 +83,18 @@ namespace mwmp
         std::string blockedBy;
     };
 
+    struct SimulationRuntimeWorldState
+    {
+        bool prepared = false;
+        bool persistent = false;
+        bool loadedFromSave = false;
+        bool initializedNewWorld = false;
+        std::string savePath;
+        std::string manifestPath;
+        std::string contentPlanFingerprint;
+        std::string worldDatabaseFingerprint;
+    };
+
     class SimulationRuntime
     {
     public:
@@ -95,6 +107,9 @@ namespace mwmp
         SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
             SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology,
             SimulationRuntimeBootstrap bootstrap);
+        SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+            SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology,
+            SimulationRuntimeBootstrap bootstrap, SimulationRuntimeWorldState worldState);
         virtual ~SimulationRuntime() = default;
 
         virtual SimulationRuntimeKind requestedKind() const;
@@ -102,8 +117,10 @@ namespace mwmp
         virtual const SimulationRuntimeCapabilities& capabilities() const;
         virtual const SimulationRuntimeTopology& topology() const;
         virtual const SimulationRuntimeBootstrap& bootstrap() const;
+        virtual const SimulationRuntimeWorldState& worldState() const;
 
         virtual bool hasOpenMwWorld() const;
+        virtual bool hasPersistentWorld() const;
         virtual bool hasHeadlessOpenMwEngine() const;
         virtual bool canSimulateActors() const;
         virtual bool canOwnActorAuthority() const;
@@ -123,6 +140,7 @@ namespace mwmp
         SimulationRuntimeCapabilities mCapabilities;
         SimulationRuntimeTopology mTopology;
         SimulationRuntimeBootstrap mBootstrap;
+        SimulationRuntimeWorldState mWorldState;
     };
 
     using SimulationRuntimeFactory = std::unique_ptr<SimulationRuntime> (*)();

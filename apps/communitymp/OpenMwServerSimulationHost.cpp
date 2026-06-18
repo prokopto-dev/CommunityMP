@@ -16,6 +16,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/files/configurationmanager.hpp>
+#include <components/files/conversion.hpp>
 #include <components/misc/osgpluginchecker.hpp>
 #include <components/platform/platform.hpp>
 #include <components/settings/settings.hpp>
@@ -270,15 +271,36 @@ namespace
         return capabilities;
     }
 
+    mwmp::SimulationRuntimeWorldState buildOpenMwWorldState(const OMW::Engine* engine, bool hasPreparedEngine)
+    {
+        mwmp::SimulationRuntimeWorldState worldState;
+        if (engine == nullptr || !hasPreparedEngine)
+            return worldState;
+
+        worldState.prepared = true;
+        worldState.loadedFromSave = engine->wasServerSimulationWorldLoadedFromSave();
+        worldState.initializedNewWorld = engine->wasServerSimulationWorldInitializedNew();
+        worldState.savePath = Files::pathToUnicodeString(engine->getServerSimulationWorldSavePath());
+        worldState.manifestPath = Files::pathToUnicodeString(engine->getServerSimulationWorldManifestPath());
+        worldState.persistent = !worldState.savePath.empty() && !worldState.manifestPath.empty();
+
+        const mwmp::ServerContentDatabaseStatistics contentDatabase = mwmp::ServerContentDatabase::get().statistics();
+        worldState.contentPlanFingerprint = contentDatabase.contentPlanFingerprint;
+        worldState.worldDatabaseFingerprint = contentDatabase.worldDatabaseFingerprint;
+
+        return worldState;
+    }
+
     class OpenMwServerSimulationRuntime final : public mwmp::SimulationRuntime
     {
     public:
         OpenMwServerSimulationRuntime(mwmp::SimulationRuntimeKind activeKind,
             mwmp::SimulationRuntimeCapabilities capabilities, mwmp::SimulationRuntimeTopology topology,
-            mwmp::SimulationRuntimeBootstrap bootstrap, std::unique_ptr<Files::ConfigurationManager> cfgMgr,
-            std::unique_ptr<OMW::Engine> engine)
+            mwmp::SimulationRuntimeBootstrap bootstrap, mwmp::SimulationRuntimeWorldState worldState,
+            std::unique_ptr<Files::ConfigurationManager> cfgMgr, std::unique_ptr<OMW::Engine> engine)
             : mwmp::SimulationRuntime(
-                  mwmp::SimulationRuntimeKind::OpenMwHeadless, activeKind, capabilities, topology, std::move(bootstrap))
+                  mwmp::SimulationRuntimeKind::OpenMwHeadless, activeKind, capabilities, topology, std::move(bootstrap),
+                  std::move(worldState))
             , mCfgMgr(std::move(cfgMgr))
             , mEngine(std::move(engine))
         {
@@ -406,7 +428,9 @@ namespace communitymp
 
         const mwmp::SimulationRuntimeKind activeKind = hasPreparedEngine ? mwmp::SimulationRuntimeKind::OpenMwHeadless
                                                                          : mwmp::SimulationRuntimeKind::PacketMirror;
+        mwmp::SimulationRuntimeWorldState worldState = buildOpenMwWorldState(engine.get(), hasPreparedEngine);
         return std::make_unique<OpenMwServerSimulationRuntime>(activeKind, buildOpenMwCapabilities(hasPreparedEngine),
-            buildOpenMwTopology(hasPreparedEngine), std::move(bootstrap), std::move(cfgMgr), std::move(engine));
+            buildOpenMwTopology(hasPreparedEngine), std::move(bootstrap), std::move(worldState), std::move(cfgMgr),
+            std::move(engine));
     }
 }
