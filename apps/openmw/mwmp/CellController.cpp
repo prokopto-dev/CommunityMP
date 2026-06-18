@@ -535,6 +535,12 @@ void CellController::applyActorAuthority(const ESM::Cell& cell, const PacketGuid
 
     mwmp::Cell* mpCell = cellsInitialized.at(mapIndex);
 
+    if (!mwmp::isPacketGuidAssigned(guid))
+    {
+        mpCell->setServerActorAuthority(true);
+        return;
+    }
+
     mpCell->setAuthority(guid);
 
     if (guid == Main::get().getLocalPlayer()->guid)
