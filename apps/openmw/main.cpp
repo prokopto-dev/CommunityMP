@@ -28,10 +28,144 @@ extern "C" __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 0x
 #endif
 
 #include <filesystem>
+#include <set>
 
 #if (defined(__APPLE__) || defined(__linux) || defined(__unix) || defined(__posix))
 #include <unistd.h>
 #endif
+
+namespace
+{
+    namespace bpo = boost::program_options;
+    using StringsVector = std::vector<std::string>;
+
+    struct LoadedOpenMwApplicationSettings
+    {
+        bpo::variables_map variables;
+        OpenMwApplicationSettings settings;
+    };
+
+    bool loadOpenMwApplicationSettingsImpl(
+        int argc, char** argv, Files::ConfigurationManager& cfgMgr, LoadedOpenMwApplicationSettings& loaded, bool quiet)
+    {
+        bpo::options_description desc = OpenMW::makeOptionsDescription();
+        bpo::variables_map& variables = loaded.variables;
+        OpenMwApplicationSettings& settings = loaded.settings;
+
+        Files::parseArgs(argc, argv, variables, desc);
+        bpo::notify(variables);
+
+        if (variables.count("help"))
+        {
+            Debug::getRawStdout() << desc << std::endl;
+            return false;
+        }
+
+        if (variables.count("version"))
+        {
+            Debug::getRawStdout() << Version::getOpenmwVersionDescription() << std::endl;
+            return false;
+        }
+
+        cfgMgr.processPaths(variables, std::filesystem::current_path());
+
+        cfgMgr.readConfiguration(variables, desc);
+
+        settings = {};
+        settings.grabMouse = !variables["no-grab"].as<bool>();
+
+        // Font encoding settings
+        settings.encoding = variables["encoding"].as<std::string>();
+
+        Files::PathContainer dataDirs(asPathContainer(variables["data"].as<Files::MaybeQuotedPathContainer>()));
+
+        Files::PathContainer::value_type local(variables["data-local"]
+                                                   .as<Files::MaybeQuotedPathContainer::value_type>()
+                                                   .u8string()); // This call to u8string is redundant, but required to
+                                                                 // build on MSVC 14.26 due to implementation bugs.
+        if (!local.empty())
+            dataDirs.push_back(std::move(local));
+
+        cfgMgr.filterOutNonExistingPaths(dataDirs);
+        settings.dataDirs = std::move(dataDirs);
+
+        settings.resourceDir = variables["resources"]
+                                   .as<Files::MaybeQuotedPath>()
+                                   .u8string(); // This call to u8string is redundant, but required to build on MSVC
+                                                 // 14.26 due to implementation bugs.
+
+        // fallback archives
+        settings.archives = variables["fallback-archive"].as<StringsVector>();
+
+        StringsVector content = variables["content"].as<StringsVector>();
+        if (content.empty())
+        {
+            if (!quiet)
+            {
+                Debug::getRawStderr() << "No content file given (esm/esp, nor omwgame/omwaddon). Aborting..."
+                                      << std::endl;
+            }
+            return false;
+        }
+        settings.contentFiles.push_back("builtin.omwscripts");
+        std::set<std::string> contentDedupe{ "builtin.omwscripts" };
+        for (const auto& contentFile : content)
+        {
+            if (!contentDedupe.insert(contentFile).second)
+            {
+                if (!quiet)
+                {
+                    Debug::getRawStderr() << "Content file specified more than once: " << contentFile << ". Aborting..."
+                                          << std::endl;
+                }
+                return false;
+            }
+        }
+
+        for (auto& file : content)
+        {
+            settings.contentFiles.push_back(file);
+        }
+
+        settings.groundcoverFiles = variables["groundcover"].as<StringsVector>();
+
+        settings.usedLegacyLuaScriptsOption = variables.count("lua-scripts") != 0;
+
+        // startup-settings
+        settings.startCell = variables["start"].as<std::string>();
+        settings.skipMenu = variables["skip-menu"].as<bool>();
+        settings.newGame = variables["new-game"].as<bool>();
+        settings.newGameWithoutSkipMenu = !settings.skipMenu && settings.newGame;
+
+        // scripts
+        settings.compileAllScripts = variables["script-all"].as<bool>();
+        settings.compileAllDialogue = variables["script-all-dialogue"].as<bool>();
+        settings.scriptConsoleMode = variables["script-console"].as<bool>();
+        settings.startupScript = variables["script-run"].as<std::string>();
+        settings.warningsMode = variables["script-warn"].as<int>();
+        settings.saveGameFile = variables["load-savegame"].as<Files::MaybeQuotedPath>().u8string();
+
+        // other settings
+        Fallback::Map::init(variables["fallback"].as<Fallback::FallbackMap>().mMap);
+        settings.soundUsage = !variables["no-sound"].as<bool>();
+        settings.activationDistanceOverride = variables["activate-dist"].as<int>();
+        settings.exportFonts = variables["export-fonts"].as<bool>();
+        settings.randomSeed = variables["random-seed"].as<unsigned int>();
+
+        return true;
+    }
+}
+
+bool loadOpenMwApplicationSettings(
+    int argc, char** argv, Files::ConfigurationManager& cfgMgr, OpenMwApplicationSettings& settings, bool quiet)
+{
+    LoadedOpenMwApplicationSettings loaded;
+    if (!loadOpenMwApplicationSettingsImpl(argc, argv, cfgMgr, loaded, quiet))
+        return false;
+
+    settings = std::move(loaded.settings);
+    return true;
+}
 
 /**
  * \brief Parses application command line and calls \ref Cfg::ConfigurationManager
@@ -45,31 +179,11 @@ extern "C" __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 0x
 bool configureOpenMwApplication(int argc, char** argv, OMW::Engine& engine, Files::ConfigurationManager& cfgMgr,
     std::string_view logName)
 {
-    // Create a local alias for brevity
-    namespace bpo = boost::program_options;
-    typedef std::vector<std::string> StringsVector;
-
-    bpo::options_description desc = OpenMW::makeOptionsDescription();
-    bpo::variables_map variables;
-
-    Files::parseArgs(argc, argv, variables, desc);
-    bpo::notify(variables);
-
-    if (variables.count("help"))
-    {
-        Debug::getRawStdout() << desc << std::endl;
+    LoadedOpenMwApplicationSettings loaded;
+    if (!loadOpenMwApplicationSettingsImpl(argc, argv, cfgMgr, loaded, false))
         return false;
-    }
 
-    if (variables.count("version"))
-    {
-        Debug::getRawStdout() << Version::getOpenmwVersionDescription() << std::endl;
-        return false;
-    }
-
-    cfgMgr.processPaths(variables, std::filesystem::current_path());
-
-    cfgMgr.readConfiguration(variables, desc);
+    const OpenMwApplicationSettings& settings = loaded.settings;
 
     Debug::setupLogging(cfgMgr.getLogPath(), logName);
     Log(Debug::Info) << Version::getOpenmwVersionDescription();
@@ -77,96 +191,47 @@ bool configureOpenMwApplication(int argc, char** argv, OMW::Engine& engine, File
     Settings::Manager::load(cfgMgr);
 
 #ifdef BUILD_TES3MP_CLIENT
-    mwmp::Main::configure(variables, cfgMgr);
+    mwmp::Main::configure(loaded.variables, cfgMgr);
 #endif
 
-    MWGui::DebugWindow::startLogRecording();
-
-    engine.setGrabMouse(!variables["no-grab"].as<bool>());
-
-    // Font encoding settings
-    std::string encoding(variables["encoding"].as<std::string>());
-    Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
-    engine.setEncoding(ToUTF8::calculateEncoding(encoding));
-
-    Files::PathContainer dataDirs(asPathContainer(variables["data"].as<Files::MaybeQuotedPathContainer>()));
-
-    Files::PathContainer::value_type local(variables["data-local"]
-                                               .as<Files::MaybeQuotedPathContainer::value_type>()
-                                               .u8string()); // This call to u8string is redundant, but required to
-                                                             // build on MSVC 14.26 due to implementation bugs.
-    if (!local.empty())
-        dataDirs.push_back(std::move(local));
-
-    cfgMgr.filterOutNonExistingPaths(dataDirs);
-
-    engine.setResourceDir(variables["resources"]
-                              .as<Files::MaybeQuotedPath>()
-                              .u8string()); // This call to u8string is redundant, but required to build on MSVC 14.26
-                                            // due to implementation bugs.
-    engine.setDataDirs(dataDirs);
-
-    // fallback archives
-    StringsVector archives = variables["fallback-archive"].as<StringsVector>();
-    for (StringsVector::const_iterator it = archives.begin(); it != archives.end(); ++it)
-    {
-        engine.addArchive(*it);
-    }
-
-    StringsVector content = variables["content"].as<StringsVector>();
-    if (content.empty())
-    {
-        Log(Debug::Error) << "No content file given (esm/esp, nor omwgame/omwaddon). Aborting...";
-        return false;
-    }
-    engine.addContentFile("builtin.omwscripts");
-    std::set<std::string> contentDedupe{ "builtin.omwscripts" };
-    for (const auto& contentFile : content)
-    {
-        if (!contentDedupe.insert(contentFile).second)
-        {
-            Log(Debug::Error) << "Content file specified more than once: " << contentFile << ". Aborting...";
-            return false;
-        }
-    }
-
-    for (auto& file : content)
-    {
-        engine.addContentFile(file);
-    }
-
-    StringsVector groundcover = variables["groundcover"].as<StringsVector>();
-    for (auto& file : groundcover)
-    {
-        engine.addGroundcoverFile(file);
-    }
-
-    if (variables.count("lua-scripts"))
+    if (settings.usedLegacyLuaScriptsOption)
     {
         Log(Debug::Warning) << "Lua scripts have been specified via the old lua-scripts option and will not be loaded. "
                                "Please update them to a version which uses the new omwscripts format.";
     }
-
-    // startup-settings
-    engine.setCell(variables["start"].as<std::string>());
-    engine.setSkipMenu(variables["skip-menu"].as<bool>(), variables["new-game"].as<bool>());
-    if (!variables["skip-menu"].as<bool>() && variables["new-game"].as<bool>())
+    if (settings.newGameWithoutSkipMenu)
         Log(Debug::Warning) << "Warning: new-game used without skip-menu -> ignoring it";
 
-    // scripts
-    engine.setCompileAll(variables["script-all"].as<bool>());
-    engine.setCompileAllDialogue(variables["script-all-dialogue"].as<bool>());
-    engine.setScriptConsoleMode(variables["script-console"].as<bool>());
-    engine.setStartupScript(variables["script-run"].as<std::string>());
-    engine.setWarningsMode(variables["script-warn"].as<int>());
-    engine.setSaveGameFile(variables["load-savegame"].as<Files::MaybeQuotedPath>().u8string());
+    MWGui::DebugWindow::startLogRecording();
 
-    // other settings
-    Fallback::Map::init(variables["fallback"].as<Fallback::FallbackMap>().mMap);
-    engine.setSoundUsage(!variables["no-sound"].as<bool>());
-    engine.setActivationDistanceOverride(variables["activate-dist"].as<int>());
-    engine.enableFontExport(variables["export-fonts"].as<bool>());
-    engine.setRandomSeed(variables["random-seed"].as<unsigned int>());
+    engine.setGrabMouse(settings.grabMouse);
+
+    Log(Debug::Info) << ToUTF8::encodingUsingMessage(settings.encoding);
+    engine.setEncoding(ToUTF8::calculateEncoding(settings.encoding));
+    engine.setResourceDir(settings.resourceDir);
+    engine.setDataDirs(settings.dataDirs);
+
+    for (const std::string& archive : settings.archives)
+        engine.addArchive(archive);
+
+    for (const std::string& contentFile : settings.contentFiles)
+        engine.addContentFile(contentFile);
+
+    for (const std::string& file : settings.groundcoverFiles)
+        engine.addGroundcoverFile(file);
+
+    engine.setCell(settings.startCell);
+    engine.setSkipMenu(settings.skipMenu, settings.newGame);
+    engine.setCompileAll(settings.compileAllScripts);
+    engine.setCompileAllDialogue(settings.compileAllDialogue);
+    engine.setScriptConsoleMode(settings.scriptConsoleMode);
+    engine.setStartupScript(settings.startupScript);
+    engine.setWarningsMode(settings.warningsMode);
+    engine.setSaveGameFile(settings.saveGameFile);
+    engine.setSoundUsage(settings.soundUsage);
+    engine.setActivationDistanceOverride(settings.activationDistanceOverride);
+    engine.enableFontExport(settings.exportFonts);
+    engine.setRandomSeed(settings.randomSeed);
 
     return true;
 }

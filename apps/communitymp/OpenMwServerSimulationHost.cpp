@@ -4,20 +4,28 @@
 #include <string_view>
 #include <vector>
 
+#include <components/files/configurationmanager.hpp>
+
 #include "../openmw/OpenMWApplication.hpp"
 #include "../openmw-mp/ServerContentRegistry.hpp"
 
 namespace
 {
-    using ConfigureOpenMwApplication = bool (*)(
-        int, char**, OMW::Engine&, Files::ConfigurationManager&, std::string_view);
+    using ConfigureOpenMwApplication = bool (*)(int, char**, OMW::Engine&, Files::ConfigurationManager&, std::string_view);
+    using LoadOpenMwApplicationSettings = bool (*)(
+        int, char**, Files::ConfigurationManager&, OpenMwApplicationSettings&, bool);
 
     ConfigureOpenMwApplication getOpenMwApplicationConfigurator()
     {
         return &configureOpenMwApplication;
     }
 
-    std::vector<std::string> buildOpenMwEngineArguments()
+    LoadOpenMwApplicationSettings getOpenMwApplicationSettingsLoader()
+    {
+        return &loadOpenMwApplicationSettings;
+    }
+
+    std::vector<std::string> buildOpenMwConfigArguments(bool includeServerContent)
     {
         std::vector<std::string> arguments;
         arguments.emplace_back("communitymp-openmw-server");
@@ -26,6 +34,8 @@ namespace
         arguments.emplace_back("--new-game");
         arguments.emplace_back("--script-all");
         arguments.emplace_back("--script-all-dialogue");
+        if (!includeServerContent)
+            return arguments;
 
         for (const mwmp::ServerDataFileRequirement& requirement : mwmp::ServerContentRegistry::get().dataFiles())
         {
@@ -36,20 +46,60 @@ namespace
         return arguments;
     }
 
+    std::vector<char*> makeMutableArgv(std::vector<std::string>& arguments)
+    {
+        std::vector<char*> argv;
+        argv.reserve(arguments.size() + 1);
+        for (std::string& argument : arguments)
+            argv.push_back(argument.data());
+        argv.push_back(nullptr);
+        return argv;
+    }
+
+    bool loadOpenMwSettingsFromArguments(
+        std::vector<std::string> arguments, OpenMwApplicationSettings& settings, Files::ConfigurationManager& cfgMgr)
+    {
+        std::vector<char*> argv = makeMutableArgv(arguments);
+        return loadOpenMwApplicationSettings(static_cast<int>(arguments.size()), argv.data(), cfgMgr, settings, true);
+    }
+
     mwmp::SimulationRuntimeBootstrap buildOpenMwBootstrap()
     {
         const mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
-        const std::vector<std::string> engineArguments = buildOpenMwEngineArguments();
+        std::vector<std::string> engineArguments = buildOpenMwConfigArguments(false);
+        OpenMwApplicationSettings settings;
+        Files::ConfigurationManager cfgMgr(true);
 
         mwmp::SimulationRuntimeBootstrap bootstrap;
         bootstrap.canConfigureOpenMwApplication = getOpenMwApplicationConfigurator() != nullptr;
+        bootstrap.canLoadOpenMwApplicationSettings = getOpenMwApplicationSettingsLoader() != nullptr
+            && loadOpenMwSettingsFromArguments(engineArguments, settings, cfgMgr);
+        if (!bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0)
+        {
+            engineArguments = buildOpenMwConfigArguments(true);
+            Files::ConfigurationManager fallbackCfgMgr(true);
+            bootstrap.canLoadOpenMwApplicationSettings
+                = loadOpenMwSettingsFromArguments(engineArguments, settings, fallbackCfgMgr);
+        }
         bootstrap.contentRegistryLoaded = content.loaded;
         bootstrap.contentFileCount = content.dataFileCount;
+        bootstrap.resolvedOpenMwDataDirCount = settings.dataDirs.size();
+        bootstrap.resolvedOpenMwContentFileCount = settings.contentFiles.size();
         bootstrap.engineArgumentCount = engineArguments.size();
-        bootstrap.hasOpenMwContentPlan = content.loaded && content.dataFileCount != 0;
+        bootstrap.hasOpenMwContentPlan = bootstrap.canLoadOpenMwApplicationSettings
+            && bootstrap.resolvedOpenMwDataDirCount != 0
+            && bootstrap.resolvedOpenMwContentFileCount != 0
+            && content.loaded
+            && content.dataFileCount != 0;
 
         if (!bootstrap.canConfigureOpenMwApplication)
             bootstrap.blockedBy = "openmw-application-configurator-missing";
+        else if (!bootstrap.canLoadOpenMwApplicationSettings)
+            bootstrap.blockedBy = "openmw-application-settings-unavailable";
+        else if (bootstrap.resolvedOpenMwDataDirCount == 0)
+            bootstrap.blockedBy = "openmw-data-dirs-unresolved";
+        else if (bootstrap.resolvedOpenMwContentFileCount == 0)
+            bootstrap.blockedBy = "openmw-content-plan-empty";
         else if (!content.loaded)
             bootstrap.blockedBy = "server-content-registry-unavailable";
         else if (content.dataFileCount == 0)
