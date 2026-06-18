@@ -22,6 +22,7 @@
 #include "CellController.hpp"
 #include "CommunityMpClientLuaEventHandler.hpp"
 #include "CommunityMpLuaEventSender.hpp"
+#include "QuestEffectExecutor.hpp"
 #include "QuestDatabaseStore.hpp"
 #include "QuestEventJournalStore.hpp"
 #include "QuestRuntimeEvaluator.hpp"
@@ -2088,6 +2089,8 @@ namespace mwmp
         payload += jsonBool(QuestRuntimeEvaluator::get().supportsJournalConditions());
         payload += ",\"legacyEffectAnalysis\":";
         payload += jsonBool(QuestRuntimeEvaluator::get().supportsLegacyEffectAnalysis());
+        payload += ",\"serverExecutableEffects\":";
+        payload += jsonBool(QuestEffectExecutor::get().supportsServerExecutableEffects());
         payload += ",\"unsupportedConditionsRejectAuthoritativeSelection\":true";
         payload += ",\"inventoryEffectsRequireTransactions\":true";
         payload += ",\"actorEffectsRequireServerAuthority\":true";

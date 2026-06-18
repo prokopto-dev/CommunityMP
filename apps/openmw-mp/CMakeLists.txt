@@ -43,6 +43,7 @@ set(SERVER_CORE
     CommunityMpClientLuaEventHandler.cpp
     CommunityMpLuaEventSender.cpp
     PlayerPacketDecisionEvent.cpp
+    QuestEffectExecutor.cpp
     QuestEventJournalStore.cpp
     PlayerQuestStateStore.cpp
     QuestDatabaseStore.cpp
@@ -86,6 +87,7 @@ set(SERVER_HEADER
         CommunityMpClientLuaEventHandler.hpp
         CommunityMpLuaEventSender.hpp
         PlayerPacketDecisionEvent.hpp
+        QuestEffectExecutor.hpp
         QuestEventJournalStore.hpp
         PlayerQuestStateStore.hpp
         QuestDatabaseStore.hpp

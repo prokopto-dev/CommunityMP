@@ -15,6 +15,7 @@
 
 #include "CommunityMpLuaEventSender.hpp"
 #include "Player.hpp"
+#include "QuestEffectExecutor.hpp"
 #include "QuestEventJournalStore.hpp"
 #include "QuestDatabaseStore.hpp"
 #include "QuestRuntimeEvaluator.hpp"
@@ -455,6 +456,7 @@ namespace
                 = mwmp::QuestDatabaseStore::get().findDialogueResponsesBySourceTopicId(topicId, "Topic");
 
             std::size_t authoritativelyAccepted = 0;
+            std::size_t fullyServerExecutable = 0;
             std::size_t conditionRejected = 0;
             std::size_t requiresFallback = 0;
             std::size_t totalConditions = 0;
@@ -466,6 +468,9 @@ namespace
             std::size_t inventoryEffectCount = 0;
             std::size_t actorEffectCount = 0;
             std::size_t unsupportedEffectCommandCount = 0;
+            std::size_t plannedJournalEffects = 0;
+            std::size_t plannedTopicEffects = 0;
+            std::size_t plannedUnsupportedEffects = 0;
 
             for (const mwmp::DialogueResponseRecord& response : responses)
             {
@@ -473,6 +478,8 @@ namespace
                     = mwmp::QuestRuntimeEvaluator::get().evaluateConditionsForPlayer(player, response.responseId);
                 const mwmp::QuestLegacyEffectAnalysis effects
                     = mwmp::QuestRuntimeEvaluator::get().analyzeLegacyEffects(response.responseId);
+                const mwmp::QuestEffectExecutionPlan plan
+                    = mwmp::QuestEffectExecutor::get().buildPlan(response.responseId);
 
                 totalConditions += conditions.totalConditions;
                 evaluatedConditions += conditions.evaluatedConditions;
@@ -483,11 +490,18 @@ namespace
                 inventoryEffectCount += effects.inventoryCommands;
                 actorEffectCount += effects.actorCommands;
                 unsupportedEffectCommandCount += effects.unsupportedCommands;
+                plannedJournalEffects += plan.journalEffects;
+                plannedTopicEffects += plan.topicEffects;
+                plannedUnsupportedEffects += plan.unsupportedEffects;
 
                 if (!conditions.complete)
                     ++requiresFallback;
                 else if (conditions.accepted)
+                {
                     ++authoritativelyAccepted;
+                    if (plan.fullyExecutable)
+                        ++fullyServerExecutable;
+                }
                 else
                     ++conditionRejected;
             }
@@ -502,6 +516,8 @@ namespace
             payload += std::to_string(responses.size());
             payload += ",\"authoritativelyAccepted\":";
             payload += std::to_string(authoritativelyAccepted);
+            payload += ",\"fullyServerExecutable\":";
+            payload += std::to_string(fullyServerExecutable);
             payload += ",\"conditionRejected\":";
             payload += std::to_string(conditionRejected);
             payload += ",\"requiresFallback\":";
@@ -524,6 +540,12 @@ namespace
             payload += std::to_string(actorEffectCount);
             payload += ",\"unsupportedEffectCommandCount\":";
             payload += std::to_string(unsupportedEffectCommandCount);
+            payload += ",\"plannedJournalEffects\":";
+            payload += std::to_string(plannedJournalEffects);
+            payload += ",\"plannedTopicEffects\":";
+            payload += std::to_string(plannedTopicEffects);
+            payload += ",\"plannedUnsupportedEffects\":";
+            payload += std::to_string(plannedUnsupportedEffects);
             payload += "}";
             ++written;
         }

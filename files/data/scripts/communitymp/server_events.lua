@@ -64,6 +64,7 @@ local questDialogueEvaluationStats = {
     received = 0,
     topicCount = 0,
     authoritativelyAccepted = 0,
+    fullyServerExecutable = 0,
     conditionRejected = 0,
     requiresFallback = 0,
     evaluatedConditions = 0,
@@ -71,6 +72,9 @@ local questDialogueEvaluationStats = {
     legacyEffectCount = 0,
     normalizedEffectCount = 0,
     legacyScriptCount = 0,
+    plannedJournalEffects = 0,
+    plannedTopicEffects = 0,
+    plannedUnsupportedEffects = 0,
     unsupportedEffectCommandCount = 0,
 }
 
@@ -493,6 +497,7 @@ local function storeQuestDialogueEvaluation(state)
     questDialogueEvaluationStats.topicCount = tonumber(state.topicCount or 0) or 0
 
     questDialogueEvaluationStats.authoritativelyAccepted = 0
+    questDialogueEvaluationStats.fullyServerExecutable = 0
     questDialogueEvaluationStats.conditionRejected = 0
     questDialogueEvaluationStats.requiresFallback = 0
     questDialogueEvaluationStats.evaluatedConditions = 0
@@ -500,6 +505,9 @@ local function storeQuestDialogueEvaluation(state)
     questDialogueEvaluationStats.legacyEffectCount = 0
     questDialogueEvaluationStats.normalizedEffectCount = 0
     questDialogueEvaluationStats.legacyScriptCount = 0
+    questDialogueEvaluationStats.plannedJournalEffects = 0
+    questDialogueEvaluationStats.plannedTopicEffects = 0
+    questDialogueEvaluationStats.plannedUnsupportedEffects = 0
     questDialogueEvaluationStats.unsupportedEffectCommandCount = 0
 
     if type(state.topics) ~= 'table' then
@@ -509,6 +517,8 @@ local function storeQuestDialogueEvaluation(state)
     for _, topic in ipairs(state.topics) do
         questDialogueEvaluationStats.authoritativelyAccepted = questDialogueEvaluationStats.authoritativelyAccepted
             + (tonumber(topic.authoritativelyAccepted or 0) or 0)
+        questDialogueEvaluationStats.fullyServerExecutable = questDialogueEvaluationStats.fullyServerExecutable
+            + (tonumber(topic.fullyServerExecutable or 0) or 0)
         questDialogueEvaluationStats.conditionRejected = questDialogueEvaluationStats.conditionRejected
             + (tonumber(topic.conditionRejected or 0) or 0)
         questDialogueEvaluationStats.requiresFallback = questDialogueEvaluationStats.requiresFallback
@@ -523,6 +533,12 @@ local function storeQuestDialogueEvaluation(state)
             + (tonumber(topic.normalizedEffectCount or 0) or 0)
         questDialogueEvaluationStats.legacyScriptCount = questDialogueEvaluationStats.legacyScriptCount
             + (tonumber(topic.legacyScriptCount or 0) or 0)
+        questDialogueEvaluationStats.plannedJournalEffects = questDialogueEvaluationStats.plannedJournalEffects
+            + (tonumber(topic.plannedJournalEffects or 0) or 0)
+        questDialogueEvaluationStats.plannedTopicEffects = questDialogueEvaluationStats.plannedTopicEffects
+            + (tonumber(topic.plannedTopicEffects or 0) or 0)
+        questDialogueEvaluationStats.plannedUnsupportedEffects = questDialogueEvaluationStats.plannedUnsupportedEffects
+            + (tonumber(topic.plannedUnsupportedEffects or 0) or 0)
         questDialogueEvaluationStats.unsupportedEffectCommandCount =
             questDialogueEvaluationStats.unsupportedEffectCommandCount
             + (tonumber(topic.unsupportedEffectCommandCount or 0) or 0)
