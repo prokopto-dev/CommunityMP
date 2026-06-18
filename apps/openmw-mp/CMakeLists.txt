@@ -52,6 +52,7 @@ set(SERVER_CORE
     ServerContentRegistry.cpp
     ServerEventDispatcher.cpp
     SimulationRuntime.cpp
+    WorldDatabaseStore.cpp
     ServerNetworking.cpp
     ServerSimulation.cpp
     MasterClient.cpp
@@ -98,6 +99,7 @@ set(SERVER_HEADER
         ServerContentRegistry.hpp
         ServerEventDispatcher.hpp
         SimulationRuntime.hpp
+        WorldDatabaseStore.hpp
         ServerSimulation.hpp
         ServerApplication.hpp
         ${LuaScript_Headers}

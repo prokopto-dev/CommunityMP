@@ -1,4 +1,5 @@
 #include "ServerContentDatabase.hpp"
+#include "WorldDatabaseStore.hpp"
 
 #include <components/esm/defs.hpp>
 #include <components/esm/esmcommon.hpp>
@@ -3174,6 +3175,7 @@ namespace mwmp
             newStats.changed = changed;
             newStats.available = true;
             mStats = std::move(newStats);
+            WorldDatabaseStore::get().loadFromDirectory(mStats.rootPath);
         }
         catch (const std::exception& e)
         {

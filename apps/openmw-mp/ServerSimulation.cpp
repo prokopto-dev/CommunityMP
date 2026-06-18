@@ -30,6 +30,7 @@
 #include "ServerContentRegistry.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
+#include "WorldDatabaseStore.hpp"
 #include "Player.hpp"
 #include "processors/ActorProcessor.hpp"
 #include "processors/actor/ActorSequenceCoalescing.hpp"
@@ -2264,6 +2265,8 @@ namespace mwmp
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
         const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
         const ServerContentDatabaseStatistics serverContentDatabase = ServerContentDatabase::get().statistics();
+        WorldDatabaseStore::get().ensureLoaded();
+        const WorldDatabaseStatistics worldDatabase = WorldDatabaseStore::get().statistics();
         const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
         const QuestEventJournalStatistics questEventJournal = QuestEventJournalStore::get().statistics();
         const CellController* cellController = CellController::get();
@@ -2466,6 +2469,46 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.assetImportErrorCount);
         payload += ",\"tableCount\":";
         payload += std::to_string(serverContentDatabase.tableCount);
+        payload += "}";
+        payload += ",\"worldDatabase\":{";
+        payload += "\"backend\":";
+        payload += jsonString(worldDatabase.backend);
+        payload += ",\"attempted\":";
+        payload += jsonBool(worldDatabase.attempted);
+        payload += ",\"loaded\":";
+        payload += jsonBool(worldDatabase.loaded);
+        payload += ",\"rootPath\":";
+        payload += jsonString(Files::pathToUnicodeString(worldDatabase.rootPath));
+        payload += ",\"lastError\":";
+        payload += jsonString(worldDatabase.lastError);
+        payload += ",\"loadOrderSource\":";
+        payload += jsonString(worldDatabase.loadOrderSource);
+        payload += ",\"loadOrderRule\":";
+        payload += jsonString(worldDatabase.loadOrderRule);
+        payload += ",\"manifestCount\":";
+        payload += std::to_string(worldDatabase.manifestCount);
+        payload += ",\"loadOrderEntryCount\":";
+        payload += std::to_string(worldDatabase.loadOrderEntryCount);
+        payload += ",\"builtinContentFileCount\":";
+        payload += std::to_string(worldDatabase.builtinContentFileCount);
+        payload += ",\"esmLikeContentFileCount\":";
+        payload += std::to_string(worldDatabase.esmLikeContentFileCount);
+        payload += ",\"cellRecordCount\":";
+        payload += std::to_string(worldDatabase.cellRecordCount);
+        payload += ",\"activeCellRecordCount\":";
+        payload += std::to_string(worldDatabase.activeCellRecordCount);
+        payload += ",\"cellReferenceCount\":";
+        payload += std::to_string(worldDatabase.cellReferenceCount);
+        payload += ",\"activeCellReferenceCount\":";
+        payload += std::to_string(worldDatabase.activeCellReferenceCount);
+        payload += ",\"cellReferenceDeletedCount\":";
+        payload += std::to_string(worldDatabase.cellReferenceDeletedCount);
+        payload += ",\"cellReferenceMovedCount\":";
+        payload += std::to_string(worldDatabase.cellReferenceMovedCount);
+        payload += ",\"cellReferenceTeleportCount\":";
+        payload += std::to_string(worldDatabase.cellReferenceTeleportCount);
+        payload += ",\"cellReferenceIndexedCellCount\":";
+        payload += std::to_string(worldDatabase.cellReferenceIndexedCellCount);
         payload += "}";
         payload += ",\"questDatabase\":{";
         payload += "\"backend\":";
