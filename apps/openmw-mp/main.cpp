@@ -31,6 +31,7 @@
 #include "ServerNetworking.hpp"
 #include "MasterClient.hpp"
 #include "ServerApplication.hpp"
+#include "ServerContentRegistry.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "Utils.hpp"
 
@@ -245,6 +246,7 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "%s", versionInfo.c_str());
     
     Script::SetModDir(dataDirectory);
+    ServerContentRegistry::get().loadFromDataDirectory(Files::pathFromUnicodeString(dataDirectory));
 
 #ifdef ENABLE_LUA
     LangLua::AddPackagePath(Utils::convertPath(pluginHome + "/scripts/?.lua" + ";"

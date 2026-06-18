@@ -26,6 +26,7 @@
 #include "QuestDatabaseStore.hpp"
 #include "QuestEventJournalStore.hpp"
 #include "QuestRuntimeEvaluator.hpp"
+#include "ServerContentRegistry.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
@@ -61,6 +62,7 @@ namespace
     constexpr float followerCellChangeBehindDistance = 96.f;
     constexpr float followerCellChangeRowSpacing = 48.f;
     constexpr float followerCellChangeColumnSpacing = 48.f;
+    constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
 
     bool containsGuid(const std::vector<mwmp::PacketGuid>& guids, mwmp::PacketGuid guid)
@@ -188,6 +190,20 @@ namespace
         result += ",\"rotZ\":";
         appendJsonFloat(result, position.rot[2]);
         result += "}";
+    }
+
+    void appendJsonStringArray(std::string& result, const std::vector<std::string>& values)
+    {
+        result.push_back('[');
+        bool first = true;
+        for (const std::string& value : values)
+        {
+            if (!first)
+                result.push_back(',');
+            first = false;
+            appendJsonString(result, value);
+        }
+        result.push_back(']');
     }
 
     std::string shadowAuthorityAuditName(std::optional<mwmp::PacketGuid> guid)
@@ -2006,6 +2022,7 @@ namespace mwmp
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
         const SimulationRuntimeTopology& runtimeTopology = runtime().topology();
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
+        const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
         const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
         const QuestEventJournalStatistics questEventJournal = QuestEventJournalStore::get().statistics();
         const CellController* cellController = CellController::get();
@@ -2065,6 +2082,35 @@ namespace mwmp
         payload += std::to_string(luaMovementHealthFreshnessWindow.count());
         payload += ",\"luaCellObservationFreshnessSeconds\":";
         payload += std::to_string(luaObservationFreshnessWindow.count());
+        payload += "}";
+        payload += ",\"serverContentRegistry\":{";
+        payload += "\"backend\":";
+        payload += jsonString(serverContent.backend);
+        payload += ",\"attempted\":";
+        payload += jsonBool(serverContent.attempted);
+        payload += ",\"loaded\":";
+        payload += jsonBool(serverContent.loaded);
+        payload += ",\"path\":";
+        payload += jsonString(Files::pathToUnicodeString(serverContent.path));
+        payload += ",\"lastError\":";
+        payload += jsonString(serverContent.lastError);
+        payload += ",\"dataFileCount\":";
+        payload += std::to_string(serverContent.dataFileCount);
+        payload += ",\"checksumCount\":";
+        payload += std::to_string(serverContent.checksumCount);
+        payload += ",\"contentPreview\":";
+        std::vector<std::string> contentFiles;
+        contentFiles.reserve(
+            std::min(ServerContentRegistry::get().dataFiles().size(), runtimeStatusContentPreviewLimit));
+        for (const ServerDataFileRequirement& requirement : ServerContentRegistry::get().dataFiles())
+        {
+            if (contentFiles.size() >= runtimeStatusContentPreviewLimit)
+                break;
+            contentFiles.push_back(requirement.name);
+        }
+        appendJsonStringArray(payload, contentFiles);
+        payload += ",\"contentPreviewTruncated\":";
+        payload += jsonBool(ServerContentRegistry::get().dataFiles().size() > runtimeStatusContentPreviewLimit);
         payload += "}";
         payload += ",\"questDatabase\":{";
         payload += "\"backend\":";
