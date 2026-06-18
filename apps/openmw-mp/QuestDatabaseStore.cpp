@@ -1,5 +1,7 @@
 #include "QuestDatabaseStore.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -195,6 +197,15 @@ namespace
     {
         return row.get<std::string>(std::string(key), "");
     }
+
+    std::string normalizedQuestLookupKey(std::string_view value)
+    {
+        std::string result(value);
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return result;
+    }
 }
 
 namespace mwmp
@@ -269,7 +280,10 @@ namespace mwmp
                         record.deleted = getBool(row, "deleted");
 
                         if (!record.sourceQuestId.empty())
+                        {
                             mQuestIdBySourceQuestId[record.sourceQuestId] = record.questId;
+                            mQuestIdBySourceQuestId[normalizedQuestLookupKey(record.sourceQuestId)] = record.questId;
+                        }
 
                         mQuestDefinitionsById[record.questId] = std::move(record);
                     });
@@ -330,7 +344,9 @@ namespace mwmp
         std::string_view sourceQuestId) const
     {
         std::lock_guard lock(mMutex);
-        const auto sourceIt = mQuestIdBySourceQuestId.find(std::string(sourceQuestId));
+        auto sourceIt = mQuestIdBySourceQuestId.find(std::string(sourceQuestId));
+        if (sourceIt == mQuestIdBySourceQuestId.end())
+            sourceIt = mQuestIdBySourceQuestId.find(normalizedQuestLookupKey(sourceQuestId));
         if (sourceIt == mQuestIdBySourceQuestId.end())
             return std::nullopt;
 
