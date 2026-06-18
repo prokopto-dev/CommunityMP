@@ -19,6 +19,7 @@ namespace
 {
     constexpr std::string_view manifestSchema = "communitymp.worlddb.v1";
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
+    constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr std::string_view cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
     constexpr std::string_view cellReferenceWinnerRowSchema = "communitymp.worlddb.cell-reference-winner.v1";
 
@@ -244,6 +245,47 @@ namespace
         return result;
     }
 
+    std::string winnerLookupKey(std::string_view recordType, std::string_view recordKey)
+    {
+        std::string result(recordType);
+        result.push_back('\x1f');
+        result += recordKey;
+        return result;
+    }
+
+    bool isActorRecordType(std::string_view recordType)
+    {
+        return recordType == "NPC_" || recordType == "CREA" || recordType == "LEVC";
+    }
+
+    bool isItemRecordType(std::string_view recordType)
+    {
+        return recordType == "ALCH" || recordType == "APPA" || recordType == "ARMO" || recordType == "BOOK"
+            || recordType == "CLOT" || recordType == "INGR" || recordType == "LIGH" || recordType == "LOCK"
+            || recordType == "MISC" || recordType == "PROB" || recordType == "REPA" || recordType == "WEAP";
+    }
+
+    std::string recordCategoryForType(std::string_view recordType)
+    {
+        if (recordType == "NPC_" || recordType == "CREA")
+            return "actor";
+        if (recordType == "LEVC")
+            return "levelledActor";
+        if (recordType == "CONT")
+            return "container";
+        if (recordType == "DOOR")
+            return "door";
+        if (recordType == "ACTI")
+            return "activator";
+        if (recordType == "STAT")
+            return "static";
+        if (recordType == "LEVI")
+            return "levelledItem";
+        if (isItemRecordType(recordType))
+            return "item";
+        return "other";
+    }
+
     bool referenceSortLess(
         const mwmp::WorldCellReferenceRecord& left, const mwmp::WorldCellReferenceRecord& right)
     {
@@ -298,6 +340,8 @@ namespace mwmp
         mStats.rootPath = root;
         mLoadOrder.clear();
         mLoadOrderByContentFile.clear();
+        mRecordWinnersByWinnerKey.clear();
+        mRecordWinnerKeysByRecordKey.clear();
         mCellsByKey.clear();
         mReferencesByKey.clear();
         mReferenceKeysByEffectiveCellKey.clear();
@@ -330,6 +374,41 @@ namespace mwmp
                         mLoadOrderByContentFile[normalizedLookupKey(entry.contentFile)] = entry;
 
                     mLoadOrder.push_back(std::move(entry));
+                });
+
+            mStats.recordWinnerCount = readJsonlTable(root, "record_winners.jsonl", recordWinnerRowSchema,
+                [&](const boost::property_tree::ptree& row) {
+                    WorldRecordWinner winner;
+                    winner.recordType = getString(row, "recordType");
+                    winner.recordTypeInt = getUnsigned(row, "recordTypeInt");
+                    winner.recordKeyAvailable = getBool(row, "recordKeyAvailable");
+                    winner.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    winner.recordId = getString(row, "recordId");
+                    winner.recordKeyKind = getString(row, "recordKeyKind");
+                    winner.sourceFile = getString(row, "sourceFile");
+                    winner.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    winner.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    winner.recordIndex = getSizeT(row, "recordIndex");
+                    winner.flags = getUnsigned(row, "flags");
+                    winner.deleted = getBool(row, "deleted");
+                    winner.recordFlagDeleted = getBool(row, "recordFlagDeleted");
+                    winner.deleteSubrecord = getBool(row, "deleteSubrecord");
+                    winner.tombstone = getBool(row, "tombstone");
+                    winner.recordOffset = getSizeT(row, "recordOffset");
+                    winner.dataOffset = getSizeT(row, "dataOffset");
+                    winner.dataSize = getSizeT(row, "dataSize");
+                    winner.loadOrderRule = getString(row, "loadOrderRule");
+                    winner.category = recordCategoryForType(winner.recordType);
+
+                    if (winner.deleted || winner.tombstone)
+                        ++mStats.recordWinnerDeletedCount;
+
+                    if (winner.recordType.empty() || winner.recordKey.empty())
+                        return;
+
+                    winner.winnerKey = winnerLookupKey(winner.recordType, winner.recordKey);
+                    mRecordWinnerKeysByRecordKey[winner.recordKey].push_back(winner.winnerKey);
+                    mRecordWinnersByWinnerKey[winner.winnerKey] = std::move(winner);
                 });
 
             mStats.cellRecordCount = readJsonlTable(root, "cells.jsonl", cellRecordRowSchema,
@@ -414,6 +493,8 @@ namespace mwmp
                     ref.referenceBlocked = getInt(row, "referenceBlocked", -1);
                     ref.loadOrderRule = getString(row, "loadOrderRule");
 
+                    resolveBaseRecordForReferenceLocked(ref);
+
                     if (!ref.refKey.empty())
                         mReferencesByKey[ref.refKey] = std::move(ref);
                 });
@@ -429,9 +510,11 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu indexedCells=%zu",
-                pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.cellRecordCount,
-                mStats.activeCellRecordCount, mStats.cellReferenceCount, mStats.activeCellReferenceCount,
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
+                mStats.cellRecordCount, mStats.activeCellRecordCount, mStats.cellReferenceCount,
+                mStats.activeCellReferenceCount, mStats.actorReferenceCount, mStats.containerReferenceCount,
+                mStats.doorReferenceCount,
                 mStats.cellReferenceIndexedCellCount);
         }
         catch (const std::exception& e)
@@ -440,6 +523,8 @@ namespace mwmp
             mStats.lastError = e.what();
             mLoadOrder.clear();
             mLoadOrderByContentFile.clear();
+            mRecordWinnersByWinnerKey.clear();
+            mRecordWinnerKeysByRecordKey.clear();
             mCellsByKey.clear();
             mReferencesByKey.clear();
             mReferenceKeysByEffectiveCellKey.clear();
@@ -450,6 +535,65 @@ namespace mwmp
         }
     }
 
+    void WorldDatabaseStore::resolveBaseRecordForReferenceLocked(WorldCellReferenceRecord& ref) const
+    {
+        ref.baseRecordResolved = false;
+        ref.baseRecordAmbiguous = false;
+        ref.baseRecordDeleted = false;
+        ref.baseRecordWinnerKey.clear();
+        ref.baseRecordKey = normalizedLookupKey(ref.refId);
+        ref.baseRecordId.clear();
+        ref.baseRecordType.clear();
+        ref.baseRecordTypeInt = 0;
+        ref.baseRecordCategory.clear();
+        ref.baseRecordSourceFile.clear();
+        ref.baseRecordLoadOrderIndex = 0;
+
+        if (ref.baseRecordKey.empty())
+            return;
+
+        const auto keysIt = mRecordWinnerKeysByRecordKey.find(ref.baseRecordKey);
+        if (keysIt == mRecordWinnerKeysByRecordKey.end())
+            return;
+
+        std::vector<const WorldRecordWinner*> nonDeleted;
+        std::vector<const WorldRecordWinner*> deleted;
+        for (const std::string& winnerKey : keysIt->second)
+        {
+            const auto winnerIt = mRecordWinnersByWinnerKey.find(winnerKey);
+            if (winnerIt == mRecordWinnersByWinnerKey.end())
+                continue;
+
+            const WorldRecordWinner& winner = winnerIt->second;
+            if (winner.deleted || winner.tombstone)
+                deleted.push_back(&winner);
+            else
+                nonDeleted.push_back(&winner);
+        }
+
+        const WorldRecordWinner* selected = nullptr;
+        if (nonDeleted.size() == 1)
+            selected = nonDeleted.front();
+        else if (nonDeleted.empty() && deleted.size() == 1)
+            selected = deleted.front();
+        else
+        {
+            ref.baseRecordAmbiguous = !nonDeleted.empty() || deleted.size() > 1;
+            return;
+        }
+
+        ref.baseRecordResolved = true;
+        ref.baseRecordDeleted = selected->deleted || selected->tombstone;
+        ref.baseRecordWinnerKey = selected->winnerKey;
+        ref.baseRecordKey = selected->recordKey;
+        ref.baseRecordId = selected->recordId;
+        ref.baseRecordType = selected->recordType;
+        ref.baseRecordTypeInt = selected->recordTypeInt;
+        ref.baseRecordCategory = selected->category;
+        ref.baseRecordSourceFile = selected->sourceFile;
+        ref.baseRecordLoadOrderIndex = selected->loadOrderIndex;
+    }
+
     void WorldDatabaseStore::rebuildReferenceIndexesLocked()
     {
         mReferenceKeysByEffectiveCellKey.clear();
@@ -458,13 +602,55 @@ namespace mwmp
         mStats.cellReferenceMovedCount = 0;
         mStats.cellReferenceTeleportCount = 0;
         mStats.cellReferenceIndexedCellCount = 0;
+        mStats.baseRecordResolvedReferenceCount = 0;
+        mStats.baseRecordUnresolvedReferenceCount = 0;
+        mStats.baseRecordAmbiguousReferenceCount = 0;
+        mStats.baseRecordDeletedReferenceCount = 0;
+        mStats.actorReferenceCount = 0;
+        mStats.containerReferenceCount = 0;
+        mStats.doorReferenceCount = 0;
+        mStats.itemReferenceCount = 0;
+        mStats.staticReferenceCount = 0;
+        mStats.activatorReferenceCount = 0;
+        mStats.levelledItemReferenceCount = 0;
+        mStats.otherReferenceCount = 0;
 
         for (const auto& [refKey, ref] : mReferencesByKey)
         {
-            if (ref.deleted || ref.tombstone)
+            const bool deletedRef = ref.deleted || ref.tombstone;
+            if (deletedRef)
                 ++mStats.cellReferenceDeletedCount;
             else
+            {
                 ++mStats.activeCellReferenceCount;
+
+                if (ref.baseRecordAmbiguous)
+                    ++mStats.baseRecordAmbiguousReferenceCount;
+                else if (!ref.baseRecordResolved)
+                    ++mStats.baseRecordUnresolvedReferenceCount;
+                else
+                {
+                    ++mStats.baseRecordResolvedReferenceCount;
+                    if (ref.baseRecordDeleted)
+                        ++mStats.baseRecordDeletedReferenceCount;
+                    else if (isActorRecordType(ref.baseRecordType))
+                        ++mStats.actorReferenceCount;
+                    else if (ref.baseRecordCategory == "container")
+                        ++mStats.containerReferenceCount;
+                    else if (ref.baseRecordCategory == "door")
+                        ++mStats.doorReferenceCount;
+                    else if (ref.baseRecordCategory == "item")
+                        ++mStats.itemReferenceCount;
+                    else if (ref.baseRecordCategory == "static")
+                        ++mStats.staticReferenceCount;
+                    else if (ref.baseRecordCategory == "activator")
+                        ++mStats.activatorReferenceCount;
+                    else if (ref.baseRecordCategory == "levelledItem")
+                        ++mStats.levelledItemReferenceCount;
+                    else
+                        ++mStats.otherReferenceCount;
+                }
+            }
 
             if (ref.moved)
                 ++mStats.cellReferenceMovedCount;
@@ -507,6 +693,43 @@ namespace mwmp
         return it->second;
     }
 
+    std::optional<WorldRecordWinner> WorldDatabaseStore::findWinningRecordByTypeAndKey(
+        std::string_view recordType, std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mRecordWinnersByWinnerKey.find(winnerLookupKey(recordType, normalizedLookupKey(recordKey)));
+        if (it == mRecordWinnersByWinnerKey.end())
+            return std::nullopt;
+
+        return it->second;
+    }
+
+    std::vector<WorldRecordWinner> WorldDatabaseStore::findWinningRecordsByRecordKey(std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto keysIt = mRecordWinnerKeysByRecordKey.find(normalizedLookupKey(recordKey));
+        if (keysIt == mRecordWinnerKeysByRecordKey.end())
+            return {};
+
+        std::vector<WorldRecordWinner> result;
+        result.reserve(keysIt->second.size());
+        for (const std::string& winnerKey : keysIt->second)
+        {
+            const auto winnerIt = mRecordWinnersByWinnerKey.find(winnerKey);
+            if (winnerIt != mRecordWinnersByWinnerKey.end())
+                result.push_back(winnerIt->second);
+        }
+
+        std::sort(result.begin(), result.end(), [](const WorldRecordWinner& left, const WorldRecordWinner& right) {
+            if (left.loadOrderIndex != right.loadOrderIndex)
+                return left.loadOrderIndex < right.loadOrderIndex;
+            if (left.recordType != right.recordType)
+                return left.recordType < right.recordType;
+            return left.recordKey < right.recordKey;
+        });
+        return result;
+    }
+
     std::optional<WorldCellRecord> WorldDatabaseStore::findCellByKey(std::string_view cellKey) const
     {
         std::lock_guard lock(mMutex);
@@ -525,6 +748,21 @@ namespace mwmp
             return std::nullopt;
 
         return it->second;
+    }
+
+    std::optional<WorldRecordWinner> WorldDatabaseStore::findBaseRecordForReference(std::string_view refKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto refIt = mReferencesByKey.find(std::string(refKey));
+        if (refIt == mReferencesByKey.end() || !refIt->second.baseRecordResolved
+            || refIt->second.baseRecordAmbiguous || refIt->second.baseRecordWinnerKey.empty())
+            return std::nullopt;
+
+        const auto winnerIt = mRecordWinnersByWinnerKey.find(refIt->second.baseRecordWinnerKey);
+        if (winnerIt == mRecordWinnersByWinnerKey.end())
+            return std::nullopt;
+
+        return winnerIt->second;
     }
 
     std::vector<WorldCellReferenceRecord> WorldDatabaseStore::findReferencesByCellKey(

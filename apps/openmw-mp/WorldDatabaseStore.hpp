@@ -33,6 +33,20 @@ namespace mwmp
         std::size_t cellReferenceMovedCount = 0;
         std::size_t cellReferenceTeleportCount = 0;
         std::size_t cellReferenceIndexedCellCount = 0;
+        std::size_t recordWinnerCount = 0;
+        std::size_t recordWinnerDeletedCount = 0;
+        std::size_t baseRecordResolvedReferenceCount = 0;
+        std::size_t baseRecordUnresolvedReferenceCount = 0;
+        std::size_t baseRecordAmbiguousReferenceCount = 0;
+        std::size_t baseRecordDeletedReferenceCount = 0;
+        std::size_t actorReferenceCount = 0;
+        std::size_t containerReferenceCount = 0;
+        std::size_t doorReferenceCount = 0;
+        std::size_t itemReferenceCount = 0;
+        std::size_t staticReferenceCount = 0;
+        std::size_t activatorReferenceCount = 0;
+        std::size_t levelledItemReferenceCount = 0;
+        std::size_t otherReferenceCount = 0;
     };
 
     struct WorldLoadOrderEntry
@@ -72,6 +86,31 @@ namespace mwmp
         unsigned int sunlightColor = 0;
         unsigned int fogColor = 0;
         float fogDensity = 0.f;
+    };
+
+    struct WorldRecordWinner
+    {
+        std::string winnerKey;
+        std::string recordType;
+        unsigned int recordTypeInt = 0;
+        bool recordKeyAvailable = false;
+        std::string recordKey;
+        std::string recordId;
+        std::string recordKeyKind;
+        std::string sourceFile;
+        std::size_t loadOrderIndex = 0;
+        std::size_t engineContentIndex = 0;
+        std::size_t recordIndex = 0;
+        unsigned int flags = 0;
+        bool deleted = false;
+        bool recordFlagDeleted = false;
+        bool deleteSubrecord = false;
+        bool tombstone = false;
+        std::size_t recordOffset = 0;
+        std::size_t dataOffset = 0;
+        std::size_t dataSize = 0;
+        std::string loadOrderRule;
+        std::string category;
     };
 
     struct WorldCellReferenceRecord
@@ -122,6 +161,17 @@ namespace mwmp
         std::string trap;
         int referenceBlocked = -1;
         std::string loadOrderRule;
+        bool baseRecordResolved = false;
+        bool baseRecordAmbiguous = false;
+        bool baseRecordDeleted = false;
+        std::string baseRecordWinnerKey;
+        std::string baseRecordKey;
+        std::string baseRecordId;
+        std::string baseRecordType;
+        unsigned int baseRecordTypeInt = 0;
+        std::string baseRecordCategory;
+        std::string baseRecordSourceFile;
+        std::size_t baseRecordLoadOrderIndex = 0;
     };
 
     class WorldDatabaseStore
@@ -135,8 +185,12 @@ namespace mwmp
 
         std::vector<WorldLoadOrderEntry> loadOrder() const;
         std::optional<WorldLoadOrderEntry> findLoadOrderEntryByContentFile(std::string_view contentFile) const;
+        std::optional<WorldRecordWinner> findWinningRecordByTypeAndKey(
+            std::string_view recordType, std::string_view recordKey) const;
+        std::vector<WorldRecordWinner> findWinningRecordsByRecordKey(std::string_view recordKey) const;
         std::optional<WorldCellRecord> findCellByKey(std::string_view cellKey) const;
         std::optional<WorldCellReferenceRecord> findReferenceByKey(std::string_view refKey) const;
+        std::optional<WorldRecordWinner> findBaseRecordForReference(std::string_view refKey) const;
         std::vector<WorldCellReferenceRecord> findReferencesByCellKey(
             std::string_view cellKey, bool includeDeleted = false) const;
 
@@ -144,6 +198,7 @@ namespace mwmp
         WorldDatabaseStore() = default;
 
         void loadFromDirectoryLocked(const std::filesystem::path& root);
+        void resolveBaseRecordForReferenceLocked(WorldCellReferenceRecord& ref) const;
         void rebuildReferenceIndexesLocked();
 
         mutable std::mutex mMutex;
@@ -151,6 +206,8 @@ namespace mwmp
         WorldDatabaseStatistics mStats;
         std::vector<WorldLoadOrderEntry> mLoadOrder;
         std::map<std::string, WorldLoadOrderEntry> mLoadOrderByContentFile;
+        std::map<std::string, WorldRecordWinner> mRecordWinnersByWinnerKey;
+        std::map<std::string, std::vector<std::string>> mRecordWinnerKeysByRecordKey;
         std::map<std::string, WorldCellRecord> mCellsByKey;
         std::map<std::string, WorldCellReferenceRecord> mReferencesByKey;
         std::map<std::string, std::vector<std::string>> mReferenceKeysByEffectiveCellKey;
