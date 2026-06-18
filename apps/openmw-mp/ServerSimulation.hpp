@@ -34,6 +34,15 @@ namespace mwmp
         bool hasDestination = false;
     };
 
+    struct ActorPathgridRouteState
+    {
+        ESM::Position destination;
+        std::vector<ESM::Position> waypoints;
+        std::size_t nextWaypointIndex = 0;
+        bool hasDestination = false;
+        bool routeBlocked = false;
+    };
+
     class ServerSimulation
     {
     public:
@@ -106,6 +115,7 @@ namespace mwmp
         std::map<PacketGuid, ESM::Cell> mPlayerAcceptedCells;
         std::map<ActorMovementKey, PlayerMovementState> mActorMovementStates;
         std::map<ActorMovementKey, ActorWanderState> mActorWanderStates;
+        std::map<ActorMovementKey, ActorPathgridRouteState> mActorPathgridRouteStates;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         std::unique_ptr<SimulationRuntime> mRuntime;
         Clock::time_point mLastTick;

@@ -61,6 +61,8 @@ namespace
     constexpr float aiWanderStopDistance = 32.f;
     constexpr float aiWanderMinimumDecisionSeconds = 2.f;
     constexpr float aiWanderMaximumDecisionSeconds = 8.f;
+    constexpr float aiRouteDestinationRefreshDistance = 64.f;
+    constexpr float aiRouteWaypointReachedDistance = 32.f;
     constexpr float twoPi = 6.28318530717958647692f;
     constexpr float followerCellChangeBehindDistance = 96.f;
     constexpr float followerCellChangeRowSpacing = 48.f;
@@ -1145,41 +1147,104 @@ namespace
         return std::clamp(static_cast<float>(actor.aiDistance), aiMinimumStopDistance, aiMaximumStopDistance);
     }
 
-    bool choosePathgridSteeringDestination(Cell& cell, const ESM::Position& start, const ESM::Position& destination,
-        float stopDistance, ESM::Position& steeringDestination, bool& routeBlocked)
+    void clearPathgridRouteState(mwmp::ActorPathgridRouteState& routeState)
+    {
+        routeState.waypoints.clear();
+        routeState.nextWaypointIndex = 0;
+        routeState.hasDestination = false;
+        routeState.routeBlocked = false;
+    }
+
+    bool isEmptyPathgridRouteState(const mwmp::ActorPathgridRouteState& routeState)
+    {
+        return !routeState.hasDestination && !routeState.routeBlocked && routeState.waypoints.empty();
+    }
+
+    bool shouldRebuildPathgridRoute(const mwmp::ActorPathgridRouteState& routeState,
+        const ESM::Position& destination)
+    {
+        if (!routeState.hasDestination)
+            return true;
+
+        const float deltaX = routeState.destination.pos[0] - destination.pos[0];
+        const float deltaY = routeState.destination.pos[1] - destination.pos[1];
+        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        return !std::isfinite(distanceSquared)
+            || distanceSquared > aiRouteDestinationRefreshDistance * aiRouteDestinationRefreshDistance;
+    }
+
+    bool choosePathgridSteeringDestination(Cell& cell, mwmp::ActorPathgridRouteState& routeState,
+        const ESM::Position& start, const ESM::Position& destination, float stopDistance,
+        ESM::Position& steeringDestination, bool& routeBlocked)
     {
         routeBlocked = false;
         const mwmp::ServerPathgridNavigator& navigator = cell.getServerWorldPathgridNavigator();
         if (!navigator.hasPathgrid())
+        {
+            clearPathgridRouteState(routeState);
             return false;
+        }
 
-        const mwmp::ServerPathgridRoute route = navigator.buildRoute(start, destination);
-        if (!route.reachable)
+        if (!hasFiniteWorldPosition(start) || !hasFiniteWorldPosition(destination))
+        {
+            clearPathgridRouteState(routeState);
+            return false;
+        }
+
+        if (shouldRebuildPathgridRoute(routeState, destination))
+        {
+            const mwmp::ServerPathgridRoute route = navigator.buildRoute(start, destination);
+            routeState.destination = destination;
+            sanitizeFinitePosition(routeState.destination);
+            routeState.hasDestination = true;
+            routeState.routeBlocked = !route.reachable;
+            routeState.nextWaypointIndex = 0;
+            routeState.waypoints.clear();
+
+            if (route.reachable)
+            {
+                routeState.waypoints.reserve(route.waypoints.size());
+                for (const mwmp::ServerPathgridWaypoint& waypoint : route.waypoints)
+                {
+                    ESM::Position position = waypoint.position;
+                    sanitizeFinitePosition(position);
+                    routeState.waypoints.push_back(position);
+                }
+            }
+        }
+
+        if (routeState.routeBlocked)
         {
             routeBlocked = true;
             return true;
         }
 
-        constexpr float waypointReachedDistance = 32.f;
-        const float waypointThreshold = std::min(stopDistance, waypointReachedDistance);
+        const float waypointThreshold = std::min(stopDistance, aiRouteWaypointReachedDistance);
         const float waypointThresholdSquared = waypointThreshold * waypointThreshold;
-        for (const mwmp::ServerPathgridWaypoint& waypoint : route.waypoints)
+        while (routeState.nextWaypointIndex < routeState.waypoints.size())
         {
-            const float deltaX = waypoint.position.pos[0] - start.pos[0];
-            const float deltaY = waypoint.position.pos[1] - start.pos[1];
+            const ESM::Position& waypoint = routeState.waypoints[routeState.nextWaypointIndex];
+            const float deltaX = waypoint.pos[0] - start.pos[0];
+            const float deltaY = waypoint.pos[1] - start.pos[1];
             const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
-            if (std::isfinite(distanceSquared) && distanceSquared > waypointThresholdSquared)
-            {
-                steeringDestination = waypoint.position;
-                return true;
-            }
+            if (!std::isfinite(distanceSquared) || distanceSquared <= waypointThresholdSquared)
+                ++routeState.nextWaypointIndex;
+            else
+                break;
+        }
+
+        if (routeState.nextWaypointIndex < routeState.waypoints.size())
+        {
+            steeringDestination = routeState.waypoints[routeState.nextWaypointIndex];
+            return true;
         }
 
         steeringDestination = destination;
         return true;
     }
 
-    bool buildAiMovementIntent(Cell& cell, mwmp::BaseActor& actor, ESM::Position& direction)
+    bool buildAiMovementIntent(Cell& cell, mwmp::BaseActor& actor, mwmp::ActorPathgridRouteState& routeState,
+        ESM::Position& direction)
     {
         if (!actor.hasAiData || !actor.hasPositionData)
             return false;
@@ -1223,7 +1288,7 @@ namespace
         ESM::Position steeringDestination = destination;
         bool routeBlocked = false;
         const bool routeAvailable = choosePathgridSteeringDestination(
-            cell, actor.position, destination, stopDistance, steeringDestination, routeBlocked);
+            cell, routeState, actor.position, destination, stopDistance, steeringDestination, routeBlocked);
         if (routeAvailable && routeBlocked)
             return true;
 
@@ -1268,7 +1333,8 @@ namespace
     }
 
     bool buildWanderMovementIntent(Cell& cell, const std::string& cellKey, unsigned int refNum, unsigned int mpNum,
-        mwmp::BaseActor& actor, mwmp::ActorWanderState& wanderState, float deltaSeconds, ESM::Position& direction)
+        mwmp::BaseActor& actor, mwmp::ActorWanderState& wanderState, mwmp::ActorPathgridRouteState& routeState,
+        float deltaSeconds, ESM::Position& direction)
     {
         if (!actor.hasAiData || actor.aiAction != mwmp::BaseActorList::WANDER
             || !actor.hasPositionData || !hasFiniteWorldPosition(actor.position))
@@ -1305,7 +1371,8 @@ namespace
         ESM::Position steeringDestination = wanderState.destination;
         bool routeBlocked = false;
         const bool routeAvailable = choosePathgridSteeringDestination(
-            cell, actor.position, wanderState.destination, aiWanderStopDistance, steeringDestination, routeBlocked);
+            cell, routeState, actor.position, wanderState.destination, aiWanderStopDistance, steeringDestination,
+            routeBlocked);
         if (routeAvailable && routeBlocked)
         {
             wanderState.hasDestination = false;
@@ -2614,8 +2681,19 @@ namespace mwmp
                 ++playerTrackedCellCount;
         }
 
+        std::size_t serverActorPathgridRouteCacheCount = mActorPathgridRouteStates.size();
+        std::size_t serverActorPathgridBlockedRouteCacheCount = 0;
+        std::size_t serverActorPathgridRouteWaypointCacheCount = 0;
+        for (const auto& [actorKey, routeState] : mActorPathgridRouteStates)
+        {
+            static_cast<void>(actorKey);
+            if (routeState.routeBlocked)
+                ++serverActorPathgridBlockedRouteCacheCount;
+            serverActorPathgridRouteWaypointCacheCount += routeState.waypoints.size();
+        }
+
         std::string payload;
-        payload.reserve(980);
+        payload.reserve(1100);
         payload += "{\"schema\":";
         payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
         payload += ",\"kind\":\"runtime_status\"";
@@ -2631,6 +2709,12 @@ namespace mwmp
         payload += jsonBool(canAuthoritativelySimulateActors());
         payload += ",\"serverActorAuthorityBlockedBy\":";
         payload += jsonString(authorityBlockReason);
+        payload += ",\"serverActorPathgridRouteCacheCount\":";
+        payload += std::to_string(serverActorPathgridRouteCacheCount);
+        payload += ",\"serverActorPathgridBlockedRouteCacheCount\":";
+        payload += std::to_string(serverActorPathgridBlockedRouteCacheCount);
+        payload += ",\"serverActorPathgridRouteWaypointCacheCount\":";
+        payload += std::to_string(serverActorPathgridRouteWaypointCacheCount);
         payload += ",\"loadedCellCount\":";
         payload += std::to_string(loadedCellCount);
         payload += ",\"serverWorldBootstrappedCellCount\":";
@@ -3581,19 +3665,24 @@ namespace mwmp
                 const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
                 ESM::Position direction = actor.direction;
                 const bool serverOwnsActorMovement = hasServerOwnedActorMovement(actor);
-                const bool hasAiMovementIntent = buildAiMovementIntent(*cell, actor, direction);
+                ActorPathgridRouteState& routeState = mActorPathgridRouteStates[actorKey];
+                const bool hasAiMovementIntent = buildAiMovementIntent(*cell, actor, routeState, direction);
                 bool hasWanderMovementIntent = false;
 
                 if (!hasAiMovementIntent && actor.hasAiData && actor.aiAction == BaseActorList::WANDER)
                 {
                     ActorWanderState& wanderState = mActorWanderStates[actorKey];
                     hasWanderMovementIntent = buildWanderMovementIntent(
-                        *cell, cellKey, actor.refNum, actor.mpNum, actor, wanderState, deltaSeconds, direction);
+                        *cell, cellKey, actor.refNum, actor.mpNum, actor, wanderState, routeState, deltaSeconds,
+                        direction);
                 }
                 else
                     mActorWanderStates.erase(actorKey);
 
                 const bool hasServerMovementIntent = hasAiMovementIntent || hasWanderMovementIntent;
+                if (!hasServerMovementIntent || isEmptyPathgridRouteState(routeState))
+                    mActorPathgridRouteStates.erase(actorKey);
+
                 if (!hasServerMovementIntent)
                 {
                     if (serverOwnsActorMovement)
