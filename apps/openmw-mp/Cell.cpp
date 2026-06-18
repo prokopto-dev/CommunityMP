@@ -11,6 +11,7 @@
 #include <utility>
 #include "Player.hpp"
 #include "ServerEventDispatcher.hpp"
+#include "ServerNetworking.hpp"
 #include "Utils.hpp"
 #include "WorldDatabaseStore.hpp"
 
@@ -108,6 +109,22 @@ namespace
     {
         return category == "container" || category == "door" || category == "item"
             || category == "levelledItem" || category == "static" || category == "activator";
+    }
+
+    std::pair<unsigned int, unsigned int> objectKey(const mwmp::BaseObject& object)
+    {
+        return { object.refNum, object.mpNum };
+    }
+
+    const mwmp::BaseObject* findObject(const mwmp::BaseObjectList& objectList, unsigned int refNum, unsigned int mpNum)
+    {
+        for (const mwmp::BaseObject& object : objectList.baseObjects)
+        {
+            if (object.refNum == refNum && object.mpNum == mpNum)
+                return &object;
+        }
+
+        return nullptr;
     }
 
     mwmp::BaseActor buildServerWorldActor(const Cell::ServerWorldReference& reference, const ESM::Cell& cell)
@@ -230,6 +247,10 @@ namespace
             case ID_OBJECT_PLACE:
             case ID_OBJECT_SPAWN:
                 target = incoming;
+                target.objectState = true;
+                target.scale = 1.f;
+                target.doorState = 0;
+                target.teleportState = false;
                 target.containerItemCount = static_cast<unsigned int>(target.containerItems.size());
                 break;
             case ID_OBJECT_MOVE:
@@ -268,6 +289,18 @@ namespace
                 break;
         }
     }
+
+    bool isDoorCategory(const std::vector<Cell::ServerWorldReference>& references, const mwmp::BaseObject& object)
+    {
+        for (const Cell::ServerWorldReference& reference : references)
+        {
+            if (reference.refNum == object.refNum && reference.mpNum == object.mpNum)
+                return reference.baseRecordCategory == "door";
+        }
+
+        return false;
+    }
+
 }
 
 Cell::Cell(ESM::Cell cell)
@@ -330,6 +363,7 @@ void Cell::addPlayer(Player *player)
     mwmp::ServerEvents::cellLoad(player->getId(), getShortDescription().c_str());
 
     players.push_back(player);
+    sendServerObjectStateSnapshotTo(*player);
 }
 
 void Cell::removePlayer(Player *player, bool cleanPlayer)
@@ -878,7 +912,31 @@ void Cell::readObjectList(unsigned char packetID, const mwmp::BaseObjectList *ne
 
     if (packetID == ID_OBJECT_DELETE)
     {
-        removeObjects(newObjectList);
+        for (const mwmp::BaseObject& incomingObject : newObjectList->baseObjects)
+        {
+            mwmp::BaseObject* cellObject = getObject(incomingObject.refNum, incomingObject.mpNum);
+            const mwmp::BaseObject* serverWorldObject
+                = findObject(serverWorldObjectList, incomingObject.refNum, incomingObject.mpNum);
+
+            if (cellObject != nullptr && serverWorldObject != nullptr)
+                cellObject->objectState = false;
+            else if (cellObject != nullptr)
+            {
+                mwmp::BaseObjectList deleteList;
+                deleteList.baseObjects.push_back(incomingObject);
+                removeObjects(&deleteList);
+            }
+            else if (serverWorldObject != nullptr)
+            {
+                mwmp::BaseObject tombstone = *serverWorldObject;
+                tombstone.objectState = false;
+                tombstone.containerItemCount = static_cast<unsigned int>(tombstone.containerItems.size());
+                cellObjectList.baseObjects.push_back(std::move(tombstone));
+            }
+        }
+
+        cellObjectList.baseObjectCount = static_cast<unsigned int>(cellObjectList.baseObjects.size());
+        objectListSnapshotReceived = true;
         return;
     }
 
@@ -887,17 +945,43 @@ void Cell::readObjectList(unsigned char packetID, const mwmp::BaseObjectList *ne
 
     for (const mwmp::BaseObject& incomingObject : newObjectList->baseObjects)
     {
-        mwmp::BaseObject objectToStore = incomingObject;
-        mwmp::BaseObject* cellObject = getObject(objectToStore.refNum, objectToStore.mpNum);
+        const auto key = objectKey(incomingObject);
+
+        if (packetID == ID_CONTAINER && newObjectList->action != mwmp::BaseObjectList::SET
+            && knownContainerSnapshots.find(key) == knownContainerSnapshots.end())
+            continue;
+
+        mwmp::BaseObject* cellObject = getObject(incomingObject.refNum, incomingObject.mpNum);
 
         if (cellObject == nullptr)
         {
+            mwmp::BaseObject objectToStore{};
+            if (const mwmp::BaseObject* serverWorldObject
+                = findObject(serverWorldObjectList, incomingObject.refNum, incomingObject.mpNum))
+            {
+                objectToStore = *serverWorldObject;
+            }
+            else
+            {
+                objectToStore.refId = incomingObject.refId;
+                objectToStore.refNum = incomingObject.refNum;
+                objectToStore.mpNum = incomingObject.mpNum;
+                objectToStore.count = 1;
+                objectToStore.charge = -1;
+                objectToStore.enchantmentCharge = -1.0;
+                objectToStore.objectState = true;
+                objectToStore.scale = 1.f;
+            }
+
             objectToStore.containerItemCount = static_cast<unsigned int>(objectToStore.containerItems.size());
             cellObjectList.baseObjects.push_back(std::move(objectToStore));
             cellObject = &cellObjectList.baseObjects.back();
         }
 
         mergeObjectPacketFields(*cellObject, incomingObject, packetID, newObjectList->action);
+
+        if (packetID == ID_CONTAINER && newObjectList->action == mwmp::BaseObjectList::SET)
+            knownContainerSnapshots.insert(key);
     }
 
     cellObjectList.baseObjectCount = static_cast<unsigned int>(cellObjectList.baseObjects.size());
@@ -1095,6 +1179,87 @@ void Cell::sendToLoaded(mwmp::ObjectPacket *objectPacket, mwmp::BaseObjectList *
 
         // Send the packet to this eligible guid
         objectPacket->Send(pl->guid);
+    }
+}
+
+void Cell::sendServerObjectStateSnapshotTo(Player& player) const
+{
+    if (player.npc.mName.empty())
+        return;
+
+    mwmp::BaseObjectList containers;
+    mwmp::BaseObjectList doorDestinations;
+    mwmp::BaseObjectList doorStates;
+    mwmp::BaseObjectList disabledObjects;
+
+    auto initializeList = [&](mwmp::BaseObjectList& list) {
+        list.guid = mwmp::unassignedPacketGuid();
+        list.cell = cell;
+        list.packetOrigin = mwmp::SERVER_SCRIPT;
+        list.originClientScript.clear();
+        list.action = mwmp::BaseObjectList::SET;
+        list.containerSubAction = mwmp::BaseObjectList::NONE;
+        list.isValid = true;
+        list.baseObjectCount = 0;
+    };
+
+    initializeList(containers);
+    initializeList(doorDestinations);
+    initializeList(doorStates);
+    initializeList(disabledObjects);
+
+    containers.containerSubAction = mwmp::BaseObjectList::NONE;
+
+    for (const mwmp::BaseObject& object : cellObjectList.baseObjects)
+    {
+        if (!object.objectState)
+            disabledObjects.baseObjects.push_back(object);
+
+        const bool door = isDoorCategory(serverWorldReferences, object);
+        if ((door || object.teleportState) && object.teleportState)
+            doorDestinations.baseObjects.push_back(object);
+
+        if (door && object.doorState != 0)
+            doorStates.baseObjects.push_back(object);
+
+        if (object.hasContainer && knownContainerSnapshots.find(objectKey(object)) != knownContainerSnapshots.end())
+            containers.baseObjects.push_back(object);
+    }
+
+    auto sendList = [&](auto packetID, mwmp::BaseObjectList& list) -> std::size_t {
+        constexpr std::size_t maxSnapshotObjectsPerPacket = 512;
+        if (list.baseObjects.empty())
+            return 0;
+
+        mwmp::ObjectPacket* packet = mwmp::ServerNetworking::get().getObjectPacketController()->GetPacket(packetID);
+        std::size_t sentObjects = 0;
+
+        for (std::size_t offset = 0; offset < list.baseObjects.size(); offset += maxSnapshotObjectsPerPacket)
+        {
+            mwmp::BaseObjectList chunk = list;
+            const std::size_t end = std::min(offset + maxSnapshotObjectsPerPacket, list.baseObjects.size());
+            chunk.baseObjects.assign(list.baseObjects.begin() + offset, list.baseObjects.begin() + end);
+            chunk.baseObjectCount = static_cast<unsigned int>(chunk.baseObjects.size());
+
+            packet->setObjectList(&chunk);
+            packet->Send(player.guid);
+            sentObjects += chunk.baseObjects.size();
+        }
+
+        return sentObjects;
+    };
+
+    const std::size_t sentDisabledObjects = sendList(ID_OBJECT_STATE, disabledObjects);
+    const std::size_t sentDoorDestinations = sendList(ID_DOOR_DESTINATION, doorDestinations);
+    const std::size_t sentDoorStates = sendList(ID_DOOR_STATE, doorStates);
+    const std::size_t sentContainers = sendList(ID_CONTAINER, containers);
+
+    if (sentDisabledObjects != 0 || sentDoorDestinations != 0 || sentDoorStates != 0 || sentContainers != 0)
+    {
+        LOG_APPEND(TimedLog::LOG_INFO,
+            "- Sent server object snapshot for cell %s to %s: %zu disabled, %zu door destinations, %zu door states, %zu containers",
+            getShortDescription().c_str(), player.npc.mName.c_str(), sentDisabledObjects, sentDoorDestinations,
+            sentDoorStates, sentContainers);
     }
 }
 

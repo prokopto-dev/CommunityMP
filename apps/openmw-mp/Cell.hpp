@@ -3,7 +3,9 @@
 
 #include <deque>
 #include <cstddef>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 #include <components/esm/records.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
@@ -128,6 +130,7 @@ public:
     void sendToLoadedAndGuids(mwmp::ActorPacket *actorPacket, mwmp::BaseActorList *baseActorList,
         const std::vector<mwmp::PacketGuid>& targetGuids) const;
     void sendToLoaded(mwmp::ObjectPacket *objectPacket, mwmp::BaseObjectList *baseObjectList) const;
+    void sendServerObjectStateSnapshotTo(Player& player) const;
 
     std::string getShortDescription() const;
 
@@ -142,6 +145,7 @@ private:
     mwmp::BaseActorList serverWorldActorList;
     mwmp::BaseObjectList cellObjectList;
     mwmp::BaseObjectList serverWorldObjectList;
+    std::set<std::pair<unsigned int, unsigned int>> knownContainerSnapshots;
     std::vector<ServerWorldReference> serverWorldReferences;
     ServerWorldBootstrapStats serverWorldBootstrapStats;
     bool actorListSnapshotReceived;
