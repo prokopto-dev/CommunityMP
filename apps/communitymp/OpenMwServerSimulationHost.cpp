@@ -287,6 +287,7 @@ namespace
         const mwmp::ServerContentDatabaseStatistics contentDatabase = mwmp::ServerContentDatabase::get().statistics();
         worldState.contentPlanFingerprint = contentDatabase.contentPlanFingerprint;
         worldState.worldDatabaseFingerprint = contentDatabase.worldDatabaseFingerprint;
+        worldState.serverWorldCompatibilityFingerprint = contentDatabase.serverWorldCompatibilityFingerprint;
 
         return worldState;
     }
@@ -380,7 +381,8 @@ namespace
         engine->setServerSimulationSavesPath(getServerOpenMwSavesPath());
         const mwmp::ServerContentDatabaseStatistics contentDatabase = mwmp::ServerContentDatabase::get().statistics();
         engine->setServerSimulationContentFingerprints(
-            contentDatabase.contentPlanFingerprint, contentDatabase.worldDatabaseFingerprint);
+            contentDatabase.contentPlanFingerprint, contentDatabase.worldDatabaseFingerprint,
+            contentDatabase.serverWorldCompatibilityFingerprint);
 
         logHeadlessOpenMwStage("prepareOpenMwServerEngine: configuring OpenMW application");
         Settings::Manager::clear();

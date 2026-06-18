@@ -597,6 +597,8 @@ namespace
         result += ",\n  ";
         appendJsonStringField(result, "worldDatabaseFingerprint", stats.worldDatabaseFingerprint);
         result += ",\n  ";
+        appendJsonStringField(result, "serverWorldCompatibilityFingerprint", stats.serverWorldCompatibilityFingerprint);
+        result += ",\n  ";
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
@@ -728,6 +730,93 @@ namespace
         result += ",\n  ";
         appendJsonNumberField(result, "assetImportErrorCount", stats.assetImportErrorCount);
         result += "\n}\n";
+        return result;
+    }
+
+    std::string buildServerWorldCompatibilityJsonl(const std::vector<std::filesystem::path>& dataDirs,
+        const std::vector<std::string>& contentFiles, const std::vector<std::string>& archives,
+        const std::vector<mwmp::ServerDataFileRequirement>& dataFileRequirements)
+    {
+        Files::Collections collections(dataDirs);
+        std::string result;
+        result.reserve((contentFiles.size() + archives.size()) * 220);
+
+        for (std::size_t engineContentIndex = 0; engineContentIndex < contentFiles.size(); ++engineContentIndex)
+        {
+            const std::string& contentFile = contentFiles[engineContentIndex];
+            if (contentFile.empty() || isBuiltinContentFile(contentFile))
+                continue;
+
+            const mwmp::ServerDataFileRequirement* requirement = findRequirement(dataFileRequirements, contentFile);
+            const std::vector<std::string> checksums = requirement != nullptr ? requirement->checksums
+                                                                              : std::vector<std::string>{};
+
+            std::filesystem::path resolvedPath;
+            bool resolved = false;
+            try
+            {
+                resolvedPath = collections.getPath(contentFile);
+                resolved = true;
+            }
+            catch (const std::exception&)
+            {
+            }
+
+            result.push_back('{');
+            appendJsonStringField(result, "schema", "communitymp.server-world-content.v1");
+            result.push_back(',');
+            appendJsonNumberField(result, "loadOrderIndex", engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", engineContentIndex);
+            result.push_back(',');
+            appendJsonStringField(result, "name", contentFile);
+            result.push_back(',');
+            appendJsonStringField(result, "extension", fileExtensionLower(contentFile));
+            result.push_back(',');
+            appendJsonBoolField(result, "esmLike", isEsmLikeContentFile(contentFile));
+            result.push_back(',');
+            appendJsonBoolField(result, "resolved", resolved);
+            result.push_back(',');
+            appendJsonNumberField(result, "size", resolved ? fileSizeOrNegative(resolvedPath) : -1);
+            result += ",\"checksums\":";
+            appendJsonStringArray(result, checksums);
+            result += "}\n";
+        }
+
+        for (std::size_t archiveIndex = 0; archiveIndex < archives.size(); ++archiveIndex)
+        {
+            const std::string& archive = archives[archiveIndex];
+            if (archive.empty())
+                continue;
+
+            std::filesystem::path resolvedPath;
+            bool resolved = false;
+            Bsa::BsaVersion version = Bsa::BsaVersion::Unknown;
+            try
+            {
+                resolvedPath = collections.getPath(archive);
+                resolved = true;
+                version = Bsa::BSAFile::detectVersion(resolvedPath);
+            }
+            catch (const std::exception&)
+            {
+            }
+
+            result.push_back('{');
+            appendJsonStringField(result, "schema", "communitymp.server-world-archive.v1");
+            result.push_back(',');
+            appendJsonNumberField(result, "archiveIndex", archiveIndex);
+            result.push_back(',');
+            appendJsonStringField(result, "name", archive);
+            result.push_back(',');
+            appendJsonBoolField(result, "resolved", resolved);
+            result.push_back(',');
+            appendJsonStringField(result, "archiveVersion", bsaVersionLabel(version));
+            result.push_back(',');
+            appendJsonNumberField(result, "size", resolved ? fileSizeOrNegative(resolvedPath) : -1);
+            result += "}\n";
+        }
+
         return result;
     }
 
@@ -4812,6 +4901,8 @@ namespace mwmp
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb
                 = buildGeneratedQuestDatabasePackage(dataDirs, contentFiles, encoding, newStats);
+            const std::string serverWorldCompatibilityJsonl = buildServerWorldCompatibilityJsonl(
+                dataDirs, contentFiles, archives, dataFileRequirements);
 
             FingerprintBuilder contentPlanFingerprint;
             contentPlanFingerprint.add("encoding", encoding);
@@ -4851,6 +4942,14 @@ namespace mwmp
             worldDatabaseFingerprint.add("questdb/quest_effects.jsonl", generatedQuestDb.questEffects);
             worldDatabaseFingerprint.add("questdb/legacy_effects.jsonl", generatedQuestDb.legacyEffects);
             newStats.worldDatabaseFingerprint = worldDatabaseFingerprint.finish();
+
+            FingerprintBuilder serverWorldCompatibilityFingerprint;
+            serverWorldCompatibilityFingerprint.add("encoding", encoding);
+            serverWorldCompatibilityFingerprint.add("loadOrderSource", newStats.loadOrderSource);
+            serverWorldCompatibilityFingerprint.add("loadOrderRule", newStats.loadOrderRule);
+            serverWorldCompatibilityFingerprint.add("load_order.jsonl", loadOrderJsonl);
+            serverWorldCompatibilityFingerprint.add("server_world_compatibility.jsonl", serverWorldCompatibilityJsonl);
+            newStats.serverWorldCompatibilityFingerprint = serverWorldCompatibilityFingerprint.finish();
 
             const std::string manifestJson = buildManifestJson(newStats);
 

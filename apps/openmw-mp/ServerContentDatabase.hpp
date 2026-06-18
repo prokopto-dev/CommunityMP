@@ -23,6 +23,7 @@ namespace mwmp
         std::string lastError;
         std::string contentPlanFingerprint;
         std::string worldDatabaseFingerprint;
+        std::string serverWorldCompatibilityFingerprint;
         std::string loadOrderSource;
         std::string loadOrderRule;
         std::size_t dataDirCount = 0;

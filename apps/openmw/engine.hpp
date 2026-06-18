@@ -183,6 +183,7 @@ namespace OMW
         std::filesystem::path mServerSimulationSavesPath;
         std::string mServerSimulationContentPlanFingerprint;
         std::string mServerSimulationWorldDatabaseFingerprint;
+        std::string mServerSimulationServerWorldCompatibilityFingerprint;
         std::filesystem::path mServerSimulationWorldSavePath;
         std::filesystem::path mServerSimulationWorldManifestPath;
         // Grab mouse?
@@ -314,7 +315,8 @@ namespace OMW
 
         /// Associate the server-owned OpenMW world save with the imported content database that produced it.
         void setServerSimulationContentFingerprints(
-            std::string contentPlanFingerprint, std::string worldDatabaseFingerprint);
+            std::string contentPlanFingerprint, std::string worldDatabaseFingerprint,
+            std::string serverWorldCompatibilityFingerprint);
 
         void setRandomSeed(unsigned int seed);
 

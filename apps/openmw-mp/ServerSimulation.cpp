@@ -3383,6 +3383,8 @@ namespace mwmp
         payload += jsonString(serverContentDatabase.contentPlanFingerprint);
         payload += ",\"worldDatabaseFingerprint\":";
         payload += jsonString(serverContentDatabase.worldDatabaseFingerprint);
+        payload += ",\"serverWorldCompatibilityFingerprint\":";
+        payload += jsonString(serverContentDatabase.serverWorldCompatibilityFingerprint);
         payload += ",\"rootPath\":";
         payload += jsonString(Files::pathToUnicodeString(serverContentDatabase.rootPath));
         payload += ",\"manifestPath\":";
@@ -3748,6 +3750,8 @@ namespace mwmp
         payload += jsonString(runtimeWorldState.contentPlanFingerprint);
         payload += ",\"worldDatabaseFingerprint\":";
         payload += jsonString(runtimeWorldState.worldDatabaseFingerprint);
+        payload += ",\"serverWorldCompatibilityFingerprint\":";
+        payload += jsonString(runtimeWorldState.serverWorldCompatibilityFingerprint);
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";

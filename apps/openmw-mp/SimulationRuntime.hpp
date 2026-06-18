@@ -94,6 +94,7 @@ namespace mwmp
         std::string manifestPath;
         std::string contentPlanFingerprint;
         std::string worldDatabaseFingerprint;
+        std::string serverWorldCompatibilityFingerprint;
     };
 
     struct SimulationRuntimeFocusState

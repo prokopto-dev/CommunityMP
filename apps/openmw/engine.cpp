@@ -308,7 +308,8 @@ namespace
     };
 
     ServerWorldManifest readServerWorldManifest(const std::filesystem::path& manifestPath,
-        std::string_view contentPlanFingerprint, std::string_view worldDatabaseFingerprint)
+        std::string_view contentPlanFingerprint, std::string_view worldDatabaseFingerprint,
+        std::string_view serverWorldCompatibilityFingerprint)
     {
         ServerWorldManifest result;
         if (manifestPath.empty() || !std::filesystem::is_regular_file(manifestPath))
@@ -322,10 +323,15 @@ namespace
         const std::string savedContentPlanFingerprint = readFlatJsonStringField(manifest, "contentPlanFingerprint");
         const std::string savedWorldDatabaseFingerprint
             = readFlatJsonStringField(manifest, "worldDatabaseFingerprint");
+        const std::string savedServerWorldCompatibilityFingerprint
+            = readFlatJsonStringField(manifest, "serverWorldCompatibilityFingerprint");
         const std::string savePath = readFlatJsonStringField(manifest, "savePath");
 
-        result.matches = (contentPlanFingerprint.empty() || savedContentPlanFingerprint == contentPlanFingerprint)
-            && (worldDatabaseFingerprint.empty() || savedWorldDatabaseFingerprint == worldDatabaseFingerprint);
+        if (!serverWorldCompatibilityFingerprint.empty() && !savedServerWorldCompatibilityFingerprint.empty())
+            result.matches = savedServerWorldCompatibilityFingerprint == serverWorldCompatibilityFingerprint;
+        else
+            result.matches = (contentPlanFingerprint.empty() || savedContentPlanFingerprint == contentPlanFingerprint)
+                && (worldDatabaseFingerprint.empty() || savedWorldDatabaseFingerprint == worldDatabaseFingerprint);
         if (!savePath.empty())
             result.savePath = Files::pathFromUnicodeString(savePath);
 
@@ -334,7 +340,7 @@ namespace
 
     void writeServerWorldManifestIfChanged(const std::filesystem::path& manifestPath,
         std::string_view contentPlanFingerprint, std::string_view worldDatabaseFingerprint,
-        const std::filesystem::path& savePath)
+        std::string_view serverWorldCompatibilityFingerprint, const std::filesystem::path& savePath)
     {
         if (manifestPath.empty())
             return;
@@ -347,6 +353,8 @@ namespace
         appendJsonStringField(result, "contentPlanFingerprint", contentPlanFingerprint);
         result += ",\n  ";
         appendJsonStringField(result, "worldDatabaseFingerprint", worldDatabaseFingerprint);
+        result += ",\n  ";
+        appendJsonStringField(result, "serverWorldCompatibilityFingerprint", serverWorldCompatibilityFingerprint);
         result += ",\n  ";
         appendJsonStringField(result, "savePath", Files::pathToUnicodeString(savePath));
         result += "\n}\n";
@@ -1446,7 +1454,8 @@ void OMW::Engine::prepareServerSimulation()
         const MWState::Character* character = nullptr;
         const MWState::Slot* slot = findMostRecentSaveSlot(*mStateManager, character);
         const ServerWorldManifest manifest = readServerWorldManifest(manifestPath,
-            mServerSimulationContentPlanFingerprint, mServerSimulationWorldDatabaseFingerprint);
+            mServerSimulationContentPlanFingerprint, mServerSimulationWorldDatabaseFingerprint,
+            mServerSimulationServerWorldCompatibilityFingerprint);
         if (manifest.exists && manifest.matches && !manifest.savePath.empty()
             && std::filesystem::is_regular_file(manifest.savePath))
         {
@@ -1509,7 +1518,8 @@ void OMW::Engine::prepareServerSimulation()
 
     if (!serverWorldSavePath.empty())
         writeServerWorldManifestIfChanged(manifestPath, mServerSimulationContentPlanFingerprint,
-            mServerSimulationWorldDatabaseFingerprint, serverWorldSavePath);
+            mServerSimulationWorldDatabaseFingerprint, mServerSimulationServerWorldCompatibilityFingerprint,
+            serverWorldSavePath);
 
     if (!mStartupScript.empty() && mStateManager->getState() == MWState::StateManager::State_Running)
         mWindowManager->executeInConsole(mStartupScript);
@@ -1893,10 +1903,12 @@ void OMW::Engine::setServerSimulationSavesPath(const std::filesystem::path& path
 }
 
 void OMW::Engine::setServerSimulationContentFingerprints(
-    std::string contentPlanFingerprint, std::string worldDatabaseFingerprint)
+    std::string contentPlanFingerprint, std::string worldDatabaseFingerprint,
+    std::string serverWorldCompatibilityFingerprint)
 {
     mServerSimulationContentPlanFingerprint = std::move(contentPlanFingerprint);
     mServerSimulationWorldDatabaseFingerprint = std::move(worldDatabaseFingerprint);
+    mServerSimulationServerWorldCompatibilityFingerprint = std::move(serverWorldCompatibilityFingerprint);
 }
 
 void OMW::Engine::setRandomSeed(unsigned int seed)
