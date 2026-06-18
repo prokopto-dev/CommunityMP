@@ -762,6 +762,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         snapshot.baseActorProfileNpc = ref.baseActorProfileNpc;
         snapshot.baseActorProfileAutocalc = ref.baseActorProfileAutocalc;
         snapshot.baseActorProfileLevel = ref.baseActorProfileLevel;
+        snapshot.baseActorAiPackagesImported = ref.baseActorAiPackagesImported;
+        snapshot.baseActorAiPackageItemCount = ref.baseActorAiPackageItemCount;
         snapshot.baseActorInventoryImported = ref.baseActorInventoryImported;
         snapshot.baseActorInventoryItemCount = ref.baseActorInventoryItemCount;
         snapshot.baseActorSpellbookImported = ref.baseActorSpellbookImported;
@@ -823,6 +825,11 @@ void Cell::ensureServerWorldStateBootstrapped()
                 if (snapshot.baseActorProfileNpc && snapshot.baseActorProfileAutocalc)
                     ++serverWorldBootstrapStats.actorProfileAutocalcNpcCount;
             }
+            if (snapshot.baseActorAiPackagesImported)
+            {
+                ++serverWorldBootstrapStats.actorAiPackageListCount;
+                serverWorldBootstrapStats.actorAiPackageItemCount += snapshot.baseActorAiPackageItemCount;
+            }
             if (snapshot.baseActorInventoryImported)
             {
                 ++serverWorldBootstrapStats.actorInventoryCount;
@@ -874,9 +881,10 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
-        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorProfileCount,
+        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorAiPackageListCount,
+        serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorProfileCount,
         serverWorldBootstrapStats.actorProfileNpcCount, serverWorldBootstrapStats.actorProfileCreatureCount,
         serverWorldBootstrapStats.actorProfileAutocalcNpcCount, serverWorldBootstrapStats.actorInventoryCount,
         serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorSpellbookCount,

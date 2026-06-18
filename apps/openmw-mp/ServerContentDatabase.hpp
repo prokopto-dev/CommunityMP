@@ -40,6 +40,8 @@ namespace mwmp
         std::size_t actorProfileNpcCount = 0;
         std::size_t actorProfileCreatureCount = 0;
         std::size_t actorProfileAutocalcNpcCount = 0;
+        std::size_t actorAiPackageRecordCount = 0;
+        std::size_t actorAiPackageItemCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookRecordCount = 0;

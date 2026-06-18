@@ -56,6 +56,7 @@ namespace
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr const char* actorProfileRowSchema = "communitymp.worlddb.actor-profile.v1";
+    constexpr const char* actorAiPackageRowSchema = "communitymp.worlddb.actor-ai-package.v1";
     constexpr const char* actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
     constexpr const char* actorSpellbookRowSchema = "communitymp.worlddb.actor-spellbook.v1";
     constexpr const char* actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
@@ -558,7 +559,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_profile.jsonl\",\"actor_inventory.jsonl\",\"actor_spellbook.jsonl\",\"actor_stats_dynamic.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_profile.jsonl\",\"actor_ai_packages.jsonl\",\"actor_inventory.jsonl\",\"actor_spellbook.jsonl\",\"actor_stats_dynamic.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -592,6 +593,10 @@ namespace
         appendJsonNumberField(result, "actorProfileCreatureCount", stats.actorProfileCreatureCount);
         result += ",\n  ";
         appendJsonNumberField(result, "actorProfileAutocalcNpcCount", stats.actorProfileAutocalcNpcCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorAiPackageRecordCount", stats.actorAiPackageRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorAiPackageItemCount", stats.actorAiPackageItemCount);
         result += ",\n  ";
         appendJsonNumberField(result, "actorInventoryRecordCount", stats.actorInventoryRecordCount);
         result += ",\n  ";
@@ -1105,6 +1110,23 @@ namespace
         std::array<int, 6> attacks{};
     };
 
+    struct ImportedActorAiPackage
+    {
+        unsigned int packageTypeInt = 0;
+        std::string packageType;
+        unsigned int action = 0;
+        int distance = 0;
+        int duration = 0;
+        int timeOfDay = -1;
+        std::array<int, 8> idle{};
+        bool shouldRepeat = false;
+        float x = 0.f;
+        float y = 0.f;
+        float z = 0.f;
+        std::string targetId;
+        std::string cellName;
+    };
+
     struct ImportedDynamicStat
     {
         float base = 0.f;
@@ -1169,6 +1191,8 @@ namespace
         unsigned int actorAiFight = 0;
         unsigned int actorAiFlee = 0;
         unsigned int actorAiAlarm = 0;
+        bool actorAiPackagesImported = false;
+        std::vector<ImportedActorAiPackage> actorAiPackages;
         bool actorProfileImported = false;
         ImportedActorProfile actorProfile;
         bool actorInventoryImported = false;
@@ -1192,6 +1216,7 @@ namespace
         std::string recordIndexJsonl;
         std::string recordWinnersJsonl;
         std::string actorProfileJsonl;
+        std::string actorAiPackagesJsonl;
         std::string actorInventoryJsonl;
         std::string actorSpellbookJsonl;
         std::string actorStatsDynamicJsonl;
@@ -1718,6 +1743,97 @@ namespace
         row.actorAiAlarm = aiData.mAlarm;
     }
 
+    const char* aiPackageTypeName(const ESM::AiPackageType type)
+    {
+        switch (type)
+        {
+            case ESM::AI_Wander:
+                return "wander";
+            case ESM::AI_Travel:
+                return "travel";
+            case ESM::AI_Follow:
+                return "follow";
+            case ESM::AI_Escort:
+                return "escort";
+            case ESM::AI_Activate:
+                return "activate";
+        }
+
+        return "unknown";
+    }
+
+    unsigned int aiActionForPackageType(const ESM::AiPackageType type)
+    {
+        switch (type)
+        {
+            case ESM::AI_Wander:
+                return mwmp::BaseActorList::WANDER;
+            case ESM::AI_Travel:
+                return mwmp::BaseActorList::TRAVEL;
+            case ESM::AI_Follow:
+                return mwmp::BaseActorList::FOLLOW;
+            case ESM::AI_Escort:
+                return mwmp::BaseActorList::ESCORT;
+            case ESM::AI_Activate:
+                return mwmp::BaseActorList::ACTIVATE;
+        }
+
+        return 0;
+    }
+
+    ImportedActorAiPackage importAiPackage(const ESM::AIPackage& package)
+    {
+        ImportedActorAiPackage imported;
+        imported.packageTypeInt = static_cast<unsigned int>(package.mType);
+        imported.packageType = aiPackageTypeName(package.mType);
+        imported.action = aiActionForPackageType(package.mType);
+        imported.idle.fill(0);
+
+        switch (package.mType)
+        {
+            case ESM::AI_Wander:
+                imported.distance = package.mWander.mDistance;
+                imported.duration = package.mWander.mDuration;
+                imported.timeOfDay = package.mWander.mTimeOfDay;
+                imported.shouldRepeat = package.mWander.mShouldRepeat != 0;
+                for (std::size_t i = 0; i < imported.idle.size(); ++i)
+                    imported.idle[i] = package.mWander.mIdle[i];
+                break;
+
+            case ESM::AI_Travel:
+                imported.x = package.mTravel.mX;
+                imported.y = package.mTravel.mY;
+                imported.z = package.mTravel.mZ;
+                imported.shouldRepeat = package.mTravel.mShouldRepeat != 0;
+                break;
+
+            case ESM::AI_Follow:
+            case ESM::AI_Escort:
+                imported.duration = package.mTarget.mDuration;
+                imported.x = package.mTarget.mX;
+                imported.y = package.mTarget.mY;
+                imported.z = package.mTarget.mZ;
+                imported.targetId = package.mTarget.mId.toString();
+                imported.cellName = package.mCellName;
+                imported.shouldRepeat = package.mTarget.mShouldRepeat != 0;
+                break;
+
+            case ESM::AI_Activate:
+                imported.targetId = package.mActivate.mName.toString();
+                imported.shouldRepeat = package.mActivate.mShouldRepeat != 0;
+                break;
+        }
+
+        return imported;
+    }
+
+    void importAiPackageList(const ESM::AIPackageList& packages, std::vector<ImportedActorAiPackage>& result)
+    {
+        result.reserve(packages.mList.size());
+        for (const ESM::AIPackage& package : packages.mList)
+            result.push_back(importAiPackage(package));
+    }
+
     void applyPrimaryAiPackage(IndexedRecordRow& row, const ESM::AIPackageList& packages)
     {
         row.actorAiPackageCount = packages.mList.size();
@@ -1746,9 +1862,9 @@ namespace
 
             case ESM::AI_Follow:
             case ESM::AI_Escort:
+                row.actorAiAvailable = true;
                 row.actorAiAction = package.mType == ESM::AI_Follow ? mwmp::BaseActorList::FOLLOW
                                                                      : mwmp::BaseActorList::ESCORT;
-                row.actorAiDistance = clampNonNegativeShort(package.mTarget.mDuration);
                 row.actorAiDuration = clampNonNegativeShort(package.mTarget.mDuration);
                 row.actorAiCoordinateX = package.mTarget.mX;
                 row.actorAiCoordinateY = package.mTarget.mY;
@@ -1759,6 +1875,7 @@ namespace
                 break;
 
             case ESM::AI_Activate:
+                row.actorAiAvailable = true;
                 row.actorAiAction = mwmp::BaseActorList::ACTIVATE;
                 row.actorAiTargetId = package.mActivate.mName.toString();
                 row.actorAiShouldRepeat = package.mActivate.mShouldRepeat != 0;
@@ -1961,6 +2078,8 @@ namespace
             row.identity = makeActorRecordIdentity(refIdToString(npc.mId), deletedSubrecord);
             applyAiData(row, npc.mAiData);
             applyPrimaryAiPackage(row, npc.mAiPackage);
+            row.actorAiPackagesImported = true;
+            importAiPackageList(npc.mAiPackage, row.actorAiPackages);
             applyNpcActorProfile(row, npc);
             row.actorStatsDynamicAutocalc = npc.mNpdtType == ESM::NPC::NPC_WITH_AUTOCALCULATED_STATS;
             if (!row.actorStatsDynamicAutocalc)
@@ -1981,6 +2100,8 @@ namespace
             row.identity = makeActorRecordIdentity(refIdToString(creature.mId), deletedSubrecord);
             applyAiData(row, creature.mAiData);
             applyPrimaryAiPackage(row, creature.mAiPackage);
+            row.actorAiPackagesImported = true;
+            importAiPackageList(creature.mAiPackage, row.actorAiPackages);
             applyCreatureActorProfile(row, creature);
             applyDirectActorStatsDynamic(row, static_cast<float>(creature.mData.mHealth),
                 static_cast<float>(creature.mData.mMana), static_cast<float>(creature.mData.mFatigue));
@@ -2128,6 +2249,8 @@ namespace
         appendJsonNumberField(result, "actorAiFlee", row.actorAiFlee);
         result.push_back(',');
         appendJsonNumberField(result, "actorAiAlarm", row.actorAiAlarm);
+        result.push_back(',');
+        appendJsonBoolField(result, "actorAiPackagesImported", row.actorAiPackagesImported);
         result.push_back(',');
         appendJsonBoolField(result, "actorProfileImported", row.actorProfileImported);
         result.push_back(',');
@@ -2325,6 +2448,67 @@ namespace
             ++stats.actorProfileCreatureCount;
         if (profile.npc && profile.autocalc)
             ++stats.actorProfileAutocalcNpcCount;
+    }
+
+    void appendActorAiPackageRows(std::string& result, const IndexedRecordRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        if (!row.actorAiPackagesImported || isDeletedRecord(row) || !row.identity.available)
+            return;
+
+        ++stats.actorAiPackageRecordCount;
+        for (std::size_t packageOrder = 0; packageOrder < row.actorAiPackages.size(); ++packageOrder)
+        {
+            const ImportedActorAiPackage& package = row.actorAiPackages[packageOrder];
+            result.push_back('{');
+            appendJsonStringField(result, "schema", actorAiPackageRowSchema);
+            result.push_back(',');
+            appendJsonStringField(result, "recordKey", row.identity.recordKey);
+            result.push_back(',');
+            appendJsonStringField(result, "recordId", row.identity.recordId);
+            result.push_back(',');
+            appendJsonStringField(result, "sourceFile", row.contentFile);
+            result.push_back(',');
+            appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "recordIndex", row.recordIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "packageOrder", packageOrder);
+            result.push_back(',');
+            appendJsonStringField(result, "packageType", package.packageType);
+            result.push_back(',');
+            appendJsonNumberField(result, "packageTypeInt", package.packageTypeInt);
+            result.push_back(',');
+            appendJsonNumberField(result, "action", package.action);
+            result.push_back(',');
+            appendJsonNumberField(result, "distance", package.distance);
+            result.push_back(',');
+            appendJsonNumberField(result, "duration", package.duration);
+            result.push_back(',');
+            appendJsonNumberField(result, "timeOfDay", package.timeOfDay);
+            for (std::size_t i = 0; i < package.idle.size(); ++i)
+            {
+                const std::string fieldName = "idle" + std::to_string(i);
+                result.push_back(',');
+                appendJsonNumberField(result, fieldName, package.idle[i]);
+            }
+            result.push_back(',');
+            appendJsonBoolField(result, "shouldRepeat", package.shouldRepeat);
+            result.push_back(',');
+            appendJsonNumberField(result, "x", package.x);
+            result.push_back(',');
+            appendJsonNumberField(result, "y", package.y);
+            result.push_back(',');
+            appendJsonNumberField(result, "z", package.z);
+            result.push_back(',');
+            appendJsonStringField(result, "targetId", package.targetId);
+            result.push_back(',');
+            appendJsonStringField(result, "cellName", package.cellName);
+            result += "}\n";
+            ++stats.actorAiPackageItemCount;
+        }
     }
 
     void appendActorSpellbookRows(std::string& result, const IndexedRecordRow& row,
@@ -2760,6 +2944,7 @@ namespace
         {
             appendRecordWinnerRow(result.recordWinnersJsonl, row);
             appendActorProfileRows(result.actorProfileJsonl, row, stats);
+            appendActorAiPackageRows(result.actorAiPackagesJsonl, row, stats);
             appendActorInventoryRows(result.actorInventoryJsonl, row, stats);
             appendActorSpellbookRows(result.actorSpellbookJsonl, row, stats);
             appendActorStatsDynamicRows(result.actorStatsDynamicJsonl, row, stats);
@@ -4389,7 +4574,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 18;
+        mStats.tableCount = 19;
 
         try
         {
@@ -4420,6 +4605,8 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_profile.jsonl",
                 recordIndexTables.actorProfileJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "actor_ai_packages.jsonl",
+                recordIndexTables.actorAiPackagesJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_inventory.jsonl",
                 recordIndexTables.actorInventoryJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_spellbook.jsonl",

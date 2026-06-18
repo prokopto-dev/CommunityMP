@@ -32,6 +32,8 @@ public:
         bool baseActorProfileNpc = false;
         bool baseActorProfileAutocalc = false;
         int baseActorProfileLevel = 0;
+        bool baseActorAiPackagesImported = false;
+        std::size_t baseActorAiPackageItemCount = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
         bool baseActorSpellbookImported = false;
@@ -91,6 +93,8 @@ public:
         std::size_t actorProfileNpcCount = 0;
         std::size_t actorProfileCreatureCount = 0;
         std::size_t actorProfileAutocalcNpcCount = 0;
+        std::size_t actorAiPackageListCount = 0;
+        std::size_t actorAiPackageItemCount = 0;
         std::size_t actorInventoryCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookCount = 0;

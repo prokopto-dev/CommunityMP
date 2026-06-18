@@ -22,6 +22,7 @@ namespace
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr std::string_view actorProfileRowSchema = "communitymp.worlddb.actor-profile.v1";
+    constexpr std::string_view actorAiPackageRowSchema = "communitymp.worlddb.actor-ai-package.v1";
     constexpr std::string_view actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
     constexpr std::string_view actorSpellbookRowSchema = "communitymp.worlddb.actor-spellbook.v1";
     constexpr std::string_view actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
@@ -350,6 +351,7 @@ namespace mwmp
         mRecordWinnersByWinnerKey.clear();
         mRecordWinnerKeysByRecordKey.clear();
         mActorProfilesByRecordKey.clear();
+        mActorAiPackagesByRecordKey.clear();
         mActorInventoryByRecordKey.clear();
         mActorSpellbookByRecordKey.clear();
         mActorStatsDynamicByRecordKey.clear();
@@ -427,6 +429,7 @@ namespace mwmp
                     winner.actorAiFight = getUnsigned(row, "actorAiFight");
                     winner.actorAiFlee = getUnsigned(row, "actorAiFlee");
                     winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
+                    winner.actorAiPackagesImported = getBool(row, "actorAiPackagesImported");
                     winner.actorProfileImported = getBool(row, "actorProfileImported");
                     winner.actorProfileNpc = getBool(row, "actorProfileNpc");
                     winner.actorProfileAutocalc = getBool(row, "actorProfileAutocalc");
@@ -455,6 +458,8 @@ namespace mwmp
                         if (winner.actorProfileNpc && winner.actorProfileAutocalc)
                             ++mStats.actorProfileAutocalcNpcCount;
                     }
+                    if (!deletedWinner && winner.actorAiPackagesImported && !winner.recordKey.empty())
+                        ++mStats.actorAiPackageRecordCount;
                     if (!deletedWinner && winner.actorInventoryImported && !winner.recordKey.empty())
                         ++mStats.actorInventoryRecordCount;
                     if (!deletedWinner && winner.actorSpellbookImported && !winner.recordKey.empty())
@@ -529,6 +534,50 @@ namespace mwmp
                     if (!profile.recordKey.empty())
                         mActorProfilesByRecordKey[profile.recordKey] = std::move(profile);
                 });
+
+            mStats.actorAiPackageItemCount = readJsonlTable(root, "actor_ai_packages.jsonl",
+                actorAiPackageRowSchema, [&](const boost::property_tree::ptree& row) {
+                    WorldActorAiPackageRecord package;
+                    package.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    package.recordId = getString(row, "recordId");
+                    package.sourceFile = getString(row, "sourceFile");
+                    package.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    package.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    package.recordIndex = getSizeT(row, "recordIndex");
+                    package.packageOrder = getSizeT(row, "packageOrder");
+                    package.packageType = getString(row, "packageType");
+                    package.packageTypeInt = getUnsigned(row, "packageTypeInt");
+                    package.action = getUnsigned(row, "action");
+                    package.distance = getInt(row, "distance");
+                    package.duration = getInt(row, "duration");
+                    package.timeOfDay = getInt(row, "timeOfDay", -1);
+                    for (std::size_t i = 0; i < package.idle.size(); ++i)
+                    {
+                        const std::string fieldName = "idle" + std::to_string(i);
+                        package.idle[i] = getInt(row, fieldName);
+                    }
+                    package.shouldRepeat = getBool(row, "shouldRepeat");
+                    package.x = getFloat(row, "x");
+                    package.y = getFloat(row, "y");
+                    package.z = getFloat(row, "z");
+                    package.targetId = getString(row, "targetId");
+                    package.cellName = getString(row, "cellName");
+
+                    if (!package.recordKey.empty())
+                        mActorAiPackagesByRecordKey[package.recordKey].push_back(std::move(package));
+                });
+            for (auto& [recordKey, packages] : mActorAiPackagesByRecordKey)
+            {
+                static_cast<void>(recordKey);
+                std::sort(packages.begin(), packages.end(),
+                    [](const WorldActorAiPackageRecord& left, const WorldActorAiPackageRecord& right) {
+                        if (left.packageOrder != right.packageOrder)
+                            return left.packageOrder < right.packageOrder;
+                        if (left.packageTypeInt != right.packageTypeInt)
+                            return left.packageTypeInt < right.packageTypeInt;
+                        return left.targetId < right.targetId;
+                    });
+            }
 
             mStats.actorInventoryItemCount = readJsonlTable(root, "actor_inventory.jsonl",
                 actorInventoryRowSchema, [&](const boost::property_tree::ptree& row) {
@@ -775,10 +824,11 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorProfiles=%zu actorProfileNpcs=%zu actorProfileCreatures=%zu actorProfileAutocalcNpcs=%zu actorInventories=%zu actorItems=%zu actorSpellbooks=%zu actorSpells=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorProfiles=%zu actorProfileNpcs=%zu actorProfileCreatures=%zu actorProfileAutocalcNpcs=%zu actorAiPackageRecords=%zu actorAiPackages=%zu actorInventories=%zu actorItems=%zu actorSpellbooks=%zu actorSpells=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
                 pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
                 mStats.actorProfileRecordCount, mStats.actorProfileNpcCount,
                 mStats.actorProfileCreatureCount, mStats.actorProfileAutocalcNpcCount,
+                mStats.actorAiPackageRecordCount, mStats.actorAiPackageItemCount,
                 mStats.actorInventoryRecordCount, mStats.actorInventoryItemCount,
                 mStats.actorSpellbookRecordCount, mStats.actorSpellbookSpellCount,
                 mStats.actorStatsDynamicRecordCount, mStats.actorStatsDynamicItemCount,
@@ -798,6 +848,7 @@ namespace mwmp
             mRecordWinnersByWinnerKey.clear();
             mRecordWinnerKeysByRecordKey.clear();
             mActorProfilesByRecordKey.clear();
+            mActorAiPackagesByRecordKey.clear();
             mActorInventoryByRecordKey.clear();
             mActorSpellbookByRecordKey.clear();
             mActorStatsDynamicByRecordKey.clear();
@@ -830,6 +881,8 @@ namespace mwmp
         ref.baseActorProfileNpc = false;
         ref.baseActorProfileAutocalc = false;
         ref.baseActorProfileLevel = 0;
+        ref.baseActorAiPackagesImported = false;
+        ref.baseActorAiPackageItemCount = 0;
         ref.baseActorInventoryImported = false;
         ref.baseActorInventoryItemCount = 0;
         ref.baseActorSpellbookImported = false;
@@ -909,6 +962,13 @@ namespace mwmp
             ref.baseActorProfileAutocalc = actorProfileIt->second.autocalc;
             ref.baseActorProfileLevel = actorProfileIt->second.level;
         }
+        const auto actorAiPackagesIt = mActorAiPackagesByRecordKey.find(selected->recordKey);
+        const std::size_t importedActorAiPackageItemCount
+            = actorAiPackagesIt != mActorAiPackagesByRecordKey.end() ? actorAiPackagesIt->second.size() : 0;
+        ref.baseActorAiPackagesImported = selected->actorAiPackagesImported
+            && importedActorAiPackageItemCount == selected->actorAiPackageCount;
+        ref.baseActorAiPackageItemCount
+            = ref.baseActorAiPackagesImported ? importedActorAiPackageItemCount : 0;
         const auto actorInventoryIt = mActorInventoryByRecordKey.find(selected->recordKey);
         const std::size_t importedActorInventoryItemCount
             = actorInventoryIt != mActorInventoryByRecordKey.end() ? actorInventoryIt->second.size() : 0;
@@ -1167,6 +1227,17 @@ namespace mwmp
         const auto it = mActorProfilesByRecordKey.find(normalizedLookupKey(recordKey));
         if (it == mActorProfilesByRecordKey.end())
             return std::nullopt;
+
+        return it->second;
+    }
+
+    std::vector<WorldActorAiPackageRecord> WorldDatabaseStore::findActorAiPackagesByRecordKey(
+        std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mActorAiPackagesByRecordKey.find(normalizedLookupKey(recordKey));
+        if (it == mActorAiPackagesByRecordKey.end())
+            return {};
 
         return it->second;
     }

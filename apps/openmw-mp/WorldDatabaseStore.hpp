@@ -40,6 +40,8 @@ namespace mwmp
         std::size_t actorProfileNpcCount = 0;
         std::size_t actorProfileCreatureCount = 0;
         std::size_t actorProfileAutocalcNpcCount = 0;
+        std::size_t actorAiPackageRecordCount = 0;
+        std::size_t actorAiPackageItemCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookRecordCount = 0;
@@ -141,6 +143,7 @@ namespace mwmp
         unsigned int actorAiFight = 0;
         unsigned int actorAiFlee = 0;
         unsigned int actorAiAlarm = 0;
+        bool actorAiPackagesImported = false;
         bool actorProfileImported = false;
         bool actorProfileNpc = false;
         bool actorProfileAutocalc = false;
@@ -210,6 +213,30 @@ namespace mwmp
         std::array<int, 8> attributes{};
         std::array<int, 27> skills{};
         std::array<int, 6> attacks{};
+    };
+
+    struct WorldActorAiPackageRecord
+    {
+        std::string recordKey;
+        std::string recordId;
+        std::string sourceFile;
+        std::size_t loadOrderIndex = 0;
+        std::size_t engineContentIndex = 0;
+        std::size_t recordIndex = 0;
+        std::size_t packageOrder = 0;
+        std::string packageType;
+        unsigned int packageTypeInt = 0;
+        unsigned int action = 0;
+        int distance = 0;
+        int duration = 0;
+        int timeOfDay = -1;
+        std::array<int, 8> idle{};
+        bool shouldRepeat = false;
+        float x = 0.f;
+        float y = 0.f;
+        float z = 0.f;
+        std::string targetId;
+        std::string cellName;
     };
 
     struct WorldActorSpellbookEntry
@@ -318,6 +345,8 @@ namespace mwmp
         bool baseActorProfileNpc = false;
         bool baseActorProfileAutocalc = false;
         int baseActorProfileLevel = 0;
+        bool baseActorAiPackagesImported = false;
+        std::size_t baseActorAiPackageItemCount = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
         bool baseActorSpellbookImported = false;
@@ -366,6 +395,7 @@ namespace mwmp
         std::vector<WorldCellReferenceRecord> findReferencesByCellKey(
             std::string_view cellKey, bool includeDeleted = false) const;
         std::optional<WorldActorProfileRecord> findActorProfileByRecordKey(std::string_view recordKey) const;
+        std::vector<WorldActorAiPackageRecord> findActorAiPackagesByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorInventoryItem> findActorInventoryByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorSpellbookEntry> findActorSpellbookByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorStatsDynamicItem> findActorStatsDynamicByRecordKey(std::string_view recordKey) const;
@@ -387,6 +417,7 @@ namespace mwmp
         std::map<std::string, WorldRecordWinner> mRecordWinnersByWinnerKey;
         std::map<std::string, std::vector<std::string>> mRecordWinnerKeysByRecordKey;
         std::map<std::string, WorldActorProfileRecord> mActorProfilesByRecordKey;
+        std::map<std::string, std::vector<WorldActorAiPackageRecord>> mActorAiPackagesByRecordKey;
         std::map<std::string, std::vector<WorldActorInventoryItem>> mActorInventoryByRecordKey;
         std::map<std::string, std::vector<WorldActorSpellbookEntry>> mActorSpellbookByRecordKey;
         std::map<std::string, std::vector<WorldActorStatsDynamicItem>> mActorStatsDynamicByRecordKey;

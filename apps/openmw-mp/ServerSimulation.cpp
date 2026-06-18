@@ -2333,6 +2333,10 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorCount : 0);
         payload += ",\"serverWorldActorAiReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiCount : 0);
+        payload += ",\"serverWorldActorAiPackageListCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiPackageListCount : 0);
+        payload += ",\"serverWorldActorAiPackageItemCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiPackageItemCount : 0);
         payload += ",\"serverWorldActorProfileReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorProfileCount : 0);
         payload += ",\"serverWorldActorProfileNpcCount\":";
@@ -2421,6 +2425,8 @@ namespace mwmp
         std::size_t serverWorldReferenceCount = 0;
         std::size_t serverWorldActorReferenceCount = 0;
         std::size_t serverWorldActorAiReferenceCount = 0;
+        std::size_t serverWorldActorAiPackageListCount = 0;
+        std::size_t serverWorldActorAiPackageItemCount = 0;
         std::size_t serverWorldActorProfileReferenceCount = 0;
         std::size_t serverWorldActorProfileNpcCount = 0;
         std::size_t serverWorldActorProfileCreatureCount = 0;
@@ -2467,6 +2473,8 @@ namespace mwmp
                 serverWorldReferenceCount += stats.referenceCount;
                 serverWorldActorReferenceCount += stats.actorCount;
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
+                serverWorldActorAiPackageListCount += stats.actorAiPackageListCount;
+                serverWorldActorAiPackageItemCount += stats.actorAiPackageItemCount;
                 serverWorldActorProfileReferenceCount += stats.actorProfileCount;
                 serverWorldActorProfileNpcCount += stats.actorProfileNpcCount;
                 serverWorldActorProfileCreatureCount += stats.actorProfileCreatureCount;
@@ -2524,6 +2532,10 @@ namespace mwmp
         payload += std::to_string(serverWorldActorReferenceCount);
         payload += ",\"serverWorldActorAiReferenceCount\":";
         payload += std::to_string(serverWorldActorAiReferenceCount);
+        payload += ",\"serverWorldActorAiPackageListCount\":";
+        payload += std::to_string(serverWorldActorAiPackageListCount);
+        payload += ",\"serverWorldActorAiPackageItemCount\":";
+        payload += std::to_string(serverWorldActorAiPackageItemCount);
         payload += ",\"serverWorldActorProfileReferenceCount\":";
         payload += std::to_string(serverWorldActorProfileReferenceCount);
         payload += ",\"serverWorldActorProfileNpcCount\":";
@@ -2708,6 +2720,10 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.actorProfileCreatureCount);
         payload += ",\"actorProfileAutocalcNpcCount\":";
         payload += std::to_string(serverContentDatabase.actorProfileAutocalcNpcCount);
+        payload += ",\"actorAiPackageRecordCount\":";
+        payload += std::to_string(serverContentDatabase.actorAiPackageRecordCount);
+        payload += ",\"actorAiPackageItemCount\":";
+        payload += std::to_string(serverContentDatabase.actorAiPackageItemCount);
         payload += ",\"actorInventoryRecordCount\":";
         payload += std::to_string(serverContentDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
@@ -2840,6 +2856,10 @@ namespace mwmp
         payload += std::to_string(worldDatabase.actorProfileCreatureCount);
         payload += ",\"actorProfileAutocalcNpcCount\":";
         payload += std::to_string(worldDatabase.actorProfileAutocalcNpcCount);
+        payload += ",\"actorAiPackageRecordCount\":";
+        payload += std::to_string(worldDatabase.actorAiPackageRecordCount);
+        payload += ",\"actorAiPackageItemCount\":";
+        payload += std::to_string(worldDatabase.actorAiPackageItemCount);
         payload += ",\"actorInventoryRecordCount\":";
         payload += std::to_string(worldDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
