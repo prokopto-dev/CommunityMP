@@ -60,14 +60,14 @@ namespace  mwmp
         BaseObjectList *getReceivedObjectList();
         BaseWorldstate *getReceivedWorldstate();
 
-        int getCurrentMpNum();
+        int getCurrentMpNum() const;
         void setCurrentMpNum(int value);
         int incrementMpNum();
 
-        bool getDataFileEnforcementState();
+        bool getDataFileEnforcementState() const;
         void setDataFileEnforcementState(bool state);
 
-        bool getScriptErrorIgnoringState();
+        bool getScriptErrorIgnoringState() const;
         void setScriptErrorIgnoringState(bool state);
         bool usesNativeServerPolicies() const;
         void setNativeServerPoliciesEnabled(bool enabled);
@@ -114,6 +114,9 @@ namespace  mwmp
         bool running;
         int exitCode;
         PacketPreInit::PluginContainer samples;
+        int currentMpNum = 0;
+        bool dataFileEnforcementState = true;
+        bool scriptErrorIgnoringState = false;
         bool nativeDataFileRegistryLoaded = false;
         bool nativeServerPoliciesEnabled = false;
     };

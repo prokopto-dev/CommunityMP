@@ -43,13 +43,10 @@ using namespace mwmp;
 
 ServerNetworking *ServerNetworking::sThis = 0;
 
-static int currentMpNum = 0;
-static bool dataFileEnforcementState = true;
-static bool scriptErrorIgnoringState = false;
-bool killLoop = false;
-
 namespace
 {
+    volatile std::sig_atomic_t stopRequestedBySignal = 0;
+
     bool isBlank(std::string_view value)
     {
         return std::all_of(value.begin(), value.end(), [](unsigned char character) {
@@ -625,7 +622,7 @@ BaseWorldstate *ServerNetworking::getReceivedWorldstate()
     return &baseWorldstate;
 }
 
-int ServerNetworking::getCurrentMpNum()
+int ServerNetworking::getCurrentMpNum() const
 {
     return currentMpNum;
 }
@@ -642,7 +639,7 @@ int ServerNetworking::incrementMpNum()
     return currentMpNum;
 }
 
-bool ServerNetworking::getDataFileEnforcementState()
+bool ServerNetworking::getDataFileEnforcementState() const
 {
     return dataFileEnforcementState;
 }
@@ -652,7 +649,7 @@ void ServerNetworking::setDataFileEnforcementState(bool state)
     dataFileEnforcementState = state;
 }
 
-bool ServerNetworking::getScriptErrorIgnoringState()
+bool ServerNetworking::getScriptErrorIgnoringState() const
 {
     return scriptErrorIgnoringState;
 }
@@ -700,7 +697,7 @@ void signalHandler(int signum)
     //15 is SIGTERM(Normal OS stop call), 2 is SIGINT(Ctrl+C)
     if(signum == 15 || signum == 2)
     {
-        killLoop = true;
+        stopRequestedBySignal = 1;
     }
 }
 
@@ -716,7 +713,9 @@ int ServerNetworking::mainLoop()
     sigIntHandler.sa_flags = 0;
 #endif
     
-    while (running && !killLoop)
+    stopRequestedBySignal = 0;
+
+    while (running && !stopRequestedBySignal)
     {
 #ifndef _WIN32
         sigaction(SIGTERM, &sigIntHandler, NULL);
