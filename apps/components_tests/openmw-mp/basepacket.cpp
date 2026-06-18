@@ -390,13 +390,15 @@ namespace
 
     void expectMovementTiming(const mwmp::BasePlayer& player)
     {
-        EXPECT_FLOAT_EQ(player.movementSampleIntervalSeconds, testMovementSampleInterval);
+        EXPECT_FLOAT_EQ(
+            player.movementSampleIntervalSeconds, mwmp::sanitizeMovementSampleIntervalSeconds(testMovementSampleInterval));
         EXPECT_FLOAT_EQ(player.movementLatencySeconds, testMovementLatency);
     }
 
     void expectMovementTiming(const mwmp::BaseActor& actor)
     {
-        EXPECT_FLOAT_EQ(actor.movementSampleIntervalSeconds, testMovementSampleInterval);
+        EXPECT_FLOAT_EQ(
+            actor.movementSampleIntervalSeconds, mwmp::sanitizeMovementSampleIntervalSeconds(testMovementSampleInterval));
         EXPECT_FLOAT_EQ(actor.movementLatencySeconds, testMovementLatency);
     }
 
@@ -855,7 +857,7 @@ namespace
         EXPECT_FALSE(reader.isPacketValid());
     }
 
-    TEST(MpBasePacketTest, playerCellChangeUsesImmediateReliableMovementDelivery)
+    TEST(MpBasePacketTest, playerCellChangeUsesImmediateReliablePlayerDelivery)
     {
         CapturingTransport transport;
         ScopedPacketTransport scopedTransport(&transport);
@@ -869,7 +871,7 @@ namespace
         EXPECT_EQ(packet.Send(mwmp::PacketDestination(testGuid())), 1u);
         EXPECT_EQ(transport.sentPriority, PacketPriority::Immediate);
         EXPECT_EQ(transport.sentReliability, PacketReliability::ReliableOrdered);
-        EXPECT_EQ(transport.sentOrderChannel, CHANNEL_MOVEMENT);
+        EXPECT_EQ(transport.sentOrderChannel, CHANNEL_PLAYER);
         EXPECT_EQ(transport.sentDestination.guid(), testGuid());
         EXPECT_FALSE(transport.sentBroadcast);
     }
@@ -4541,7 +4543,7 @@ namespace
         baseInfoPacket.setPlayer(&player);
         EXPECT_EQ(baseInfoPacket.Send(mwmp::PacketDestination(testGuid())), 1u);
         EXPECT_EQ(transport.sentReliability, PacketReliability::ReliableOrdered);
-        EXPECT_EQ(transport.sentOrderChannel, CHANNEL_MOVEMENT);
+        EXPECT_EQ(transport.sentOrderChannel, CHANNEL_PLAYER);
 
         mwmp::PacketPlayerAttribute attributePacket;
         attributePacket.SetSendStream(&sendStream);

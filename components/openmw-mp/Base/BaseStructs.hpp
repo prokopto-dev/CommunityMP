@@ -12,20 +12,20 @@
 
 namespace mwmp
 {
+    inline constexpr float defaultMovementSampleIntervalSeconds = 1.f / 60.f;
+    inline constexpr float minMovementSampleIntervalSeconds = 1.f / 60.f;
+    inline constexpr float maxMovementSampleIntervalSeconds = 0.25f;
+
     inline float sanitizeMovementSampleIntervalSeconds(float seconds)
     {
-        constexpr float defaultSampleIntervalSeconds = 1.f / 60.f;
-        constexpr float minSampleIntervalSeconds = 1.f / 300.f;
-        constexpr float maxSampleIntervalSeconds = 0.25f;
-
         if (!std::isfinite(seconds))
-            return defaultSampleIntervalSeconds;
+            return defaultMovementSampleIntervalSeconds;
 
-        if (seconds < minSampleIntervalSeconds)
-            return minSampleIntervalSeconds;
+        if (seconds < minMovementSampleIntervalSeconds)
+            return minMovementSampleIntervalSeconds;
 
-        if (seconds > maxSampleIntervalSeconds)
-            return maxSampleIntervalSeconds;
+        if (seconds > maxMovementSampleIntervalSeconds)
+            return maxMovementSampleIntervalSeconds;
 
         return seconds;
     }
