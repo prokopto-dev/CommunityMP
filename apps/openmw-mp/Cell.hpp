@@ -67,6 +67,7 @@ public:
         std::size_t itemCount = 0;
         std::size_t staticCount = 0;
         std::size_t activatorCount = 0;
+        std::size_t objectCount = 0;
         std::size_t actorAiCount = 0;
         std::size_t unresolvedCount = 0;
         std::size_t ambiguousCount = 0;
@@ -98,14 +99,24 @@ public:
     const ServerWorldBootstrapStats& getServerWorldBootstrapStats() const;
     const std::vector<ServerWorldReference>& getServerWorldReferences() const;
     const mwmp::BaseActorList& getServerWorldActorList() const;
+    const mwmp::BaseObjectList& getServerWorldObjectList() const;
     bool seedActorListFromServerWorldState();
+    bool seedObjectListFromServerWorldState();
     bool hasServerWorldSeededActorList() const;
+    bool hasServerWorldSeededObjectList() const;
     std::size_t getServerWorldSeededActorCount() const;
+    std::size_t getServerWorldSeededObjectCount() const;
 
     mwmp::PacketGuid *getAuthority();
     void setAuthority(const mwmp::PacketGuid& guid);
     bool hasAuthority(const mwmp::PacketGuid& guid) const;
     mwmp::BaseActorList *getActorList();
+    void readObjectList(unsigned char packetID, const mwmp::BaseObjectList *newObjectList);
+    bool containsObject(int refNum, int mpNum);
+    mwmp::BaseObject *getObject(int refNum, int mpNum);
+    void upsertObjects(const mwmp::BaseObjectList *newObjectList);
+    void removeObjects(const mwmp::BaseObjectList *newObjectList);
+    mwmp::BaseObjectList *getObjectList();
     const ESM::Cell& getCellData() const;
 
     TPlayers getPlayers() const;
@@ -129,11 +140,16 @@ private:
     mwmp::PacketGuid actorListRequestGuid;
     mwmp::BaseActorList cellActorList;
     mwmp::BaseActorList serverWorldActorList;
+    mwmp::BaseObjectList cellObjectList;
+    mwmp::BaseObjectList serverWorldObjectList;
     std::vector<ServerWorldReference> serverWorldReferences;
     ServerWorldBootstrapStats serverWorldBootstrapStats;
     bool actorListSnapshotReceived;
+    bool objectListSnapshotReceived;
     bool serverWorldActorListSeeded;
+    bool serverWorldObjectListSeeded;
     std::size_t serverWorldSeededActorCount;
+    std::size_t serverWorldSeededObjectCount;
     bool simulationInterest;
 };
 

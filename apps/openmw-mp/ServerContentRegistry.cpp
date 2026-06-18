@@ -21,6 +21,7 @@ namespace
     constexpr const char* dataFilesRelativePath = "saves/server/config/data-files.xml";
     constexpr const char* loadOrderRelativePath = "saves/server/config/load-order.cfg";
     constexpr const char* builtinOpenMwScripts = "builtin.omwscripts";
+    constexpr const char* openMwContentVectorLoadOrderSource = "openmw-application-settings-content-vector";
 
     std::string getAttribute(const boost::property_tree::ptree& node, const char* key)
     {
@@ -222,6 +223,55 @@ namespace
         }
     }
 
+    void applyOpenMwContentPlanOrder(std::vector<mwmp::ServerDataFileRequirement>& dataFiles,
+        const std::vector<std::string>& contentFiles, mwmp::ServerContentRegistryStatistics& stats)
+    {
+        if (dataFiles.empty() || contentFiles.empty())
+            return;
+
+        std::vector<mwmp::ServerDataFileRequirement> reordered;
+        reordered.reserve(dataFiles.size());
+        std::vector<bool> used(dataFiles.size(), false);
+        std::set<std::string, Misc::StringUtils::CiComp> seen;
+        std::size_t appliedCount = 0;
+
+        for (const std::string& contentFile : contentFiles)
+        {
+            if (contentFile.empty() || isBuiltinContentFile(contentFile) || !seen.insert(contentFile).second)
+                continue;
+
+            auto found = std::find_if(dataFiles.begin(), dataFiles.end(),
+                [&](const mwmp::ServerDataFileRequirement& requirement) {
+                    return Misc::StringUtils::ciEqual(requirement.name, contentFile);
+                });
+
+            if (found == dataFiles.end())
+                continue;
+
+            const std::size_t index = static_cast<std::size_t>(std::distance(dataFiles.begin(), found));
+            if (used[index])
+                continue;
+
+            used[index] = true;
+            reordered.push_back(*found);
+            ++appliedCount;
+        }
+
+        if (appliedCount == 0)
+            return;
+
+        for (std::size_t index = 0; index < dataFiles.size(); ++index)
+        {
+            if (!used[index])
+                reordered.push_back(dataFiles[index]);
+        }
+
+        dataFiles = std::move(reordered);
+        stats.loadOrderLoaded = true;
+        stats.loadOrderSource = openMwContentVectorLoadOrderSource;
+        stats.contentPlanOrderAppliedCount = appliedCount;
+    }
+
     mwmp::ServerDataFileRequirement* findRequirement(
         std::vector<mwmp::ServerDataFileRequirement>& dataFiles, const std::string& name)
     {
@@ -344,6 +394,8 @@ namespace mwmp
                     mStats.lastError = e.what();
             }
         }
+
+        applyOpenMwContentPlanOrder(mDataFiles, contentFiles, mStats);
 
         mStats.dataFileCount = mDataFiles.size();
         mStats.checksumCount = countChecksums(mDataFiles);

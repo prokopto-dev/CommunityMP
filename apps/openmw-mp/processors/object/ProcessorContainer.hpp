@@ -24,6 +24,7 @@ namespace mwmp
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                     "Rejected untrusted container packet from %s with origin %u, action %u and subaction %u",
                     player.npc.mName.c_str(), objectList.packetOrigin, objectList.action, objectList.containerSubAction);
+                objectList.isValid = false;
                 return;
             }
 

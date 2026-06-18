@@ -34,6 +34,7 @@ namespace mwmp
         std::size_t loadOrderMissingRegistryCount = 0;
         std::size_t loadOrderMissingConfigCount = 0;
         std::size_t contentPlanFileCount = 0;
+        std::size_t contentPlanOrderAppliedCount = 0;
         std::size_t computedChecksumCount = 0;
         std::size_t unresolvedContentFileCount = 0;
     };

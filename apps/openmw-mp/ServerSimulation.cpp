@@ -2333,10 +2333,16 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorCount : 0);
         payload += ",\"serverWorldActorAiReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiCount : 0);
+        payload += ",\"serverWorldObjectReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->objectCount : 0);
         payload += ",\"serverWorldActorListSeeded\":";
         payload += jsonBool(serverCell != nullptr && serverCell->hasServerWorldSeededActorList());
         payload += ",\"serverWorldSeededActorCount\":";
         payload += std::to_string(serverCell != nullptr ? serverCell->getServerWorldSeededActorCount() : 0);
+        payload += ",\"serverWorldObjectListSeeded\":";
+        payload += jsonBool(serverCell != nullptr && serverCell->hasServerWorldSeededObjectList());
+        payload += ",\"serverWorldSeededObjectCount\":";
+        payload += std::to_string(serverCell != nullptr ? serverCell->getServerWorldSeededObjectCount() : 0);
         payload += ",\"serverWorldContainerReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->containerCount : 0);
         payload += ",\"serverWorldDoorReferenceCount\":";
@@ -2389,6 +2395,7 @@ namespace mwmp
         std::size_t serverWorldReferenceCount = 0;
         std::size_t serverWorldActorReferenceCount = 0;
         std::size_t serverWorldActorAiReferenceCount = 0;
+        std::size_t serverWorldObjectReferenceCount = 0;
         std::size_t serverWorldContainerReferenceCount = 0;
         std::size_t serverWorldDoorReferenceCount = 0;
         std::size_t serverWorldItemReferenceCount = 0;
@@ -2396,6 +2403,8 @@ namespace mwmp
         std::size_t serverWorldAmbiguousReferenceCount = 0;
         std::size_t serverWorldActorSeededCellCount = 0;
         std::size_t serverWorldSeededActorCount = 0;
+        std::size_t serverWorldObjectSeededCellCount = 0;
+        std::size_t serverWorldSeededObjectCount = 0;
         if (cellController != nullptr)
         {
             loadedCellCount = cellController->getCells().size();
@@ -2411,9 +2420,15 @@ namespace mwmp
                     ++serverWorldActorSeededCellCount;
                     serverWorldSeededActorCount += cell->getServerWorldSeededActorCount();
                 }
+                if (cell->hasServerWorldSeededObjectList())
+                {
+                    ++serverWorldObjectSeededCellCount;
+                    serverWorldSeededObjectCount += cell->getServerWorldSeededObjectCount();
+                }
                 serverWorldReferenceCount += stats.referenceCount;
                 serverWorldActorReferenceCount += stats.actorCount;
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
+                serverWorldObjectReferenceCount += stats.objectCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
                 serverWorldDoorReferenceCount += stats.doorCount;
                 serverWorldItemReferenceCount += stats.itemCount;
@@ -2457,10 +2472,16 @@ namespace mwmp
         payload += std::to_string(serverWorldActorReferenceCount);
         payload += ",\"serverWorldActorAiReferenceCount\":";
         payload += std::to_string(serverWorldActorAiReferenceCount);
+        payload += ",\"serverWorldObjectReferenceCount\":";
+        payload += std::to_string(serverWorldObjectReferenceCount);
         payload += ",\"serverWorldActorSeededCellCount\":";
         payload += std::to_string(serverWorldActorSeededCellCount);
         payload += ",\"serverWorldSeededActorCount\":";
         payload += std::to_string(serverWorldSeededActorCount);
+        payload += ",\"serverWorldObjectSeededCellCount\":";
+        payload += std::to_string(serverWorldObjectSeededCellCount);
+        payload += ",\"serverWorldSeededObjectCount\":";
+        payload += std::to_string(serverWorldSeededObjectCount);
         payload += ",\"serverWorldContainerReferenceCount\":";
         payload += std::to_string(serverWorldContainerReferenceCount);
         payload += ",\"serverWorldDoorReferenceCount\":";
@@ -2534,6 +2555,8 @@ namespace mwmp
         payload += jsonBool(serverContent.enrichedFromOpenMwContentPlan);
         payload += ",\"contentPlanFileCount\":";
         payload += std::to_string(serverContent.contentPlanFileCount);
+        payload += ",\"contentPlanOrderAppliedCount\":";
+        payload += std::to_string(serverContent.contentPlanOrderAppliedCount);
         payload += ",\"computedChecksumCount\":";
         payload += std::to_string(serverContent.computedChecksumCount);
         payload += ",\"unresolvedContentFileCount\":";

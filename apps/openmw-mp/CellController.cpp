@@ -108,6 +108,7 @@ Cell *CellController::addCell(ESM::Cell cellData)
 
         cell = new Cell(cellData);
         cell->ensureServerWorldStateBootstrapped();
+        cell->seedObjectListFromServerWorldState();
         cells.push_back(cell);
     }
     else
@@ -115,6 +116,7 @@ Cell *CellController::addCell(ESM::Cell cellData)
         LOG_APPEND(TimedLog::LOG_INFO, "- Found %s in CellController", cellData.getDescription().c_str());
         cell = *it;
         cell->ensureServerWorldStateBootstrapped();
+        cell->seedObjectListFromServerWorldState();
     }
 
     return cell;

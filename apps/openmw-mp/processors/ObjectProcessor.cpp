@@ -58,7 +58,14 @@ bool ObjectProcessor::Process(ReceivedPacket& packet, BaseObjectList &objectList
                 myPacket->Read();
 
             if (objectList.isValid && myPacket->isPacketValid())
+            {
                 processor.second->Do(*myPacket, *player, objectList);
+                if (objectList.isValid && myPacket->carriesCellData())
+                {
+                    if (Cell* serverCell = CellController::get()->getCell(&objectList.cell))
+                        serverCell->readObjectList(packet.id(), &objectList);
+                }
+            }
             else
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "Received %s that failed integrity check and was ignored!", processor.second->strPacketID.c_str());
             

@@ -11,6 +11,7 @@
 #include <utility>
 #include "Player.hpp"
 #include "ServerEventDispatcher.hpp"
+#include "Utils.hpp"
 #include "WorldDatabaseStore.hpp"
 
 namespace
@@ -103,6 +104,12 @@ namespace
         return category == "actor" || category == "levelledActor";
     }
 
+    bool isObjectBootstrapCategory(std::string_view category)
+    {
+        return category == "container" || category == "door" || category == "item"
+            || category == "levelledItem" || category == "static" || category == "activator";
+    }
+
     mwmp::BaseActor buildServerWorldActor(const Cell::ServerWorldReference& reference, const ESM::Cell& cell)
     {
         mwmp::BaseActor actor;
@@ -127,6 +134,140 @@ namespace
         }
         return actor;
     }
+
+    mwmp::BaseObject buildServerWorldObject(const Cell::ServerWorldReference& reference)
+    {
+        mwmp::BaseObject object{};
+        object.refId = reference.refId;
+        object.refNum = reference.refNum;
+        object.mpNum = reference.mpNum;
+        object.count = reference.count;
+        object.charge = -1;
+        object.enchantmentCharge = -1.0;
+        object.position = reference.position;
+        object.objectState = true;
+        object.lockLevel = reference.locked ? reference.lockLevel : 0;
+        object.scale = reference.scale;
+        object.doorState = 0;
+        object.teleportState = reference.teleport;
+        object.destinationPosition = reference.destinationPosition;
+        object.hasContainer = reference.baseRecordCategory == "container";
+        object.containerItemCount = 0;
+
+        if (!reference.destinationCell.empty())
+            object.destinationCell = Utils::getCellFromDescription(reference.destinationCell);
+
+        return object;
+    }
+
+    bool sameContainerStack(const mwmp::ContainerItem& left, const mwmp::ContainerItem& right)
+    {
+        return left.refId == right.refId
+            && left.charge == right.charge
+            && left.enchantmentCharge == right.enchantmentCharge
+            && left.soul == right.soul;
+    }
+
+    void addContainerItem(std::vector<mwmp::ContainerItem>& items, const mwmp::ContainerItem& incoming)
+    {
+        for (mwmp::ContainerItem& item : items)
+        {
+            if (!sameContainerStack(item, incoming))
+                continue;
+
+            item.count += incoming.count;
+            item.actionCount = incoming.actionCount;
+            return;
+        }
+
+        items.push_back(incoming);
+    }
+
+    void removeContainerItem(std::vector<mwmp::ContainerItem>& items, const mwmp::ContainerItem& incoming)
+    {
+        const int removeCount = incoming.actionCount > 0 ? incoming.actionCount : incoming.count;
+        if (removeCount <= 0)
+            return;
+
+        for (auto it = items.begin(); it != items.end(); ++it)
+        {
+            if (!sameContainerStack(*it, incoming))
+                continue;
+
+            it->count -= removeCount;
+            it->actionCount = incoming.actionCount;
+            if (it->count <= 0)
+                items.erase(it);
+            return;
+        }
+    }
+
+    void mergeContainerItems(mwmp::BaseObject& target, const mwmp::BaseObject& incoming, unsigned char action)
+    {
+        target.hasContainer = true;
+
+        if (action == mwmp::BaseObjectList::SET)
+            target.containerItems = incoming.containerItems;
+        else if (action == mwmp::BaseObjectList::ADD)
+        {
+            for (const mwmp::ContainerItem& item : incoming.containerItems)
+                addContainerItem(target.containerItems, item);
+        }
+        else if (action == mwmp::BaseObjectList::REMOVE)
+        {
+            for (const mwmp::ContainerItem& item : incoming.containerItems)
+                removeContainerItem(target.containerItems, item);
+        }
+
+        target.containerItemCount = static_cast<unsigned int>(target.containerItems.size());
+    }
+
+    void mergeObjectPacketFields(mwmp::BaseObject& target, const mwmp::BaseObject& incoming,
+        unsigned char packetID, unsigned char action)
+    {
+        switch (packetID)
+        {
+            case ID_OBJECT_PLACE:
+            case ID_OBJECT_SPAWN:
+                target = incoming;
+                target.containerItemCount = static_cast<unsigned int>(target.containerItems.size());
+                break;
+            case ID_OBJECT_MOVE:
+                target.position.pos[0] = incoming.position.pos[0];
+                target.position.pos[1] = incoming.position.pos[1];
+                target.position.pos[2] = incoming.position.pos[2];
+                break;
+            case ID_OBJECT_ROTATE:
+                target.position.rot[0] = incoming.position.rot[0];
+                target.position.rot[1] = incoming.position.rot[1];
+                target.position.rot[2] = incoming.position.rot[2];
+                break;
+            case ID_OBJECT_SCALE:
+                target.scale = incoming.scale;
+                break;
+            case ID_OBJECT_LOCK:
+                target.lockLevel = incoming.lockLevel;
+                break;
+            case ID_OBJECT_STATE:
+                target.objectState = incoming.objectState;
+                break;
+            case ID_DOOR_STATE:
+                target.doorState = incoming.doorState;
+                break;
+            case ID_DOOR_DESTINATION:
+                target.teleportState = incoming.teleportState;
+                target.destinationCell = incoming.destinationCell;
+                target.destinationPosition = incoming.destinationPosition;
+                break;
+            case ID_CONTAINER:
+                mergeContainerItems(target, incoming, action);
+                break;
+            default:
+                if (!incoming.refId.empty())
+                    target.refId = incoming.refId;
+                break;
+        }
+    }
 }
 
 Cell::Cell(ESM::Cell cell)
@@ -134,12 +275,25 @@ Cell::Cell(ESM::Cell cell)
     , authorityGuid(mwmp::unassignedPacketGuid())
     , actorListRequestGuid(mwmp::unassignedPacketGuid())
     , actorListSnapshotReceived(false)
+    , objectListSnapshotReceived(false)
     , serverWorldActorListSeeded(false)
+    , serverWorldObjectListSeeded(false)
     , serverWorldSeededActorCount(0)
+    , serverWorldSeededObjectCount(0)
     , simulationInterest(false)
 {
     cellActorList.count = 0;
     serverWorldActorList.count = 0;
+    cellObjectList.baseObjectCount = 0;
+    cellObjectList.guid = mwmp::unassignedPacketGuid();
+    cellObjectList.cell = this->cell;
+    cellObjectList.action = mwmp::BaseObjectList::SET;
+    cellObjectList.isValid = true;
+    serverWorldObjectList.baseObjectCount = 0;
+    serverWorldObjectList.guid = mwmp::unassignedPacketGuid();
+    serverWorldObjectList.cell = this->cell;
+    serverWorldObjectList.action = mwmp::BaseObjectList::SET;
+    serverWorldObjectList.isValid = true;
 }
 
 Cell::Iterator Cell::begin() const
@@ -484,6 +638,11 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldActorList.cell = cell;
     serverWorldActorList.action = mwmp::BaseActorList::SET;
     serverWorldActorList.isValid = true;
+    serverWorldObjectList = {};
+    serverWorldObjectList.guid = mwmp::unassignedPacketGuid();
+    serverWorldObjectList.cell = cell;
+    serverWorldObjectList.action = mwmp::BaseObjectList::SET;
+    serverWorldObjectList.isValid = true;
 
     mwmp::WorldDatabaseStore::get().ensureLoaded();
     const mwmp::WorldDatabaseStatistics worldStats = mwmp::WorldDatabaseStore::get().statistics();
@@ -494,6 +653,7 @@ void Cell::ensureServerWorldStateBootstrapped()
         = mwmp::WorldDatabaseStore::get().findReferencesByCellKey(serverWorldBootstrapStats.cellKey);
     serverWorldReferences.reserve(references.size());
     serverWorldActorList.baseActors.reserve(references.size());
+    serverWorldObjectList.baseObjects.reserve(references.size());
 
     for (const mwmp::WorldCellReferenceRecord& ref : references)
     {
@@ -551,28 +711,37 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorAiCount;
             serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell));
         }
-        else if (snapshot.baseRecordCategory == "container")
-            ++serverWorldBootstrapStats.containerCount;
-        else if (snapshot.baseRecordCategory == "door")
-            ++serverWorldBootstrapStats.doorCount;
-        else if (snapshot.baseRecordCategory == "item" || snapshot.baseRecordCategory == "levelledItem")
-            ++serverWorldBootstrapStats.itemCount;
-        else if (snapshot.baseRecordCategory == "static")
-            ++serverWorldBootstrapStats.staticCount;
-        else if (snapshot.baseRecordCategory == "activator")
-            ++serverWorldBootstrapStats.activatorCount;
+        else
+        {
+            if (snapshot.baseRecordCategory == "container")
+                ++serverWorldBootstrapStats.containerCount;
+            else if (snapshot.baseRecordCategory == "door")
+                ++serverWorldBootstrapStats.doorCount;
+            else if (snapshot.baseRecordCategory == "item" || snapshot.baseRecordCategory == "levelledItem")
+                ++serverWorldBootstrapStats.itemCount;
+            else if (snapshot.baseRecordCategory == "static")
+                ++serverWorldBootstrapStats.staticCount;
+            else if (snapshot.baseRecordCategory == "activator")
+                ++serverWorldBootstrapStats.activatorCount;
+
+            if (isObjectBootstrapCategory(snapshot.baseRecordCategory))
+                serverWorldObjectList.baseObjects.push_back(buildServerWorldObject(snapshot));
+        }
 
         serverWorldReferences.push_back(std::move(snapshot));
     }
 
     serverWorldBootstrapStats.referenceCount = serverWorldReferences.size();
     serverWorldActorList.count = static_cast<unsigned int>(serverWorldActorList.baseActors.size());
+    serverWorldObjectList.baseObjectCount = static_cast<unsigned int>(serverWorldObjectList.baseObjects.size());
+    serverWorldBootstrapStats.objectCount = serverWorldObjectList.baseObjects.size();
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
-        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
+        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.objectCount,
+        serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);
 }
 
@@ -594,6 +763,11 @@ const std::vector<Cell::ServerWorldReference>& Cell::getServerWorldReferences() 
 const mwmp::BaseActorList& Cell::getServerWorldActorList() const
 {
     return serverWorldActorList;
+}
+
+const mwmp::BaseObjectList& Cell::getServerWorldObjectList() const
+{
+    return serverWorldObjectList;
 }
 
 bool Cell::seedActorListFromServerWorldState()
@@ -626,14 +800,55 @@ bool Cell::seedActorListFromServerWorldState()
     return true;
 }
 
+bool Cell::seedObjectListFromServerWorldState()
+{
+    ensureServerWorldStateBootstrapped();
+
+    if (serverWorldObjectListSeeded)
+        return false;
+
+    if (!serverWorldBootstrapStats.loaded || serverWorldObjectList.baseObjects.empty())
+        return false;
+
+    if (objectListSnapshotReceived || !cellObjectList.baseObjects.empty())
+        return false;
+
+    mwmp::BaseObjectList seedList = serverWorldObjectList;
+    seedList.guid = mwmp::unassignedPacketGuid();
+    seedList.cell = cell;
+    seedList.action = mwmp::BaseObjectList::SET;
+    seedList.isValid = true;
+    seedList.baseObjectCount = static_cast<unsigned int>(seedList.baseObjects.size());
+
+    readObjectList(ID_OBJECT_PLACE, &seedList);
+    objectListSnapshotReceived = true;
+    serverWorldObjectListSeeded = true;
+    serverWorldSeededObjectCount = seedList.baseObjects.size();
+
+    LOG_APPEND(TimedLog::LOG_INFO,
+        "- Seeded live object cache for server world cell %s from worlddb with %zu objects",
+        getShortDescription().c_str(), serverWorldSeededObjectCount);
+    return true;
+}
+
 bool Cell::hasServerWorldSeededActorList() const
 {
     return serverWorldActorListSeeded;
 }
 
+bool Cell::hasServerWorldSeededObjectList() const
+{
+    return serverWorldObjectListSeeded;
+}
+
 std::size_t Cell::getServerWorldSeededActorCount() const
 {
     return serverWorldSeededActorCount;
+}
+
+std::size_t Cell::getServerWorldSeededObjectCount() const
+{
+    return serverWorldSeededObjectCount;
 }
 
 mwmp::PacketGuid *Cell::getAuthority()
@@ -654,6 +869,110 @@ bool Cell::hasAuthority(const mwmp::PacketGuid& guid) const
 mwmp::BaseActorList *Cell::getActorList()
 {
     return &cellActorList;
+}
+
+void Cell::readObjectList(unsigned char packetID, const mwmp::BaseObjectList *newObjectList)
+{
+    if (newObjectList == nullptr)
+        return;
+
+    if (packetID == ID_OBJECT_DELETE)
+    {
+        removeObjects(newObjectList);
+        return;
+    }
+
+    if (packetID == ID_CONTAINER && newObjectList->action == mwmp::BaseObjectList::REQUEST)
+        return;
+
+    for (const mwmp::BaseObject& incomingObject : newObjectList->baseObjects)
+    {
+        mwmp::BaseObject objectToStore = incomingObject;
+        mwmp::BaseObject* cellObject = getObject(objectToStore.refNum, objectToStore.mpNum);
+
+        if (cellObject == nullptr)
+        {
+            objectToStore.containerItemCount = static_cast<unsigned int>(objectToStore.containerItems.size());
+            cellObjectList.baseObjects.push_back(std::move(objectToStore));
+            cellObject = &cellObjectList.baseObjects.back();
+        }
+
+        mergeObjectPacketFields(*cellObject, incomingObject, packetID, newObjectList->action);
+    }
+
+    cellObjectList.baseObjectCount = static_cast<unsigned int>(cellObjectList.baseObjects.size());
+    objectListSnapshotReceived = true;
+}
+
+bool Cell::containsObject(int refNum, int mpNum)
+{
+    return getObject(refNum, mpNum) != nullptr;
+}
+
+mwmp::BaseObject *Cell::getObject(int refNum, int mpNum)
+{
+    for (mwmp::BaseObject& object : cellObjectList.baseObjects)
+    {
+        if (object.refNum == static_cast<unsigned int>(refNum) && object.mpNum == static_cast<unsigned int>(mpNum))
+            return &object;
+    }
+
+    return nullptr;
+}
+
+void Cell::upsertObjects(const mwmp::BaseObjectList *newObjectList)
+{
+    if (newObjectList == nullptr)
+        return;
+
+    for (const mwmp::BaseObject& incomingObject : newObjectList->baseObjects)
+    {
+        mwmp::BaseObject objectToStore = incomingObject;
+        objectToStore.containerItemCount = static_cast<unsigned int>(objectToStore.containerItems.size());
+
+        if (mwmp::BaseObject* cellObject = getObject(objectToStore.refNum, objectToStore.mpNum))
+            *cellObject = objectToStore;
+        else
+            cellObjectList.baseObjects.push_back(objectToStore);
+    }
+
+    cellObjectList.baseObjectCount = static_cast<unsigned int>(cellObjectList.baseObjects.size());
+    objectListSnapshotReceived = true;
+}
+
+void Cell::removeObjects(const mwmp::BaseObjectList *newObjectList)
+{
+    if (newObjectList == nullptr)
+        return;
+
+    for (std::vector<mwmp::BaseObject>::iterator it = cellObjectList.baseObjects.begin();
+         it != cellObjectList.baseObjects.end();)
+    {
+        const unsigned int refNum = it->refNum;
+        const unsigned int mpNum = it->mpNum;
+        bool foundObject = false;
+
+        for (const mwmp::BaseObject& newObject : newObjectList->baseObjects)
+        {
+            if (newObject.refNum == refNum && newObject.mpNum == mpNum)
+            {
+                it = cellObjectList.baseObjects.erase(it);
+                foundObject = true;
+                break;
+            }
+        }
+
+        if (!foundObject)
+            ++it;
+    }
+
+    cellObjectList.baseObjectCount = static_cast<unsigned int>(cellObjectList.baseObjects.size());
+    objectListSnapshotReceived = true;
+}
+
+mwmp::BaseObjectList *Cell::getObjectList()
+{
+    return &cellObjectList;
 }
 
 const ESM::Cell& Cell::getCellData() const
