@@ -17,6 +17,13 @@ namespace mwmp
         {
             BaseObjectProcessor::Do(packet, objectList);
 
+            if (isLocal())
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
+                    "Ignoring echoed ID_OBJECT_DIALOGUE_CHOICE from LocalPlayer");
+                return;
+            }
+
             ptrCellStore = Main::get().getCellController()->getCellStore(objectList.cell);
 
             if (!ptrCellStore) return;

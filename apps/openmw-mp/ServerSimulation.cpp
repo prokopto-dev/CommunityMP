@@ -536,6 +536,32 @@ namespace
         return "interior:" + cell.mName;
     }
 
+    struct RuntimeActorCellSource
+    {
+        Cell* cell = nullptr;
+        mwmp::BaseActor actor;
+    };
+
+    std::optional<RuntimeActorCellSource> findRuntimeActorSourceCell(
+        CellController& cellController, const ESM::Cell& destinationCell, const mwmp::BaseActor& runtimeActor)
+    {
+        const std::string destinationKey = getCellSimulationKey(destinationCell);
+
+        for (Cell* candidateCell : cellController.getCells())
+        {
+            if (candidateCell == nullptr)
+                continue;
+
+            if (getCellSimulationKey(candidateCell->getCellData()) == destinationKey)
+                continue;
+
+            if (mwmp::BaseActor* cachedActor = candidateCell->getActor(runtimeActor.refNum, runtimeActor.mpNum))
+                return RuntimeActorCellSource{ candidateCell, *cachedActor };
+        }
+
+        return std::nullopt;
+    }
+
     std::string normalizedWorldLookupKey(std::string_view value)
     {
         std::string result;
@@ -2460,11 +2486,12 @@ namespace mwmp
             return;
 
         ActorPacket* listPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_LIST);
+        ActorPacket* cellChangePacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_CELL_CHANGE);
         ActorPacket* positionPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
         ActorPacket* animFlagsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ANIM_FLAGS);
         ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
         ActorPacket* equipmentPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
-        if (listPacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
+        if (listPacket == nullptr || cellChangePacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
             || statsPacket == nullptr || equipmentPacket == nullptr)
             return;
 
@@ -2494,6 +2521,37 @@ namespace mwmp
             {
                 if (BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum))
                     cachedActorsBeforeIdentity.emplace(actorIdentityPair(runtimeActor), *cachedActor);
+            }
+
+            for (const BaseActor& runtimeActor : runtimeList.baseActors)
+            {
+                if (!runtimeActor.hasPositionData || !mwmp::isFiniteActorMovementSnapshot(runtimeActor))
+                    continue;
+
+                const std::optional<RuntimeActorCellSource> source
+                    = findRuntimeActorSourceCell(*cellController, runtimeList.cell, runtimeActor);
+                if (!source || source->cell == nullptr)
+                    continue;
+
+                BaseActor movedActor = runtimeActor;
+                movedActor.cell = runtimeList.cell;
+                movedActor.hasPositionData = true;
+                movedActor.positionSequence = source->actor.hasPositionData
+                    ? source->actor.positionSequence + 1
+                    : 1;
+                movedActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                movedActor.movementLatencySeconds = 0.f;
+
+                BaseActorList cellChangeList;
+                cellChangeList.cell = source->cell->getCellData();
+                cellChangeList.guid = unassignedPacketGuid();
+                cellChangeList.action = BaseActorList::SET;
+                cellChangeList.isValid = true;
+                cellChangeList.baseActors.push_back(std::move(movedActor));
+                cellChangeList.count = static_cast<unsigned int>(cellChangeList.baseActors.size());
+
+                ActorProcessor::cacheCellChange(cellChangeList);
+                ActorProcessor::sendCellChangeToLoaded(*cellChangePacket, cellChangeList);
             }
 
             BaseActorList identityList = runtimeList;
