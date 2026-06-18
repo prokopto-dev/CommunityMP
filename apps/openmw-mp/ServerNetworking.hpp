@@ -69,6 +69,8 @@ namespace  mwmp
 
         bool getScriptErrorIgnoringState();
         void setScriptErrorIgnoringState(bool state);
+        bool usesNativeServerPolicies() const;
+        void setNativeServerPoliciesEnabled(bool enabled);
 
         MasterClient *getMasterClient();
         void InitQuery(std::string queryAddr, unsigned short queryPort);
@@ -113,6 +115,7 @@ namespace  mwmp
         int exitCode;
         PacketPreInit::PluginContainer samples;
         bool nativeDataFileRegistryLoaded = false;
+        bool nativeServerPoliciesEnabled = false;
     };
 }
 

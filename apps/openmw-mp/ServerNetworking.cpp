@@ -662,6 +662,16 @@ void ServerNetworking::setScriptErrorIgnoringState(bool state)
     scriptErrorIgnoringState = state;
 }
 
+bool ServerNetworking::usesNativeServerPolicies() const
+{
+    return nativeServerPoliciesEnabled;
+}
+
+void ServerNetworking::setNativeServerPoliciesEnabled(bool enabled)
+{
+    nativeServerPoliciesEnabled = enabled;
+}
+
 const ServerNetworking &ServerNetworking::get()
 {
     return *sThis;

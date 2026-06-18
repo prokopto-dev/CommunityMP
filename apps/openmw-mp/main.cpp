@@ -233,6 +233,7 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
 
     std::string password = mgr.getString("password", "General");
     const bool enforceDataFiles = Settings::Manager::getOrDefault<bool>("enforceDataFiles", "General", true);
+    const bool ignoreScriptErrors = Settings::Manager::getOrDefault<bool>("ignoreScriptErrors", "General", false);
 
     std::string pluginHome = mgr.getString("home", "Plugins");
     std::filesystem::path pluginHomePath = Files::pathFromUnicodeString(pluginHome);
@@ -282,6 +283,8 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
         ServerNetworking serverNetworking(gnsTransport.get());
         serverNetworking.setServerPassword(password);
         serverNetworking.setDataFileEnforcementState(enforceDataFiles);
+        serverNetworking.setScriptErrorIgnoringState(ignoreScriptErrors);
+        serverNetworking.setNativeServerPoliciesEnabled(true);
 
         if (mgr.getBool("enabled", "MasterServer"))
         {
@@ -311,6 +314,8 @@ int runCommunityMpDedicatedServer(int argc, char* argv[])
         {
             serverNetworking.getMasterClient()->SetRuleString(
                 "enforceDataFiles", serverNetworking.getDataFileEnforcementState() ? "true" : "false");
+            serverNetworking.getMasterClient()->SetRuleString(
+                "ignoreScriptErrors", serverNetworking.getScriptErrorIgnoringState() ? "true" : "false");
         }
 
         code = serverNetworking.mainLoop();

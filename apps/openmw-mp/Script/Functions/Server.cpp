@@ -171,7 +171,7 @@ void ServerFunctions::SetServerPassword(const char *password) noexcept
 void ServerFunctions::SetDataFileEnforcementState(bool state) noexcept
 {
     mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
-    if (networking == nullptr || networking->usesNativeDataFileRegistry())
+    if (networking == nullptr || networking->usesNativeServerPolicies() || networking->usesNativeDataFileRegistry())
         return;
 
     networking->setDataFileEnforcementState(state);
@@ -179,7 +179,11 @@ void ServerFunctions::SetDataFileEnforcementState(bool state) noexcept
 
 void ServerFunctions::SetScriptErrorIgnoringState(bool state) noexcept
 {
-    mwmp::ServerNetworking::getPtr()->setScriptErrorIgnoringState(state);
+    mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
+    if (networking == nullptr || networking->usesNativeServerPolicies())
+        return;
+
+    networking->setScriptErrorIgnoringState(state);
 }
 
 void ServerFunctions::SetRuleString(const char *key, const char *value) noexcept
