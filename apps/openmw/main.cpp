@@ -42,7 +42,8 @@ extern "C" __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 0x
  * \retval true - Everything goes OK
  * \retval false - Error
  */
-bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::ConfigurationManager& cfgMgr)
+bool configureOpenMwApplication(int argc, char** argv, OMW::Engine& engine, Files::ConfigurationManager& cfgMgr,
+    std::string_view logName)
 {
     // Create a local alias for brevity
     namespace bpo = boost::program_options;
@@ -70,7 +71,7 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
 
     cfgMgr.readConfiguration(variables, desc);
 
-    Debug::setupLogging(cfgMgr.getLogPath(), "OpenMW");
+    Debug::setupLogging(cfgMgr.getLogPath(), logName);
     Log(Debug::Info) << Version::getOpenmwVersionDescription();
 
     Settings::Manager::load(cfgMgr);
@@ -232,7 +233,7 @@ int runApplication(int argc, char* argv[])
 
     engine->setRecastMaxLogLevel(Debug::getRecastMaxLogLevel());
 
-    if (parseOptions(argc, argv, *engine, cfgMgr))
+    if (configureOpenMwApplication(argc, argv, *engine, cfgMgr))
     {
         if (!Misc::checkRequiredOSGPluginsArePresent())
             return 1;
