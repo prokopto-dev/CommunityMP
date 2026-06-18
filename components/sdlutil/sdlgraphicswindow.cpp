@@ -180,7 +180,10 @@ namespace SDLUtil
         if (!mValid)
             return false;
 
-        SDL_ShowWindow(mWindow);
+        if (SDL_GetWindowData(mWindow, "OpenMW.ServerSimulationHidden") != nullptr)
+            SDL_HideWindow(mWindow);
+        else
+            SDL_ShowWindow(mWindow);
 
         getEventQueue()->syncWindowRectangleWithGraphicsContext();
 

@@ -809,10 +809,11 @@ void OMW::Engine::setSkipMenu(bool skipMenu, bool newGame)
 void OMW::Engine::createWindow()
 {
     const int screen = Settings::video().mScreen;
-    const int width = Settings::video().mResolutionX;
-    const int height = Settings::video().mResolutionY;
+    const bool hiddenServerSimulationWindow = mServerSimulationMode;
+    const int width = hiddenServerSimulationWindow ? 64 : Settings::video().mResolutionX;
+    const int height = hiddenServerSimulationWindow ? 64 : Settings::video().mResolutionY;
     const Settings::WindowMode windowMode = Settings::video().mWindowMode;
-    const bool windowBorder = Settings::video().mWindowBorder;
+    const bool windowBorder = !hiddenServerSimulationWindow && Settings::video().mWindowBorder;
     const SDLUtil::VSyncMode vsync = Settings::video().mVsyncMode;
     unsigned antialiasing = static_cast<unsigned>(Settings::video().mAntialiasing);
 
@@ -825,10 +826,15 @@ void OMW::Engine::createWindow()
         posY = SDL_WINDOWPOS_UNDEFINED_DISPLAY(screen);
     }
 
-    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
-    if (windowMode == Settings::WindowMode::Fullscreen)
+    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
+    if (hiddenServerSimulationWindow)
+        flags |= SDL_WINDOW_HIDDEN;
+    else
+        flags |= SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
+
+    if (!hiddenServerSimulationWindow && windowMode == Settings::WindowMode::Fullscreen)
         flags |= SDL_WINDOW_FULLSCREEN;
-    else if (windowMode == Settings::WindowMode::WindowedFullscreen)
+    else if (!hiddenServerSimulationWindow && windowMode == Settings::WindowMode::WindowedFullscreen)
         flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
     // Allows for Windows snapping features to properly work in borderless window
@@ -866,6 +872,8 @@ void OMW::Engine::createWindow()
                 "OpenMW",
 #endif
                 posX, posY, width, height, flags);
+            if (mWindow != nullptr && hiddenServerSimulationWindow)
+                SDL_SetWindowData(mWindow, "OpenMW.ServerSimulationHidden", mWindow);
             if (!mWindow)
             {
                 // Try with a lower AA
@@ -898,7 +906,8 @@ void OMW::Engine::createWindow()
             SDL_SetWindowSize(mWindow, width / (dw / w), height / (dh / h));
         }
 
-        setWindowIcon();
+        if (!hiddenServerSimulationWindow)
+            setWindowIcon();
 
         osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
         SDL_GetWindowPosition(mWindow, &traits->x, &traits->y);
