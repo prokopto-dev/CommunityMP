@@ -1,0 +1,55 @@
+{
+  "schema": "communitymp.questdb.v1",
+  "description": "Multiplayer-native quest database tables derived from content imports. ESM and ESP files are import sources only; the server owns runtime quest state.",
+  "tables": {
+    "packages": {
+      "primaryKey": "packageId",
+      "purpose": "Imported content package metadata and dependency hints."
+    },
+    "quest_definitions": {
+      "primaryKey": "questId",
+      "purpose": "Server-owned quest definitions with multiplayer scope, sharing, repeat, and instancing policies."
+    },
+    "quest_steps": {
+      "primaryKey": "stepId",
+      "purpose": "Ordered quest progress nodes. Source journal indexes are preserved but are not the runtime authority."
+    },
+    "dialogue_topics": {
+      "primaryKey": "topicId",
+      "purpose": "Topics, greetings, persuasion, and voice sources that may unlock or advance quests."
+    },
+    "dialogue_responses": {
+      "primaryKey": "responseId",
+      "purpose": "Server-filtered response candidates linked to topics and actors."
+    },
+    "conditions": {
+      "primaryKey": "conditionId",
+      "purpose": "Normalized predicates that can be evaluated by server-side player, actor, world, and encounter state."
+    },
+    "legacy_effects": {
+      "primaryKey": "effectId",
+      "purpose": "Imported MWScript result blocks held as migration targets until they are converted into server-safe effects."
+    }
+  },
+  "runtimeState": {
+    "playerQuestState": {
+      "owner": "server",
+      "storage": "append-only events plus compacted per-player view",
+      "key": "playerId, characterId, questId"
+    },
+    "worldQuestState": {
+      "owner": "server",
+      "storage": "shared events keyed by questId and explicit scope",
+      "key": "scopeId, questId"
+    },
+    "transactions": {
+      "dialogue": "server lease before selecting a response with effects",
+      "quest": "compare-and-swap on current step and quest epoch",
+      "inventory": "quest effects must commit with item/container transactions"
+    }
+  },
+  "importFlow": [
+    "esmtool quest-export Content.esm Content.quest-source.jsonl",
+    "python scripts/communitymp_questdb_import.py Content.quest-source.jsonl --output-dir questdb/Content"
+  ]
+}

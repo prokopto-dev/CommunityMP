@@ -1,4 +1,6 @@
+#include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <deque>
 #include <fstream>
 #include <iomanip>
@@ -6,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -16,6 +19,8 @@
 #include <components/esm/format.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
+#include <components/esm3/loadinfo.hpp>
+#include <components/esm3/loaddial.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/files/conversion.hpp>
 #include <components/files/openfile.hpp>
@@ -54,6 +59,8 @@ Allowed modes:
   dump   Dumps all readable data from the input file.
   clone  Clones the input file to the output file.
   comp   Compares the given files.
+  quest-export
+         Exports dialogue and journal source records as CommunityMP JSONL.
 
 Allowed options)");
         auto addOption = desc.add_options();
@@ -137,7 +144,7 @@ Allowed options)");
             info.name = variables["name"].as<std::string>();
 
         info.mode = variables["mode"].as<std::string>();
-        if (!(info.mode == "dump" || info.mode == "clone" || info.mode == "comp"))
+        if (!(info.mode == "dump" || info.mode == "clone" || info.mode == "comp" || info.mode == "quest-export"))
         {
             std::cout << "\nERROR: invalid mode \"" << info.mode << "\"\n\n" << desc << finalText << std::endl;
             return false;
@@ -179,7 +186,10 @@ Allowed options)");
             std::cout << info.encoding << " is not a valid encoding option.\n";
             info.encoding = "win1252";
         }
-        std::cout << ToUTF8::encodingUsingMessage(info.encoding) << std::endl;
+        if (info.mode == "quest-export")
+            std::cerr << ToUTF8::encodingUsingMessage(info.encoding) << std::endl;
+        else
+            std::cout << ToUTF8::encodingUsingMessage(info.encoding) << std::endl;
 
         return true;
     }
@@ -187,6 +197,7 @@ Allowed options)");
     void loadCell(const Arguments& info, ESM::Cell& cell, ESM::ESMReader& esm, ESMData* data);
 
     int load(const Arguments& info, ESMData* data);
+    int questExport(const Arguments& info);
     int clone(const Arguments& info);
     int comp(const Arguments& info);
 
@@ -202,6 +213,8 @@ int main(int argc, char** argv)
 
         if (info.mode == "dump")
             return load(info, nullptr);
+        else if (info.mode == "quest-export")
+            return questExport(info);
         else if (info.mode == "clone")
             return clone(info);
         else if (info.mode == "comp")
@@ -320,6 +333,416 @@ namespace
                 std::cout.flags(f);
             }
         }
+    }
+
+    std::string makeQuestPackageId(const std::filesystem::path& path)
+    {
+        std::string result = Files::pathToUnicodeString(path.stem());
+        for (char& ch : result)
+        {
+            const unsigned char uch = static_cast<unsigned char>(ch);
+            if (std::isalnum(uch))
+                ch = static_cast<char>(std::tolower(uch));
+            else if (ch != '-' && ch != '_')
+                ch = '_';
+        }
+
+        if (result.empty())
+            return "content";
+
+        return result;
+    }
+
+    std::string refIdToString(const ESM::RefId& refId)
+    {
+        if (refId.empty())
+            return {};
+
+        return refId.toString();
+    }
+
+    std::string_view comparisonLabel(const ESM::DialogueCondition::Comparison comparison)
+    {
+        switch (comparison)
+        {
+            case ESM::DialogueCondition::Comp_Eq:
+                return "eq";
+            case ESM::DialogueCondition::Comp_Ne:
+                return "ne";
+            case ESM::DialogueCondition::Comp_Gt:
+                return "gt";
+            case ESM::DialogueCondition::Comp_Ge:
+                return "ge";
+            case ESM::DialogueCondition::Comp_Ls:
+                return "lt";
+            case ESM::DialogueCondition::Comp_Le:
+                return "le";
+            case ESM::DialogueCondition::Comp_None:
+                return "none";
+        }
+
+        return "invalid";
+    }
+
+    void writeJsonString(std::ostream& stream, std::string_view value)
+    {
+        static constexpr char hex[] = "0123456789abcdef";
+
+        stream << '"';
+        for (const unsigned char ch : value)
+        {
+            switch (ch)
+            {
+                case '"':
+                    stream << "\\\"";
+                    break;
+                case '\\':
+                    stream << "\\\\";
+                    break;
+                case '\b':
+                    stream << "\\b";
+                    break;
+                case '\f':
+                    stream << "\\f";
+                    break;
+                case '\n':
+                    stream << "\\n";
+                    break;
+                case '\r':
+                    stream << "\\r";
+                    break;
+                case '\t':
+                    stream << "\\t";
+                    break;
+                default:
+                    if (ch < 0x20)
+                        stream << "\\u00" << hex[ch >> 4] << hex[ch & 0xf];
+                    else
+                        stream << static_cast<char>(ch);
+                    break;
+            }
+        }
+        stream << '"';
+    }
+
+    void writeJsonField(std::ostream& stream, std::string_view name, std::string_view value)
+    {
+        writeJsonString(stream, name);
+        stream << ':';
+        writeJsonString(stream, value);
+    }
+
+    template <class T>
+    void writeJsonNumberField(std::ostream& stream, std::string_view name, const T value)
+    {
+        writeJsonString(stream, name);
+        stream << ':' << value;
+    }
+
+    void writeJsonBoolField(std::ostream& stream, std::string_view name, const bool value)
+    {
+        writeJsonString(stream, name);
+        stream << ':' << (value ? "true" : "false");
+    }
+
+    void writeQuestExportHeader(
+        std::ostream& stream, const Arguments& info, ESM::ESMReader& esm, std::string_view packageId)
+    {
+        stream << '{';
+        writeJsonField(stream, "schema", "communitymp.quest.source.v1");
+        stream << ',';
+        writeJsonField(stream, "kind", "package");
+        stream << ',';
+        writeJsonField(stream, "packageId", packageId);
+        stream << ',';
+        writeJsonField(stream, "sourceFile", Files::pathToUnicodeString(info.filename));
+        stream << ',';
+        writeJsonField(stream, "sourceFileName", Files::pathToUnicodeString(info.filename.filename()));
+        stream << ',';
+        writeJsonField(stream, "author", esm.getAuthor());
+        stream << ',';
+        writeJsonField(stream, "description", esm.getDesc());
+        stream << ',';
+        writeJsonNumberField(stream, "esmVersion", esm.esmVersionF());
+        stream << ',';
+        writeJsonNumberField(stream, "recordCount", esm.getRecordCount());
+        stream << ',';
+        writeJsonString(stream, "masters");
+        stream << ":[";
+        bool firstMaster = true;
+        for (const ESM::Header::MasterData& master : esm.getGameFiles())
+        {
+            if (!firstMaster)
+                stream << ',';
+            firstMaster = false;
+
+            stream << '{';
+            writeJsonField(stream, "name", master.name);
+            stream << ',';
+            writeJsonNumberField(stream, "size", master.size);
+            stream << '}';
+        }
+        stream << "]}\n";
+    }
+
+    void writeQuestExportDialogue(std::ostream& stream, const ESM::Dialogue& dialogue, std::string_view packageId,
+        const std::size_t recordIndex, const std::uint32_t flags, const bool isDeleted)
+    {
+        stream << '{';
+        writeJsonField(stream, "schema", "communitymp.quest.source.v1");
+        stream << ',';
+        writeJsonField(stream, "kind", "dialogue");
+        stream << ',';
+        writeJsonField(stream, "packageId", packageId);
+        stream << ',';
+        writeJsonNumberField(stream, "recordIndex", recordIndex);
+        stream << ',';
+        writeJsonNumberField(stream, "recordFlags", flags);
+        stream << ',';
+        writeJsonBoolField(stream, "deleted", isDeleted);
+        stream << ',';
+        writeJsonField(stream, "dialogueId", refIdToString(dialogue.mId));
+        stream << ',';
+        writeJsonField(stream, "displayName", dialogue.mStringId);
+        stream << ',';
+        writeJsonNumberField(stream, "dialogueTypeCode", static_cast<int>(dialogue.mType));
+        stream << ',';
+        writeJsonField(stream, "dialogueType", dialogTypeLabel(static_cast<int>(dialogue.mType)));
+        stream << "}\n";
+    }
+
+    void writeQuestExportCondition(std::ostream& stream, const ESM::DialogueCondition& condition)
+    {
+        stream << '{';
+        writeJsonNumberField(stream, "index", static_cast<int>(condition.mIndex));
+        stream << ',';
+        writeJsonNumberField(stream, "functionCode", static_cast<int>(condition.mFunction));
+        stream << ',';
+        writeJsonField(stream, "function", ruleFunction(static_cast<int>(condition.mFunction)));
+        stream << ',';
+        writeJsonNumberField(stream, "comparisonCode", static_cast<int>(condition.mComparison));
+        stream << ',';
+        writeJsonField(stream, "comparison", comparisonLabel(condition.mComparison));
+        stream << ',';
+        writeJsonField(stream, "variable", condition.mVariable);
+        stream << ',';
+        writeJsonString(stream, "valueType");
+        stream << ':';
+        std::visit(
+            [&](auto value) {
+                using Value = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<Value, float>)
+                    writeJsonString(stream, "float");
+                else
+                    writeJsonString(stream, "int");
+            },
+            condition.mValue);
+        stream << ',';
+        writeJsonString(stream, "value");
+        stream << ':';
+        std::visit(
+            [&](auto value) {
+                using Value = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<Value, float>)
+                    stream << std::setprecision(9) << value;
+                else
+                    stream << value;
+            },
+            condition.mValue);
+        stream << '}';
+    }
+
+    void writeQuestExportInfo(std::ostream& stream, const ESM::DialInfo& info, std::string_view packageId,
+        const std::size_t recordIndex, const std::uint32_t flags, const bool isDeleted, const bool hasDialogue,
+        const ESM::Dialogue& dialogue, const std::size_t infoOrder)
+    {
+        const bool isJournal = hasDialogue && dialogue.mType == ESM::Dialogue::Journal;
+
+        stream << '{';
+        writeJsonField(stream, "schema", "communitymp.quest.source.v1");
+        stream << ',';
+        writeJsonField(stream, "kind", "info");
+        stream << ',';
+        writeJsonField(stream, "packageId", packageId);
+        stream << ',';
+        writeJsonNumberField(stream, "recordIndex", recordIndex);
+        stream << ',';
+        writeJsonNumberField(stream, "recordFlags", flags);
+        stream << ',';
+        writeJsonNumberField(stream, "infoOrder", infoOrder);
+        stream << ',';
+        writeJsonBoolField(stream, "deleted", isDeleted);
+        stream << ',';
+        writeJsonBoolField(stream, "orphaned", !hasDialogue);
+        stream << ',';
+        writeJsonField(stream, "dialogueId", hasDialogue ? refIdToString(dialogue.mId) : std::string_view{});
+        stream << ',';
+        writeJsonField(stream, "dialogueType", hasDialogue ? dialogTypeLabel(static_cast<int>(dialogue.mType)) : "");
+        stream << ',';
+        writeJsonNumberField(stream, "dialogueTypeCode", hasDialogue ? static_cast<int>(dialogue.mType) : -1);
+        stream << ',';
+        writeJsonField(stream, "infoId", refIdToString(info.mId));
+        stream << ',';
+        writeJsonField(stream, "previousInfoId", refIdToString(info.mPrev));
+        stream << ',';
+        writeJsonField(stream, "nextInfoId", refIdToString(info.mNext));
+        stream << ',';
+        writeJsonNumberField(stream, "dataTypeCode", info.mData.mType);
+        stream << ',';
+        writeJsonNumberField(stream, "rank", static_cast<int>(info.mData.mRank));
+        stream << ',';
+        writeJsonNumberField(stream, "gender", static_cast<int>(info.mData.mGender));
+        stream << ',';
+        writeJsonNumberField(stream, "pcRank", static_cast<int>(info.mData.mPCrank));
+        stream << ',';
+        writeJsonField(stream, "dataValueKind", isJournal ? "journalIndex" : "disposition");
+        stream << ',';
+        writeJsonNumberField(stream, "dataValue", isJournal ? info.mData.mJournalIndex : info.mData.mDisposition);
+        stream << ',';
+        writeJsonField(stream, "actor", refIdToString(info.mActor));
+        stream << ',';
+        writeJsonField(stream, "race", refIdToString(info.mRace));
+        stream << ',';
+        writeJsonField(stream, "class", refIdToString(info.mClass));
+        stream << ',';
+        writeJsonField(stream, "faction", refIdToString(info.mFaction));
+        stream << ',';
+        writeJsonField(stream, "pcFaction", refIdToString(info.mPcFaction));
+        stream << ',';
+        writeJsonField(stream, "cell", refIdToString(info.mCell));
+        stream << ',';
+        writeJsonBoolField(stream, "factionLess", info.mFactionLess);
+        stream << ',';
+        writeJsonField(stream, "sound", info.mSound);
+        stream << ',';
+        writeJsonField(stream, "response", info.mResponse);
+        stream << ',';
+        writeJsonField(stream, "resultScript", info.mResultScript);
+        stream << ',';
+        writeJsonNumberField(stream, "questStatusCode", static_cast<int>(info.mQuestStatus));
+        stream << ',';
+        writeJsonField(stream, "questStatus", questStatusLabel(static_cast<int>(info.mQuestStatus)));
+        stream << ',';
+        writeJsonString(stream, "conditions");
+        stream << ":[";
+        bool firstCondition = true;
+        for (const ESM::DialogueCondition& condition : info.mSelects)
+        {
+            if (!firstCondition)
+                stream << ',';
+            firstCondition = false;
+            writeQuestExportCondition(stream, condition);
+        }
+        stream << "]}\n";
+    }
+
+    int questExportTes3(const Arguments& info, std::unique_ptr<std::ifstream>&& stream)
+    {
+        std::unique_ptr<std::ofstream> outputFile;
+        std::ostream* output = &std::cout;
+        if (!info.outname.empty())
+        {
+            outputFile = std::make_unique<std::ofstream>(info.outname, std::ios::binary);
+            if (!outputFile->is_open())
+            {
+                std::cerr << "Failed to open output file " << Files::pathToUnicodeString(info.outname) << ": "
+                          << std::generic_category().message(errno) << '\n';
+                return 1;
+            }
+            output = outputFile.get();
+        }
+
+        std::cerr << "Exporting CommunityMP quest source records from TES3 file: "
+                  << Files::pathToUnicodeString(info.filename) << '\n';
+
+        ESM::ESMReader esm;
+        ToUTF8::Utf8Encoder encoder(ToUTF8::calculateEncoding(info.encoding));
+        esm.setEncoder(&encoder);
+
+        const std::string packageId = makeQuestPackageId(info.filename);
+        ESM::Dialogue currentDialogue;
+        bool hasCurrentDialogue = false;
+        std::size_t recordIndex = 0;
+        std::size_t dialogueCount = 0;
+        std::size_t infoCount = 0;
+
+        try
+        {
+            esm.open(std::move(stream), info.filename);
+            writeQuestExportHeader(*output, info, esm, packageId);
+
+            while (esm.hasMoreRecs())
+            {
+                const ESM::NAME name = esm.getRecName();
+                std::uint32_t flags = 0;
+                esm.getRecHeader(flags);
+                ++recordIndex;
+
+                if (name.toInt() == ESM::REC_DIAL)
+                {
+                    bool isDeleted = false;
+                    currentDialogue.blank();
+                    currentDialogue.load(esm, isDeleted);
+                    hasCurrentDialogue = true;
+                    ++dialogueCount;
+
+                    writeQuestExportDialogue(*output, currentDialogue, packageId, recordIndex, flags, isDeleted);
+                }
+                else if (name.toInt() == ESM::REC_INFO)
+                {
+                    ESM::DialInfo infoRecord;
+                    bool isDeleted = false;
+                    infoRecord.load(esm, isDeleted);
+                    ++infoCount;
+
+                    writeQuestExportInfo(
+                        *output, infoRecord, packageId, recordIndex, flags, isDeleted, hasCurrentDialogue,
+                        currentDialogue, infoCount);
+                }
+                else
+                {
+                    hasCurrentDialogue = false;
+                    esm.skipRecord();
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "\nERROR while exporting quest source records:\n\n  " << e.what() << std::endl;
+            return 1;
+        }
+
+        std::cerr << "Exported " << dialogueCount << " dialogue records and " << infoCount
+                  << " info records for package " << packageId << ".\n";
+
+        return 0;
+    }
+
+    int questExport(const Arguments& info)
+    {
+        auto stream = Files::openBinaryInputFileStream(info.filename);
+        if (!stream->is_open())
+        {
+            std::cerr << "Failed to open file " << Files::pathToUnicodeString(info.filename) << ": "
+                      << std::generic_category().message(errno) << '\n';
+            return 1;
+        }
+
+        const ESM::Format format = ESM::readFormat(*stream);
+        stream->seekg(0);
+
+        switch (format)
+        {
+            case ESM::Format::Tes3:
+                return questExportTes3(info, std::move(stream));
+            case ESM::Format::Tes4:
+                std::cerr << "CommunityMP quest export does not yet support TES4 files: "
+                          << Files::pathToUnicodeString(info.filename) << '\n';
+                return 1;
+        }
+
+        std::cerr << "Unsupported ESM format: " << ESM::NAME(format).toStringView() << '\n';
+        return 1;
     }
 
     int loadTes3(const Arguments& info, std::unique_ptr<std::ifstream>&& stream, ESMData* data)
