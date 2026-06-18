@@ -25,6 +25,7 @@ namespace mwmp
         std::string loadOrderSource = "data-files-xml-order";
         bool loadOrderAttempted = false;
         bool loadOrderLoaded = false;
+        bool serverLoadOrderLoaded = false;
         bool enrichedFromOpenMwContentPlan = false;
         std::size_t dataFileCount = 0;
         std::size_t checksumCount = 0;

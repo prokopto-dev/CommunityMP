@@ -1532,6 +1532,42 @@ namespace
         }
     }
 
+    bool sameActorAiTarget(const mwmp::Target& left, const mwmp::Target& right)
+    {
+        return targetsReferToSameEntity(left, right);
+    }
+
+    bool sameActorAiCoordinates(const ESM::Position& left, const ESM::Position& right)
+    {
+        constexpr float coordinateEpsilon = 0.01f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            if (std::abs(left.pos[axis] - right.pos[axis]) > coordinateEpsilon)
+                return false;
+        }
+
+        return true;
+    }
+
+    bool sameActorAi(const mwmp::BaseActor& left, const mwmp::BaseActor& right)
+    {
+        if (left.hasAiData != right.hasAiData)
+            return false;
+
+        if (!left.hasAiData)
+            return true;
+
+        if (left.aiAction != right.aiAction || left.aiDistance != right.aiDistance
+            || left.aiDuration != right.aiDuration || left.aiShouldRepeat != right.aiShouldRepeat
+            || left.hasAiTarget != right.hasAiTarget)
+            return false;
+
+        if (left.hasAiTarget && !sameActorAiTarget(left.aiTarget, right.aiTarget))
+            return false;
+
+        return sameActorAiCoordinates(left.aiCoordinates, right.aiCoordinates);
+    }
+
     mwmp::BaseActor buildServerAcceptedAiActor(Cell& cell, const mwmp::BaseActor& incomingActor,
         const mwmp::BaseActor& currentActor)
     {
@@ -1833,12 +1869,12 @@ namespace mwmp
         const SimulationRuntimeWorldState& worldState = mRuntime->worldState();
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Server simulation runtime requested=%s active=%s openmwLinked=%s headlessEngine=%s openmwWorld=%s "
-            "persistentWorld=%s loadedFromSave=%s initializedNewWorld=%s actorAuthority=%s savePath=%s",
+            "persistentWorld=%s loadedFromSave=%s initializedNewWorld=%s actorAuthority=%s blockedBy=%s savePath=%s",
             mRuntime->requestedName(), mRuntime->activeName(), mRuntime->topology().linksOpenMwCore ? "yes" : "no",
             mRuntime->hasHeadlessOpenMwEngine() ? "yes" : "no", mRuntime->hasOpenMwWorld() ? "yes" : "no",
             mRuntime->hasPersistentWorld() ? "yes" : "no", worldState.loadedFromSave ? "yes" : "no",
             worldState.initializedNewWorld ? "yes" : "no", mRuntime->canOwnActorAuthority() ? "yes" : "no",
-            worldState.savePath.c_str());
+            mRuntime->bootstrap().blockedBy.c_str(), worldState.savePath.c_str());
     }
 
     void ServerSimulation::tick()
@@ -2512,8 +2548,9 @@ namespace mwmp
         ActorPacket* animFlagsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ANIM_FLAGS);
         ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
         ActorPacket* equipmentPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
+        ActorPacket* aiPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_AI);
         if (listPacket == nullptr || cellChangePacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
-            || statsPacket == nullptr || equipmentPacket == nullptr)
+            || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr)
             return;
 
         const float sampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
@@ -2612,6 +2649,12 @@ namespace mwmp
             equipmentList.action = BaseActorList::SET;
             equipmentList.isValid = true;
 
+            BaseActorList aiList;
+            aiList.cell = runtimeList.cell;
+            aiList.guid = unassignedPacketGuid();
+            aiList.action = BaseActorList::SET;
+            aiList.isValid = true;
+
             for (const BaseActor& runtimeActor : runtimeList.baseActors)
             {
                 BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum);
@@ -2683,6 +2726,13 @@ namespace mwmp
                         : 1;
                     equipmentList.baseActors.push_back(std::move(equipmentActor));
                 }
+
+                if (runtimeActor.hasAiData && cachedActor != nullptr && hasValidActorAiSnapshot(*serverCell, runtimeActor))
+                {
+                    BaseActor aiActor = buildServerAcceptedAiActor(*serverCell, runtimeActor, *cachedActor);
+                    if (previousActor == nullptr || !sameActorAi(*previousActor, aiActor))
+                        aiList.baseActors.push_back(std::move(aiActor));
+                }
             }
 
             positionList.count = static_cast<unsigned int>(positionList.baseActors.size());
@@ -2715,6 +2765,14 @@ namespace mwmp
                 serverCell->readActorList(ID_ACTOR_EQUIPMENT, &equipmentList);
                 equipmentPacket->setActorList(&equipmentList);
                 serverCell->sendToLoaded(equipmentPacket, &equipmentList);
+            }
+
+            aiList.count = static_cast<unsigned int>(aiList.baseActors.size());
+            if (aiList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_AI, &aiList);
+                aiPacket->setActorList(&aiList);
+                serverCell->sendToLoaded(aiPacket, &aiList);
             }
         }
     }
@@ -3332,6 +3390,8 @@ namespace mwmp
         payload += jsonBool(serverContent.loadOrderAttempted);
         payload += ",\"loadOrderLoaded\":";
         payload += jsonBool(serverContent.loadOrderLoaded);
+        payload += ",\"serverLoadOrderLoaded\":";
+        payload += jsonBool(serverContent.serverLoadOrderLoaded);
         payload += ",\"loadOrderEntryCount\":";
         payload += std::to_string(serverContent.loadOrderEntryCount);
         payload += ",\"loadOrderAppliedCount\":";

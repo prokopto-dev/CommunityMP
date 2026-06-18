@@ -219,6 +219,7 @@ namespace
         {
             dataFiles = std::move(reordered);
             stats.loadOrderLoaded = true;
+            stats.serverLoadOrderLoaded = true;
             stats.loadOrderSource = "server-config-load-order-cfg";
         }
     }
@@ -395,7 +396,8 @@ namespace mwmp
             }
         }
 
-        applyOpenMwContentPlanOrder(mDataFiles, contentFiles, mStats);
+        if (!mStats.loadOrderLoaded)
+            applyOpenMwContentPlanOrder(mDataFiles, contentFiles, mStats);
 
         mStats.dataFileCount = mDataFiles.size();
         mStats.checksumCount = countChecksums(mDataFiles);

@@ -4873,12 +4873,13 @@ namespace mwmp
     void ServerContentDatabase::updateFromOpenMwContentPlan(const std::vector<std::filesystem::path>& dataDirs,
         const std::vector<std::string>& contentFiles, const std::vector<std::string>& archives,
         const std::string& encoding,
-        const std::vector<ServerDataFileRequirement>& dataFileRequirements)
+        const std::vector<ServerDataFileRequirement>& dataFileRequirements,
+        const std::string& loadOrderSource)
     {
         std::lock_guard lock(mMutex);
         mStats = {};
         mStats.attempted = true;
-        mStats.loadOrderSource = openMwContentVectorLoadOrderSource;
+        mStats.loadOrderSource = loadOrderSource.empty() ? openMwContentVectorLoadOrderSource : loadOrderSource;
         mStats.loadOrderRule = laterContentEntryDominatesLoadOrderRule;
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";

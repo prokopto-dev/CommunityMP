@@ -99,7 +99,8 @@ namespace mwmp
             const std::vector<std::string>& contentFiles,
             const std::vector<std::string>& archives,
             const std::string& encoding,
-            const std::vector<ServerDataFileRequirement>& dataFileRequirements);
+            const std::vector<ServerDataFileRequirement>& dataFileRequirements,
+            const std::string& loadOrderSource);
 
         ServerContentDatabaseStatistics statistics() const;
 

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <fstream>
 #include <future>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <system_error>
@@ -102,6 +103,7 @@
 #include "mwdialogue/scripttest.hpp"
 
 #include "mwmechanics/aisequence.hpp"
+#include "mwmechanics/aipackage.hpp"
 #include "mwmechanics/creaturestats.hpp"
 #include "mwmechanics/mechanicsmanagerimp.hpp"
 #include "mwmechanics/movement.hpp"
@@ -465,6 +467,110 @@ namespace
         actor.hasEquipmentData = true;
     }
 
+    mwmp::Target makeServerSimulationActorTarget(const MWWorld::Ptr& ptr)
+    {
+        mwmp::Target target;
+        target.guid = mwmp::unassignedPacketGuid();
+
+        if (ptr.isEmpty())
+            return target;
+
+        const ESM::RefNum refNum = ptr.getCellRef().getRefNum();
+        if (refNum.mIndex == 0)
+            return target;
+
+        target.isPlayer = false;
+        target.refId = ptr.getCellRef().getRefId().serializeText();
+        target.refNum = refNum.mIndex;
+        target.mpNum = 0;
+        target.name = std::string(ptr.getClass().getName(ptr));
+        return target;
+    }
+
+    bool setServerSimulationAiAction(mwmp::BaseActor& actor, MWMechanics::AiPackageTypeId typeId)
+    {
+        switch (typeId)
+        {
+            case MWMechanics::AiPackageTypeId::Wander:
+                actor.aiAction = mwmp::BaseActorList::WANDER;
+                return true;
+
+            case MWMechanics::AiPackageTypeId::Travel:
+            case MWMechanics::AiPackageTypeId::InternalTravel:
+                actor.aiAction = mwmp::BaseActorList::TRAVEL;
+                return true;
+
+            case MWMechanics::AiPackageTypeId::Escort:
+                actor.aiAction = mwmp::BaseActorList::ESCORT;
+                return true;
+
+            case MWMechanics::AiPackageTypeId::Follow:
+                actor.aiAction = mwmp::BaseActorList::FOLLOW;
+                return true;
+
+            case MWMechanics::AiPackageTypeId::Activate:
+                actor.aiAction = mwmp::BaseActorList::ACTIVATE;
+                return true;
+
+            case MWMechanics::AiPackageTypeId::Combat:
+            case MWMechanics::AiPackageTypeId::Pursue:
+                actor.aiAction = mwmp::BaseActorList::COMBAT;
+                return true;
+
+            case MWMechanics::AiPackageTypeId::None:
+            case MWMechanics::AiPackageTypeId::AvoidDoor:
+            case MWMechanics::AiPackageTypeId::Face:
+            case MWMechanics::AiPackageTypeId::Breathe:
+            case MWMechanics::AiPackageTypeId::Cast:
+                return false;
+        }
+
+        return false;
+    }
+
+    void copyServerSimulationAi(mwmp::BaseActor& actor, const MWWorld::Ptr& ptr)
+    {
+        const MWMechanics::AiSequence& aiSequence = ptr.getClass().getCreatureStats(ptr).getAiSequence();
+        if (aiSequence.isEmpty())
+            return;
+
+        const MWMechanics::AiPackage& package = aiSequence.getActivePackage();
+        if (!setServerSimulationAiAction(actor, package.getTypeId()))
+            return;
+
+        actor.hasAiData = true;
+        actor.aiShouldRepeat = package.getRepeat();
+
+        if (const std::optional<int> distance = package.getDistance())
+            actor.aiDistance = static_cast<unsigned int>(std::max(0, *distance));
+
+        if (const std::optional<float> duration = package.getDuration())
+            actor.aiDuration = static_cast<unsigned int>(std::max(0.f, *duration));
+
+        if (actor.aiAction == mwmp::BaseActorList::TRAVEL || actor.aiAction == mwmp::BaseActorList::ESCORT)
+        {
+            const osg::Vec3f destination = package.getDestination();
+            actor.aiCoordinates.pos[0] = destination.x();
+            actor.aiCoordinates.pos[1] = destination.y();
+            actor.aiCoordinates.pos[2] = destination.z();
+        }
+
+        if (actor.aiAction == mwmp::BaseActorList::ACTIVATE || actor.aiAction == mwmp::BaseActorList::COMBAT
+            || actor.aiAction == mwmp::BaseActorList::ESCORT || actor.aiAction == mwmp::BaseActorList::FOLLOW)
+        {
+            actor.aiTarget = makeServerSimulationActorTarget(package.getTarget());
+            actor.hasAiTarget = actor.aiTarget.refNum != static_cast<unsigned int>(-1)
+                && actor.aiTarget.mpNum != static_cast<unsigned int>(-1);
+        }
+
+        if ((actor.aiAction == mwmp::BaseActorList::ACTIVATE || actor.aiAction == mwmp::BaseActorList::COMBAT
+                || actor.aiAction == mwmp::BaseActorList::ESCORT || actor.aiAction == mwmp::BaseActorList::FOLLOW)
+            && !actor.hasAiTarget)
+        {
+            actor.hasAiData = false;
+        }
+    }
+
     float sanitizeServerSimulationMovementComponent(float value)
     {
         constexpr float movementEpsilon = 0.0001f;
@@ -522,6 +628,7 @@ namespace
         actor.hasAnimFlagsData = true;
 
         copyServerSimulationEquipment(actor, ptr);
+        copyServerSimulationAi(actor, ptr);
 
         actorList.baseActors.push_back(std::move(actor));
         return true;

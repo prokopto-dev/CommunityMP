@@ -52,6 +52,7 @@ namespace
         if (!includeServerContent)
             return arguments;
 
+        arguments.emplace_back("--replace=content");
         for (const mwmp::ServerDataFileRequirement& requirement : mwmp::ServerContentRegistry::get().dataFiles())
         {
             if (!requirement.name.empty())
@@ -175,12 +176,38 @@ namespace
         if (bootstrap.canLoadOpenMwApplicationSettings)
         {
             mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+            const mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
             mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
                 settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
-                mwmp::ServerContentRegistry::get().dataFiles());
+                mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
         }
 
         mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
+        if (bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0
+            && content.serverLoadOrderLoaded)
+        {
+            std::vector<std::string> serverEngineArguments = buildOpenMwConfigArguments(true);
+            Files::ConfigurationManager serverCfgMgr(true);
+            OpenMwApplicationSettings serverSettings;
+            const bool loadedServerOrderedSettings
+                = loadOpenMwSettingsFromArguments(serverEngineArguments, serverSettings, serverCfgMgr);
+
+            if (loadedServerOrderedSettings)
+            {
+                engineArguments = std::move(serverEngineArguments);
+                settings = std::move(serverSettings);
+                selectedEngineArguments = engineArguments;
+                bootstrap.usedServerContentFallback = true;
+                mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+                content = mwmp::ServerContentRegistry::get().statistics();
+                mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
+                    settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
+                    mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
+            }
+            else
+                bootstrap.canLoadOpenMwApplicationSettings = false;
+        }
+
         if (bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0)
         {
             const std::set<std::string> serverContentNames = getServerContentNames();
@@ -203,10 +230,10 @@ namespace
                 settings = std::move(fallbackSettings);
                 selectedEngineArguments = engineArguments;
                 mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+                content = mwmp::ServerContentRegistry::get().statistics();
                 mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
                     settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
-                    mwmp::ServerContentRegistry::get().dataFiles());
-                content = mwmp::ServerContentRegistry::get().statistics();
+                    mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
             }
         }
         bootstrap.contentRegistryLoaded = content.loaded;
