@@ -14,6 +14,7 @@ local cellAuthorityByKey = {}
 local cellActivityByDescription = {}
 local cellActivityByKey = {}
 local runtimeStatus = nil
+local latestMovementCorrection = nil
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -22,6 +23,15 @@ local serverEventStats = {
     droppedSequences = 0,
     staleSequences = 0,
     lastSequence = nil,
+}
+local movementCorrectionStats = {
+    received = 0,
+    sentCorrections = 0,
+    cellSpaceTransitions = 0,
+    cellChangeCorrections = 0,
+    nonFinitePositions = 0,
+    implausibleMovements = 0,
+    lastReason = nil,
 }
 
 local function shallowCopy(value)
@@ -38,6 +48,25 @@ end
 
 local function statsSnapshot()
     return shallowCopy(serverEventStats)
+end
+
+local function copyMovementCorrection(state)
+    if type(state) ~= 'table' then
+        return nil
+    end
+
+    local copy = shallowCopy(state)
+    if type(state.attemptedPosition) == 'table' then
+        copy.attemptedPosition = shallowCopy(state.attemptedPosition)
+    end
+    if type(state.authoritativePosition) == 'table' then
+        copy.authoritativePosition = shallowCopy(state.authoritativePosition)
+    end
+    return copy
+end
+
+local function movementCorrectionStatsSnapshot()
+    return shallowCopy(movementCorrectionStats)
 end
 
 local function updateSequenceStats(event)
@@ -220,6 +249,31 @@ local function storeRuntimeStatus(state)
     end
 end
 
+local function storeMovementCorrection(state)
+    local copy = copyMovementCorrection(state)
+    if copy == nil then
+        return
+    end
+
+    latestMovementCorrection = copy
+    movementCorrectionStats.received = movementCorrectionStats.received + 1
+    if state.sentCorrection == true then
+        movementCorrectionStats.sentCorrections = movementCorrectionStats.sentCorrections + 1
+    end
+
+    local reason = type(state.reason) == 'string' and state.reason or ''
+    movementCorrectionStats.lastReason = reason
+    if reason == 'cell_space_transition' then
+        movementCorrectionStats.cellSpaceTransitions = movementCorrectionStats.cellSpaceTransitions + 1
+    elseif reason == 'cell_change_correction' then
+        movementCorrectionStats.cellChangeCorrections = movementCorrectionStats.cellChangeCorrections + 1
+    elseif reason == 'non_finite_position' then
+        movementCorrectionStats.nonFinitePositions = movementCorrectionStats.nonFinitePositions + 1
+    elseif reason == 'implausible_movement' then
+        movementCorrectionStats.implausibleMovements = movementCorrectionStats.implausibleMovements + 1
+    end
+end
+
 local function getRuntimeStatus()
     if runtimeStatus == nil then
         return nil
@@ -293,6 +347,8 @@ local function dispatchServerEvent(event)
         storeCellActivity(event.decodedPayload)
     elseif event.serverEventName == 'runtime_status' and type(event.decodedPayload) == 'table' then
         storeRuntimeStatus(event.decodedPayload)
+    elseif event.serverEventName == 'movement_correction' and type(event.decodedPayload) == 'table' then
+        storeMovementCorrection(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -318,6 +374,10 @@ return {
         addServerEventHandlerForName = addServerEventHandlerForName,
         cellKey = cellKey,
         getServerEventStats = statsSnapshot,
+        getLastMovementCorrection = function()
+            return copyMovementCorrection(latestMovementCorrection)
+        end,
+        getMovementCorrectionStats = movementCorrectionStatsSnapshot,
         getRuntimeStatus = getRuntimeStatus,
         getRuntimeCapabilities = function()
             local state = getRuntimeStatus()

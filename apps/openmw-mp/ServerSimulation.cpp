@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -137,6 +138,31 @@ namespace
         return value ? "true" : "false";
     }
 
+    void appendJsonFloat(std::string& result, float value)
+    {
+        if (std::isfinite(value))
+            result += std::to_string(value);
+        else
+            result += "null";
+    }
+
+    void appendJsonPosition(std::string& result, const ESM::Position& position)
+    {
+        result += "{\"x\":";
+        appendJsonFloat(result, position.pos[0]);
+        result += ",\"y\":";
+        appendJsonFloat(result, position.pos[1]);
+        result += ",\"z\":";
+        appendJsonFloat(result, position.pos[2]);
+        result += ",\"rotX\":";
+        appendJsonFloat(result, position.rot[0]);
+        result += ",\"rotY\":";
+        appendJsonFloat(result, position.rot[1]);
+        result += ",\"rotZ\":";
+        appendJsonFloat(result, position.rot[2]);
+        result += "}";
+    }
+
     std::string shadowAuthorityAuditName(std::optional<mwmp::PacketGuid> guid)
     {
         if (!guid || !mwmp::isPacketGuidAssigned(*guid))
@@ -173,6 +199,70 @@ namespace
             return "exterior::" + std::to_string(cell.mData.mX) + ":" + std::to_string(cell.mData.mY);
 
         return "interior:" + cell.mName;
+    }
+
+    void sendPlayerMovementCorrectionEvent(Player& player, std::string_view reason, bool sentCorrection,
+        float serverDeltaSeconds, float sampleIntervalSeconds, float plausibilityDeltaSeconds,
+        const ESM::Position& attemptedPosition, const ESM::Position& authoritativePosition,
+        std::string_view attemptedCellDescription, std::string_view authoritativeCellDescription)
+    {
+        if (!player.isHandshaked() || player.getLoadState() != Player::POSTLOADED)
+            return;
+
+        const float deltaX = attemptedPosition.pos[0] - authoritativePosition.pos[0];
+        const float deltaY = attemptedPosition.pos[1] - authoritativePosition.pos[1];
+        const float horizontalDistanceSquared = deltaX * deltaX + deltaY * deltaY;
+        const float horizontalDistance = std::isfinite(horizontalDistanceSquared)
+            ? std::sqrt(horizontalDistanceSquared)
+            : std::numeric_limits<float>::quiet_NaN();
+        const float verticalDistance = std::abs(attemptedPosition.pos[2] - authoritativePosition.pos[2]);
+        const float maxHorizontalDistance = std::isfinite(plausibilityDeltaSeconds)
+            ? maxPlayerMovementUnitsPerSecond * plausibilityDeltaSeconds + playerMovementCorrectionAllowance
+            : std::numeric_limits<float>::quiet_NaN();
+        const float maxVerticalDistance = std::isfinite(plausibilityDeltaSeconds)
+            ? maxPlayerVerticalUnitsPerSecond * plausibilityDeltaSeconds + playerMovementCorrectionAllowance
+            : std::numeric_limits<float>::quiet_NaN();
+
+        std::string payload;
+        payload.reserve(560 + attemptedCellDescription.size() + authoritativeCellDescription.size());
+        payload += "{\"schema\":";
+        payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
+        payload += ",\"kind\":\"movement_correction\",\"reason\":";
+        payload += jsonString(reason);
+        payload += ",\"sentCorrection\":";
+        payload += jsonBool(sentCorrection);
+        payload += ",\"positionSequence\":";
+        payload += std::to_string(player.positionSequence);
+        payload += ",\"serverDeltaSeconds\":";
+        appendJsonFloat(payload, serverDeltaSeconds);
+        payload += ",\"sampleIntervalSeconds\":";
+        appendJsonFloat(payload, sampleIntervalSeconds);
+        payload += ",\"plausibilityDeltaSeconds\":";
+        appendJsonFloat(payload, plausibilityDeltaSeconds);
+        payload += ",\"horizontalDistance\":";
+        appendJsonFloat(payload, horizontalDistance);
+        payload += ",\"verticalDistance\":";
+        appendJsonFloat(payload, verticalDistance);
+        payload += ",\"maxHorizontalDistance\":";
+        appendJsonFloat(payload, maxHorizontalDistance);
+        payload += ",\"maxVerticalDistance\":";
+        appendJsonFloat(payload, maxVerticalDistance);
+        payload += ",\"attemptedCellDescription\":";
+        payload += jsonString(attemptedCellDescription);
+        payload += ",\"authoritativeCellDescription\":";
+        payload += jsonString(authoritativeCellDescription);
+        payload += ",\"attemptedPosition\":";
+        appendJsonPosition(payload, attemptedPosition);
+        payload += ",\"authoritativePosition\":";
+        appendJsonPosition(payload, authoritativePosition);
+        payload += "}";
+
+        if (!mwmp::CommunityMpLuaEventSender::sendToPlayer(
+                player, "communitymp.server", "movement_correction", std::move(payload)))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Failed to send movement correction event for %s", player.npc.mName.c_str());
+        }
     }
 
     float squaredHorizontalLength(float x, float y)
@@ -621,6 +711,7 @@ namespace
     {
         const std::string attemptedCell = player.cell.getDescription();
         const std::string correctionCell = acceptedCell.getDescription();
+        const ESM::Position attemptedPosition = player.position;
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN, "Rejecting implausible cell change for %s to %s; correcting to %s",
             player.npc.mName.c_str(), attemptedCell.c_str(), correctionCell.c_str());
 
@@ -633,6 +724,10 @@ namespace
         player.isChangingRegion = false;
         packet.setPlayer(&player);
         packet.SendWithReliability(player.guid, mwmp::PacketReliability::ReliableOrdered);
+        sendPlayerMovementCorrectionEvent(player, "cell_change_correction", true,
+            std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::quiet_NaN(), attemptedPosition, player.position,
+            attemptedCell, correctionCell);
     }
 
     bool hasMovementIntent(const ESM::Position& direction)
@@ -2389,8 +2484,14 @@ namespace mwmp
         {
             if (player.hasAcceptedPositionPacket)
             {
+                const ESM::Position attemptedPosition = player.position;
+                const std::string cellDescription = player.cell.getDescription();
                 player.restoreAcceptedPositionPacket();
                 packet.SendWithReliability(player.guid, PacketReliability::ReliableOrdered);
+                sendPlayerMovementCorrectionEvent(player, "non_finite_position", true,
+                    std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(),
+                    std::numeric_limits<float>::quiet_NaN(), attemptedPosition, player.position,
+                    cellDescription, cellDescription);
             }
             return false;
         }
@@ -2438,11 +2539,19 @@ namespace mwmp
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                     "Ignoring implausible cell-less movement snapshot for %s; awaiting reliable cell change",
                     player.npc.mName.c_str());
+                const std::string cellDescription = player.cell.getDescription();
+                sendPlayerMovementCorrectionEvent(player, "cell_space_transition", false,
+                    serverDeltaSeconds, observedSampleIntervalSeconds, plausibilityDeltaSeconds,
+                    clientPosition, player.position, cellDescription, cellDescription);
                 return false;
             }
 
             packet.setPlayer(&player);
             packet.SendWithReliability(player.guid, PacketReliability::ReliableOrdered);
+            const std::string cellDescription = player.cell.getDescription();
+            sendPlayerMovementCorrectionEvent(player, "implausible_movement", true,
+                serverDeltaSeconds, observedSampleIntervalSeconds, plausibilityDeltaSeconds,
+                clientPosition, player.position, cellDescription, cellDescription);
             return false;
         }
 
