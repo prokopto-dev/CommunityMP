@@ -20,11 +20,17 @@ namespace mwmp
         std::filesystem::path rootPath;
         std::filesystem::path manifestPath;
         std::string lastError;
+        std::string loadOrderSource;
+        std::string loadOrderRule;
         std::size_t dataDirCount = 0;
+        std::size_t loadOrderEntryCount = 0;
         std::size_t contentFileCount = 0;
+        std::size_t esmLikeContentFileCount = 0;
         std::size_t resolvedContentFileCount = 0;
         std::size_t unresolvedContentFileCount = 0;
         std::size_t checksumCount = 0;
+        std::size_t recordIndexCount = 0;
+        std::size_t recordImportErrorCount = 0;
         std::size_t tableCount = 0;
     };
 

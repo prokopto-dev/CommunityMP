@@ -1,11 +1,14 @@
 #include "ServerContentDatabase.hpp"
 
+#include <components/esm/esmcommon.hpp>
+#include <components/esm3/esmreader.hpp>
 #include <components/files/collections.hpp>
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/algorithm.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -16,8 +19,16 @@ namespace
 {
     constexpr const char* manifestSchema = "communitymp.worlddb.v1";
     constexpr const char* dataDirRowSchema = "communitymp.worlddb.data-dir.v1";
+    constexpr const char* loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr const char* contentFileRowSchema = "communitymp.worlddb.content-file.v1";
+    constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* builtinOpenMwScripts = "builtin.omwscripts";
+    constexpr const char* openMwContentVectorLoadOrderSource
+        = "openmw-application-settings-content-vector";
+    constexpr const char* laterContentEntryDominatesLoadOrderRule
+        = "higher-engineContentIndex-overrides-lower-engineContentIndex-for-the-same-record-key";
+
+    std::string fileExtensionLower(std::string value);
 
     std::filesystem::path resolveDatabaseRoot()
     {
@@ -38,6 +49,12 @@ namespace
     bool isBuiltinContentFile(const std::string& contentFile)
     {
         return Misc::StringUtils::ciEqual(contentFile, builtinOpenMwScripts);
+    }
+
+    bool isEsmLikeContentFile(const std::string& contentFile)
+    {
+        const std::string extension = fileExtensionLower(contentFile);
+        return extension == "esm" || extension == "esp" || extension == "omwgame" || extension == "omwaddon";
     }
 
     const mwmp::ServerDataFileRequirement* findRequirement(
@@ -200,17 +217,72 @@ namespace
         appendJsonStringField(result, "schema", manifestSchema);
         result += ",\n  ";
         appendJsonStringField(result, "backend", stats.backend);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"content_files.jsonl\"],\n  ";
+        result += ",\n  ";
+        appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
+        result += ",\n  ";
+        appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"record_index.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
+        appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
+        result += ",\n  ";
         appendJsonNumberField(result, "contentFileCount", stats.contentFileCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "esmLikeContentFileCount", stats.esmLikeContentFileCount);
         result += ",\n  ";
         appendJsonNumberField(result, "resolvedContentFileCount", stats.resolvedContentFileCount);
         result += ",\n  ";
         appendJsonNumberField(result, "unresolvedContentFileCount", stats.unresolvedContentFileCount);
         result += ",\n  ";
         appendJsonNumberField(result, "checksumCount", stats.checksumCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "recordIndexCount", stats.recordIndexCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "recordImportErrorCount", stats.recordImportErrorCount);
         result += "\n}\n";
+        return result;
+    }
+
+    std::string buildLoadOrderJsonl(const std::vector<std::string>& contentFiles,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        std::string result;
+        result.reserve(contentFiles.size() * 220);
+
+        std::size_t dominanceRank = 0;
+        for (std::size_t engineContentIndex = 0; engineContentIndex < contentFiles.size(); ++engineContentIndex)
+        {
+            const std::string& contentFile = contentFiles[engineContentIndex];
+            if (contentFile.empty())
+                continue;
+
+            const bool builtin = isBuiltinContentFile(contentFile);
+            const bool esmLike = isEsmLikeContentFile(contentFile);
+            const long long currentDominanceRank = !builtin && esmLike ? static_cast<long long>(dominanceRank++) : -1;
+
+            ++stats.loadOrderEntryCount;
+            if (esmLike)
+                ++stats.esmLikeContentFileCount;
+
+            result.push_back('{');
+            appendJsonStringField(result, "schema", loadOrderRowSchema);
+            result.push_back(',');
+            appendJsonNumberField(result, "loadOrderIndex", engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", engineContentIndex);
+            result.push_back(',');
+            appendJsonStringField(result, "contentFile", contentFile);
+            result.push_back(',');
+            appendJsonStringField(result, "extension", fileExtensionLower(contentFile));
+            result.push_back(',');
+            appendJsonBoolField(result, "builtin", builtin);
+            result.push_back(',');
+            appendJsonBoolField(result, "esmLike", esmLike);
+            result.push_back(',');
+            appendJsonNumberField(result, "dominanceRank", currentDominanceRank);
+            result += "}\n";
+        }
+
         return result;
     }
 
@@ -242,9 +314,9 @@ namespace
         std::string result;
         result.reserve(contentFiles.size() * 300);
 
-        std::size_t loadOrderIndex = 0;
-        for (const std::string& contentFile : contentFiles)
+        for (std::size_t engineContentIndex = 0; engineContentIndex < contentFiles.size(); ++engineContentIndex)
         {
+            const std::string& contentFile = contentFiles[engineContentIndex];
             if (contentFile.empty() || isBuiltinContentFile(contentFile))
                 continue;
 
@@ -272,7 +344,9 @@ namespace
             result.push_back('{');
             appendJsonStringField(result, "schema", contentFileRowSchema);
             result.push_back(',');
-            appendJsonNumberField(result, "loadOrderIndex", loadOrderIndex++);
+            appendJsonNumberField(result, "loadOrderIndex", engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", engineContentIndex);
             result.push_back(',');
             appendJsonStringField(result, "name", contentFile);
             result.push_back(',');
@@ -288,6 +362,94 @@ namespace
             result += ",\"checksums\":";
             appendJsonStringArray(result, checksums);
             result += "}\n";
+        }
+
+        return result;
+    }
+
+    void appendRecordIndexRow(std::string& result, const std::size_t engineContentIndex,
+        const std::string& contentFile, const std::size_t recordIndex, const ESM::NAME recordName,
+        const std::uint32_t flags, const std::size_t recordOffset, const std::size_t dataOffset,
+        const std::size_t dataSize)
+    {
+        result.push_back('{');
+        appendJsonStringField(result, "schema", recordIndexRowSchema);
+        result.push_back(',');
+        appendJsonNumberField(result, "loadOrderIndex", engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "engineContentIndex", engineContentIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "sourceFile", contentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordIndex", recordIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "recordType", recordName.toStringView());
+        result.push_back(',');
+        appendJsonNumberField(result, "recordTypeInt", recordName.toInt());
+        result.push_back(',');
+        appendJsonNumberField(result, "flags", flags);
+        result.push_back(',');
+        appendJsonBoolField(result, "deleted", (flags & ESM::FLAG_Deleted) != 0);
+        result.push_back(',');
+        appendJsonBoolField(result, "ignored", (flags & ESM::FLAG_Ignored) != 0);
+        result.push_back(',');
+        appendJsonBoolField(result, "persistent", (flags & ESM::FLAG_Persistent) != 0);
+        result.push_back(',');
+        appendJsonBoolField(result, "blocked", (flags & ESM::FLAG_Blocked) != 0);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordOffset", recordOffset);
+        result.push_back(',');
+        appendJsonNumberField(result, "dataOffset", dataOffset);
+        result.push_back(',');
+        appendJsonNumberField(result, "dataSize", dataSize);
+        result += "}\n";
+    }
+
+    std::string buildRecordIndexJsonl(const std::vector<std::filesystem::path>& dataDirs,
+        const std::vector<std::string>& contentFiles, mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        Files::Collections collections(dataDirs);
+        std::string result;
+        result.reserve(contentFiles.size() * 2048);
+
+        for (std::size_t engineContentIndex = 0; engineContentIndex < contentFiles.size(); ++engineContentIndex)
+        {
+            const std::string& contentFile = contentFiles[engineContentIndex];
+            if (contentFile.empty() || isBuiltinContentFile(contentFile))
+                continue;
+
+            if (!isEsmLikeContentFile(contentFile))
+                continue;
+
+            try
+            {
+                ESM::ESMReader esm;
+                esm.setIndex(static_cast<int>(engineContentIndex));
+                esm.open(collections.getPath(contentFile));
+
+                std::size_t recordIndex = 0;
+                while (esm.hasMoreRecs())
+                {
+                    const std::size_t recordOffset = esm.getFileOffset();
+                    const ESM::NAME recordName = esm.getRecName();
+                    std::uint32_t flags = 0;
+                    esm.getRecHeader(flags);
+                    const std::size_t dataOffset = esm.getFileOffset();
+                    esm.skipRecord();
+                    const std::size_t nextRecordOffset = esm.getFileOffset();
+                    const std::size_t dataSize = nextRecordOffset >= dataOffset ? nextRecordOffset - dataOffset : 0;
+
+                    appendRecordIndexRow(result, engineContentIndex, contentFile, recordIndex++, recordName, flags,
+                        recordOffset, dataOffset, dataSize);
+                    ++stats.recordIndexCount;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                ++stats.recordImportErrorCount;
+                if (stats.lastError.empty())
+                    stats.lastError = e.what();
+            }
         }
 
         return result;
@@ -309,21 +471,27 @@ namespace mwmp
         std::lock_guard lock(mMutex);
         mStats = {};
         mStats.attempted = true;
+        mStats.loadOrderSource = openMwContentVectorLoadOrderSource;
+        mStats.loadOrderRule = laterContentEntryDominatesLoadOrderRule;
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
-        mStats.tableCount = 2;
+        mStats.tableCount = 4;
 
         try
         {
             ServerContentDatabaseStatistics newStats = mStats;
             const std::string dataDirsJsonl = buildDataDirsJsonl(dataDirs, newStats);
+            const std::string loadOrderJsonl = buildLoadOrderJsonl(contentFiles, newStats);
             const std::string contentFilesJsonl
                 = buildContentFilesJsonl(dataDirs, contentFiles, dataFileRequirements, newStats);
+            const std::string recordIndexJsonl = buildRecordIndexJsonl(dataDirs, contentFiles, newStats);
             const std::string manifestJson = buildManifestJson(newStats);
 
             bool changed = false;
             changed = writeIfChanged(newStats.rootPath / "data_dirs.jsonl", dataDirsJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "load_order.jsonl", loadOrderJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "content_files.jsonl", contentFilesJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexJsonl) || changed;
             changed = writeIfChanged(newStats.manifestPath, manifestJson) || changed;
 
             newStats.changed = changed;
