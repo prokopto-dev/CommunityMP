@@ -117,6 +117,40 @@ namespace
         return extension == "esm" || extension == "esp" || extension == "omwgame" || extension == "omwaddon";
     }
 
+    class FingerprintBuilder
+    {
+    public:
+        void add(std::string_view label, std::string_view value)
+        {
+            addBytes(label);
+            addByte(0);
+            addBytes(value);
+            addByte(0xff);
+        }
+
+        std::string finish() const
+        {
+            std::ostringstream stream;
+            stream << std::hex << std::setfill('0') << std::setw(16) << mValue;
+            return stream.str();
+        }
+
+    private:
+        void addByte(unsigned char value)
+        {
+            mValue ^= value;
+            mValue *= 1099511628211ull;
+        }
+
+        void addBytes(std::string_view value)
+        {
+            for (unsigned char c : value)
+                addByte(c);
+        }
+
+        std::uint64_t mValue = 14695981039346656037ull;
+    };
+
     const mwmp::ServerDataFileRequirement* findRequirement(
         const std::vector<mwmp::ServerDataFileRequirement>& requirements, const std::string& name)
     {
@@ -558,6 +592,10 @@ namespace
         appendJsonStringField(result, "schema", manifestSchema);
         result += ",\n  ";
         appendJsonStringField(result, "backend", stats.backend);
+        result += ",\n  ";
+        appendJsonStringField(result, "contentPlanFingerprint", stats.contentPlanFingerprint);
+        result += ",\n  ";
+        appendJsonStringField(result, "worldDatabaseFingerprint", stats.worldDatabaseFingerprint);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
@@ -4774,6 +4812,46 @@ namespace mwmp
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb
                 = buildGeneratedQuestDatabasePackage(dataDirs, contentFiles, encoding, newStats);
+
+            FingerprintBuilder contentPlanFingerprint;
+            contentPlanFingerprint.add("encoding", encoding);
+            contentPlanFingerprint.add("loadOrderSource", newStats.loadOrderSource);
+            contentPlanFingerprint.add("loadOrderRule", newStats.loadOrderRule);
+            contentPlanFingerprint.add("data_dirs.jsonl", dataDirsJsonl);
+            contentPlanFingerprint.add("load_order.jsonl", loadOrderJsonl);
+            contentPlanFingerprint.add("content_files.jsonl", contentFilesJsonl);
+            contentPlanFingerprint.add("asset_providers.jsonl", assetProvidersJsonl);
+            contentPlanFingerprint.add("archive_files.jsonl", archiveFilesJsonl);
+            contentPlanFingerprint.add("resolved_assets.jsonl", resolvedAssetsJsonl);
+            newStats.contentPlanFingerprint = contentPlanFingerprint.finish();
+
+            FingerprintBuilder worldDatabaseFingerprint;
+            worldDatabaseFingerprint.add("contentPlanFingerprint", newStats.contentPlanFingerprint);
+            worldDatabaseFingerprint.add("record_index.jsonl", recordIndexTables.recordIndexJsonl);
+            worldDatabaseFingerprint.add("record_winners.jsonl", recordIndexTables.recordWinnersJsonl);
+            worldDatabaseFingerprint.add("actor_profile.jsonl", recordIndexTables.actorProfileJsonl);
+            worldDatabaseFingerprint.add("actor_ai_packages.jsonl", recordIndexTables.actorAiPackagesJsonl);
+            worldDatabaseFingerprint.add("actor_inventory.jsonl", recordIndexTables.actorInventoryJsonl);
+            worldDatabaseFingerprint.add("actor_spellbook.jsonl", recordIndexTables.actorSpellbookJsonl);
+            worldDatabaseFingerprint.add("actor_stats_dynamic.jsonl", recordIndexTables.actorStatsDynamicJsonl);
+            worldDatabaseFingerprint.add("actor_equipment.jsonl", recordIndexTables.actorEquipmentJsonl);
+            worldDatabaseFingerprint.add("container_inventory.jsonl", recordIndexTables.containerInventoryJsonl);
+            worldDatabaseFingerprint.add("pathgrid_points.jsonl", recordIndexTables.pathgridPointsJsonl);
+            worldDatabaseFingerprint.add("pathgrid_edges.jsonl", recordIndexTables.pathgridEdgesJsonl);
+            worldDatabaseFingerprint.add("cells.jsonl", cellWorldTables.cellsJsonl);
+            worldDatabaseFingerprint.add("cell_references.jsonl", cellWorldTables.cellReferencesJsonl);
+            worldDatabaseFingerprint.add("cell_reference_winners.jsonl", cellWorldTables.cellReferenceWinnersJsonl);
+            worldDatabaseFingerprint.add("quest_sources.jsonl", questSourcesJsonl);
+            worldDatabaseFingerprint.add("questdb/packages.jsonl", generatedQuestDb.packages);
+            worldDatabaseFingerprint.add("questdb/quest_definitions.jsonl", generatedQuestDb.questDefinitions);
+            worldDatabaseFingerprint.add("questdb/quest_steps.jsonl", generatedQuestDb.questSteps);
+            worldDatabaseFingerprint.add("questdb/dialogue_topics.jsonl", generatedQuestDb.dialogueTopics);
+            worldDatabaseFingerprint.add("questdb/dialogue_responses.jsonl", generatedQuestDb.dialogueResponses);
+            worldDatabaseFingerprint.add("questdb/conditions.jsonl", generatedQuestDb.conditions);
+            worldDatabaseFingerprint.add("questdb/quest_effects.jsonl", generatedQuestDb.questEffects);
+            worldDatabaseFingerprint.add("questdb/legacy_effects.jsonl", generatedQuestDb.legacyEffects);
+            newStats.worldDatabaseFingerprint = worldDatabaseFingerprint.finish();
+
             const std::string manifestJson = buildManifestJson(newStats);
 
             bool changed = false;

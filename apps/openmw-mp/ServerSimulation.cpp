@@ -2980,6 +2980,10 @@ namespace mwmp
         payload += jsonBool(serverContentDatabase.available);
         payload += ",\"changed\":";
         payload += jsonBool(serverContentDatabase.changed);
+        payload += ",\"contentPlanFingerprint\":";
+        payload += jsonString(serverContentDatabase.contentPlanFingerprint);
+        payload += ",\"worldDatabaseFingerprint\":";
+        payload += jsonString(serverContentDatabase.worldDatabaseFingerprint);
         payload += ",\"rootPath\":";
         payload += jsonString(Files::pathToUnicodeString(serverContentDatabase.rootPath));
         payload += ",\"manifestPath\":";

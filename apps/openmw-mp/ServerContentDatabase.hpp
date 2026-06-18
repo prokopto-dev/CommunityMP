@@ -21,6 +21,8 @@ namespace mwmp
         std::filesystem::path manifestPath;
         std::filesystem::path generatedQuestDatabasePath;
         std::string lastError;
+        std::string contentPlanFingerprint;
+        std::string worldDatabaseFingerprint;
         std::string loadOrderSource;
         std::string loadOrderRule;
         std::size_t dataDirCount = 0;
