@@ -98,6 +98,9 @@ namespace mwmp
         std::string valueType;
         std::string value;
         std::string evaluationScope;
+        std::string stateScope;
+        std::string authorityRequirement;
+        std::string snapshotPolicy;
         int functionCode = -1;
         int comparisonCode = -1;
         int order = 0;
@@ -121,6 +124,11 @@ namespace mwmp
         std::string effectKind;
         std::string executionPolicy;
         std::string rawCommand;
+        std::string stateScope;
+        std::string transactionKind;
+        std::string authorityRequirement;
+        std::string conflictPolicy;
+        std::string idempotencyKey;
         std::string target;
         std::string targetKind;
         std::string quest;

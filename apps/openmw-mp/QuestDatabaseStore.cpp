@@ -406,6 +406,9 @@ namespace mwmp
                         condition.valueType = getString(row, "valueType");
                         condition.value = getString(row, "value");
                         condition.evaluationScope = getString(row, "evaluationScope");
+                        condition.stateScope = getString(row, "stateScope");
+                        condition.authorityRequirement = getString(row, "authorityRequirement");
+                        condition.snapshotPolicy = getString(row, "snapshotPolicy");
 
                         mConditionsByOwnerId[condition.ownerId].push_back(std::move(condition));
                     });
@@ -422,6 +425,11 @@ namespace mwmp
                         effect.effectKind = getString(row, "effectKind");
                         effect.executionPolicy = getString(row, "executionPolicy");
                         effect.rawCommand = getString(row, "rawCommand");
+                        effect.stateScope = getString(row, "stateScope");
+                        effect.transactionKind = getString(row, "transactionKind");
+                        effect.authorityRequirement = getString(row, "authorityRequirement");
+                        effect.conflictPolicy = getString(row, "conflictPolicy");
+                        effect.idempotencyKey = getString(row, "idempotencyKey");
                         effect.target = getString(row, "target");
                         effect.targetKind = getString(row, "targetKind");
                         effect.quest = getString(row, "quest");

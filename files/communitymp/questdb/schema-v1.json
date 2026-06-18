@@ -24,11 +24,33 @@
     },
     "conditions": {
       "primaryKey": "conditionId",
-      "purpose": "Normalized predicates that can be evaluated by server-side player, actor, world, and encounter state."
+      "purpose": "Normalized predicates that can be evaluated by server-side player, actor, world, and encounter state.",
+      "authorityFields": [
+        "evaluationScope",
+        "stateScope",
+        "authorityRequirement",
+        "snapshotPolicy"
+      ]
     },
     "quest_effects": {
       "primaryKey": "effectId",
-      "purpose": "Normalized server-readable quest and dialogue effects derived from legacy result scripts."
+      "purpose": "Normalized server-readable quest and dialogue effects derived from legacy result scripts or native quest packages.",
+      "authorityFields": [
+        "executionPolicy",
+        "stateScope",
+        "transactionKind",
+        "authorityRequirement",
+        "conflictPolicy",
+        "idempotencyKey"
+      ],
+      "transactionKinds": {
+        "quest-state": "Journal and quest-step state owned by the server quest state machine.",
+        "topic-state": "Per-character topic knowledge owned by the server player state machine.",
+        "dialogue-session": "Dialogue flow effects ordered inside one server-validated conversation.",
+        "inventory": "Item mutations that must commit through the server inventory/container ledger.",
+        "actor-cell": "Actor mutations that require the current cell simulation authority.",
+        "manual-review": "Imported command is not converted into a safe multiplayer transaction yet."
+      }
     },
     "legacy_effects": {
       "primaryKey": "effectId",
@@ -49,10 +71,12 @@
     "transactions": {
       "dialogue": "server lease before selecting a response with effects",
       "quest": "compare-and-swap on current step and quest epoch",
-      "inventory": "quest effects must commit with item/container transactions"
+      "inventory": "quest effects must commit with item/container transactions",
+      "idempotency": "quest effect application uses generated idempotencyKey values to make retries safe"
     }
   },
   "importFlow": [
+    "python scripts/communitymp_questdb_import.py NativeQuestPackage.json --output-dir server/data/questdb/NativePackage",
     "python scripts/communitymp_import_content_questdb.py Content.esm --output-root server/data/questdb",
     "esmtool quest-export Content.esm Content.quest-source.jsonl",
     "python scripts/communitymp_questdb_import.py Content.quest-source.jsonl --output-dir questdb/Content"

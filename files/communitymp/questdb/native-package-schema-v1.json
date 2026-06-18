@@ -1,0 +1,45 @@
+{
+  "schema": "communitymp.quest.package.v1",
+  "description": "Authoring and interchange format for CommunityMP multiplayer-native quests. ESM and ESP files can be converted into this model, but runtime servers consume generated questdb JSONL tables rather than Bethesda record formats.",
+  "packageFields": {
+    "schema": "communitymp.quest.package.v1",
+    "packageId": "Stable package id. If omitted, the importer derives one.",
+    "title": "Human-readable package name.",
+    "author": "Package author or conversion tool.",
+    "description": "Package notes.",
+    "dependencies": "Optional list of content or quest package dependencies."
+  },
+  "quests": {
+    "questId": "Stable server quest id.",
+    "sourceQuestId": "Optional legacy/client journal id. Defaults to questId.",
+    "scopePolicy": "player-default, party-shared, world-shared, or explicit custom policy.",
+    "sharingPolicy": "How quest state may be shared between characters.",
+    "instancingPolicy": "How the server separates quest-critical state between players or groups.",
+    "authorityPolicy": "Usually server-owned.",
+    "transactionPolicy": "Usually quest-compare-and-swap.",
+    "steps": "Ordered quest progress nodes with optional server-evaluated conditions and effects."
+  },
+  "dialogueTopics": {
+    "topicId": "Stable server topic id.",
+    "sourceTopicId": "Optional legacy/client topic id. Defaults to topicId.",
+    "dialogueType": "Topic, Greeting, Persuasion, Voice, Journal, or package-defined type.",
+    "visibilityPolicy": "Usually server-filtered-per-player.",
+    "responses": "Server-evaluated dialogue responses with conditions and effects."
+  },
+  "conditions": {
+    "function": "Condition function name such as Journal, Item count, Global, Local, or a native server predicate.",
+    "comparison": "eq, ne, gt, ge, lt, or le.",
+    "variable": "Quest, global, actor, or native variable id.",
+    "valueType": "int, float, string, bool, or package-defined.",
+    "value": "Expected comparison value.",
+    "authorityFields": "The importer derives evaluationScope, stateScope, authorityRequirement, and snapshotPolicy."
+  },
+  "effects": {
+    "effectKind": "journal.set, topic.add, dialogue.goodbye, dialogue.choice, inventory.add, inventory.remove, actor.setFight, actor.startCombat, actor.modDisposition, or package-defined.",
+    "executionPolicy": "Optional override. Defaults from effectKind.",
+    "transactionKind": "quest-state, topic-state, dialogue-session, inventory, actor-cell, or manual-review.",
+    "authorityRequirement": "server-quest-state, server-topic-state, server-dialogue-session, server-inventory-ledger, cell-simulation-owner, or server-review.",
+    "conflictPolicy": "monotonic-journal-index, set-union, session-ordered, transactional-compare-and-swap, cell-authority-sequence, or manual-review.",
+    "idempotencyKey": "Optional stable replay key. If omitted, the importer derives one."
+  }
+}

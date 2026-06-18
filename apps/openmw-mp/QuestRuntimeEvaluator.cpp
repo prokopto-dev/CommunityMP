@@ -177,6 +177,8 @@ namespace
 
         const std::string effectKind = normalizedLookupKey(effect.effectKind);
         const std::string executionPolicy = normalizedLookupKey(effect.executionPolicy);
+        const std::string transactionKind = normalizedLookupKey(effect.transactionKind);
+        const std::string authorityRequirement = normalizedLookupKey(effect.authorityRequirement);
 
         if (effectKind.starts_with("journal."))
             ++analysis.journalCommands;
@@ -195,9 +197,14 @@ namespace
         }
 
         ++analysis.recognizedCommands;
-        if (executionPolicy == "inventory-transaction-required")
+        if (executionPolicy == "inventory-transaction-required"
+            || transactionKind == "inventory"
+            || authorityRequirement.find("inventory") != std::string::npos)
             analysis.requiresInventoryTransaction = true;
-        else if (executionPolicy == "actor-authority-required")
+        else if (executionPolicy == "actor-authority-required"
+            || transactionKind == "actor-cell"
+            || authorityRequirement.find("actor") != std::string::npos
+            || authorityRequirement.find("cell") != std::string::npos)
             analysis.requiresActorAuthority = true;
         else if (executionPolicy != "server-executable")
             ++analysis.unsupportedCommands;

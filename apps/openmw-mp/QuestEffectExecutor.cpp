@@ -28,6 +28,25 @@ namespace
         return normalizedLookupKey(executionPolicy) == "server-executable";
     }
 
+    bool requiresInventoryTransaction(const mwmp::QuestEffectRecord& effect)
+    {
+        const std::string transactionKind = normalizedLookupKey(effect.transactionKind);
+        const std::string authorityRequirement = normalizedLookupKey(effect.authorityRequirement);
+        return normalizedLookupKey(effect.executionPolicy) == "inventory-transaction-required"
+            || transactionKind == "inventory"
+            || authorityRequirement.find("inventory") != std::string::npos;
+    }
+
+    bool requiresActorAuthority(const mwmp::QuestEffectRecord& effect)
+    {
+        const std::string transactionKind = normalizedLookupKey(effect.transactionKind);
+        const std::string authorityRequirement = normalizedLookupKey(effect.authorityRequirement);
+        return normalizedLookupKey(effect.executionPolicy) == "actor-authority-required"
+            || transactionKind == "actor-cell"
+            || authorityRequirement.find("actor") != std::string::npos
+            || authorityRequirement.find("cell") != std::string::npos;
+    }
+
     mwmp::JournalItem makeJournalEntry(const mwmp::QuestEffectRecord& effect)
     {
         mwmp::JournalItem item;
@@ -148,13 +167,13 @@ namespace mwmp
                     plan.fullyExecutable = false;
                 }
             }
-            else if (effectKind.starts_with("inventory."))
+            else if (effectKind.starts_with("inventory.") || requiresInventoryTransaction(effect))
             {
                 ++plan.inventoryEffects;
                 plan.requiresInventoryTransaction = true;
                 plan.fullyExecutable = false;
             }
-            else if (effectKind.starts_with("actor."))
+            else if (effectKind.starts_with("actor.") || requiresActorAuthority(effect))
             {
                 ++plan.actorEffects;
                 plan.requiresActorAuthority = true;

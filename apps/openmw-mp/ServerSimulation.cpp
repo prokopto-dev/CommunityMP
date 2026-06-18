@@ -2091,6 +2091,10 @@ namespace mwmp
         payload += jsonBool(QuestRuntimeEvaluator::get().supportsLegacyEffectAnalysis());
         payload += ",\"serverExecutableEffects\":";
         payload += jsonBool(QuestEffectExecutor::get().supportsServerExecutableEffects());
+        payload += ",\"runtimeAuthorityMetadata\":true";
+        payload += ",\"effectIdempotencyKeys\":true";
+        payload += ",\"nativeRuntimeModel\":";
+        payload += jsonString("server-owned-multiplayer-quest-v1");
         payload += ",\"unsupportedConditionsRejectAuthoritativeSelection\":true";
         payload += ",\"inventoryEffectsRequireTransactions\":true";
         payload += ",\"actorEffectsRequireServerAuthority\":true";

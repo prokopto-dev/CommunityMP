@@ -19,6 +19,7 @@ from typing import Any, Iterable
 
 QUESTDB_SCHEMA = "communitymp.questdb.v1"
 SOURCE_SCHEMA = "communitymp.quest.source.v1"
+NATIVE_PACKAGE_SCHEMA = "communitymp.quest.package.v1"
 
 
 def stable_key(*parts: Any) -> str:
@@ -46,9 +47,28 @@ def read_jsonl(path: Path) -> Iterable[dict[str, Any]]:
             yield row
 
 
+def empty_tables() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "packages": [],
+        "quest_definitions": [],
+        "quest_steps": [],
+        "dialogue_topics": [],
+        "dialogue_responses": [],
+        "conditions": [],
+        "quest_effects": [],
+        "legacy_effects": [],
+    }
+
+
+def merge_tables(target: dict[str, list[dict[str, Any]]], source: dict[str, list[dict[str, Any]]]) -> None:
+    for table_name, rows in source.items():
+        target.setdefault(table_name, []).extend(rows)
+
+
 def normalize_conditions(owner_kind: str, owner_id: str, row: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for order, condition in enumerate(row.get("conditions", [])):
+        authority = condition_authority_metadata(condition)
         result.append(
             {
                 "schema": QUESTDB_SCHEMA,
@@ -63,7 +83,7 @@ def normalize_conditions(owner_kind: str, owner_id: str, row: dict[str, Any]) ->
                 "variable": condition.get("variable", ""),
                 "valueType": condition.get("valueType", "int"),
                 "value": condition.get("value"),
-                "evaluationScope": infer_condition_scope(condition),
+                **authority,
                 "source": source_ref(row),
             }
         )
@@ -81,6 +101,29 @@ def infer_condition_scope(condition: dict[str, Any]) -> str:
     if function in {"Not ID", "Not Faction", "Not Class", "Not Race", "Not Cell"}:
         return "actor-filter"
     return "encounter"
+
+
+def condition_authority_metadata(condition: dict[str, Any]) -> dict[str, str]:
+    scope = infer_condition_scope(condition)
+    if scope == "player":
+        requirement = "server-player-state"
+        snapshot_policy = "read-player-quest-inventory-snapshot"
+    elif scope == "world":
+        requirement = "server-world-state"
+        snapshot_policy = "read-world-event-snapshot"
+    elif scope in {"actor", "actor-filter"}:
+        requirement = "cell-simulation-owner"
+        snapshot_policy = "read-actor-cell-snapshot"
+    else:
+        requirement = "server-encounter-context"
+        snapshot_policy = "read-dialogue-encounter-snapshot"
+
+    return {
+        "evaluationScope": scope,
+        "stateScope": scope,
+        "authorityRequirement": requirement,
+        "snapshotPolicy": snapshot_policy,
+    }
 
 
 def source_ref(row: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +180,57 @@ def command_policy(effect_kind: str, target: str) -> str:
     return "server-review-required"
 
 
+def command_runtime_metadata(effect_kind: str, target: str) -> dict[str, str]:
+    execution_policy = command_policy(effect_kind, target)
+    if effect_kind.startswith("journal."):
+        return {
+            "executionPolicy": execution_policy,
+            "stateScope": "player-quest",
+            "transactionKind": "quest-state",
+            "authorityRequirement": "server-quest-state",
+            "conflictPolicy": "monotonic-journal-index",
+        }
+    if effect_kind.startswith("topic."):
+        return {
+            "executionPolicy": execution_policy,
+            "stateScope": "player-dialogue",
+            "transactionKind": "topic-state",
+            "authorityRequirement": "server-topic-state",
+            "conflictPolicy": "set-union",
+        }
+    if effect_kind.startswith("dialogue."):
+        return {
+            "executionPolicy": execution_policy,
+            "stateScope": "dialogue-session",
+            "transactionKind": "dialogue-session",
+            "authorityRequirement": "server-dialogue-session",
+            "conflictPolicy": "session-ordered",
+        }
+    if effect_kind.startswith("inventory."):
+        return {
+            "executionPolicy": execution_policy,
+            "stateScope": "player-or-actor-inventory",
+            "transactionKind": "inventory",
+            "authorityRequirement": "server-inventory-ledger",
+            "conflictPolicy": "transactional-compare-and-swap",
+        }
+    if effect_kind.startswith("actor."):
+        return {
+            "executionPolicy": execution_policy,
+            "stateScope": "cell-actor",
+            "transactionKind": "actor-cell",
+            "authorityRequirement": "cell-simulation-owner",
+            "conflictPolicy": "cell-authority-sequence",
+        }
+    return {
+        "executionPolicy": execution_policy,
+        "stateScope": "unknown",
+        "transactionKind": "manual-review",
+        "authorityRequirement": "server-review",
+        "conflictPolicy": "manual-review",
+    }
+
+
 def target_kind(target: str) -> str:
     if not target:
         return "dialogue-actor"
@@ -191,7 +285,7 @@ def parse_result_command(command: str) -> dict[str, Any]:
     else:
         effect["effectKind"] = "unsupported"
 
-    effect["executionPolicy"] = command_policy(effect["effectKind"], target)
+    effect.update(command_runtime_metadata(effect["effectKind"], target))
     return effect
 
 
@@ -209,6 +303,16 @@ def make_server_effects(owner_kind: str, owner_id: str, row: dict[str, Any]) -> 
                 "order": order,
                 "sourceLine": line_number,
                 **effect,
+                "idempotencyKey": stable_key(
+                    owner_id,
+                    "effect-idempotency",
+                    order,
+                    effect.get("effectKind", ""),
+                    effect.get("quest", ""),
+                    effect.get("topic", ""),
+                    effect.get("item", ""),
+                    command,
+                ),
                 "source": source_ref(row),
             }
         )
@@ -228,17 +332,230 @@ def make_effect(owner_kind: str, owner_id: str, row: dict[str, Any]) -> dict[str
     }
 
 
-def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    tables: dict[str, list[dict[str, Any]]] = {
-        "packages": [],
-        "quest_definitions": [],
-        "quest_steps": [],
-        "dialogue_topics": [],
-        "dialogue_responses": [],
-        "conditions": [],
-        "quest_effects": [],
-        "legacy_effects": [],
+def native_source_ref(package: dict[str, Any], native_id: str = "") -> dict[str, Any]:
+    return {
+        "packageId": package.get("packageId", ""),
+        "nativeId": native_id,
+        "sourceFormat": NATIVE_PACKAGE_SCHEMA,
     }
+
+
+def make_native_conditions(
+    owner_kind: str,
+    owner_id: str,
+    package: dict[str, Any],
+    conditions: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for order, condition in enumerate(conditions):
+        authority = condition_authority_metadata(condition)
+        result.append(
+            {
+                "schema": QUESTDB_SCHEMA,
+                "conditionId": condition.get("conditionId") or stable_key(owner_id, "condition", order),
+                "ownerKind": owner_kind,
+                "ownerId": owner_id,
+                "order": condition.get("order", order),
+                "function": condition.get("function", "Invalid"),
+                "functionCode": condition.get("functionCode"),
+                "comparison": condition.get("comparison", "invalid"),
+                "comparisonCode": condition.get("comparisonCode"),
+                "variable": condition.get("variable", ""),
+                "valueType": condition.get("valueType", "int"),
+                "value": condition.get("value"),
+                **authority,
+                "source": native_source_ref(package, condition.get("conditionId", "")),
+            }
+        )
+    return result
+
+
+def make_native_effects(
+    owner_kind: str,
+    owner_id: str,
+    package: dict[str, Any],
+    effects: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for order, effect in enumerate(effects):
+        effect_kind = effect.get("effectKind", "unsupported")
+        target = effect.get("target", "")
+        runtime = command_runtime_metadata(effect_kind, target)
+        for key in ("executionPolicy", "stateScope", "transactionKind", "authorityRequirement", "conflictPolicy"):
+            if effect.get(key):
+                runtime[key] = effect[key]
+
+        effect_id = effect.get("effectId") or stable_key(owner_id, "effect", order, effect_kind)
+        result.append(
+            {
+                "schema": QUESTDB_SCHEMA,
+                "effectId": effect_id,
+                "ownerKind": owner_kind,
+                "ownerId": owner_id,
+                "order": effect.get("order", order),
+                "sourceLine": effect.get("sourceLine", 0),
+                "effectKind": effect_kind,
+                "rawCommand": effect.get("rawCommand", ""),
+                "target": target,
+                "targetKind": effect.get("targetKind", target_kind(target)),
+                "quest": effect.get("quest", ""),
+                "topic": effect.get("topic", ""),
+                "item": effect.get("item", ""),
+                "combatTarget": effect.get("combatTarget", ""),
+                "index": effect.get("index"),
+                "count": effect.get("count"),
+                "value": effect.get("value"),
+                "choiceCount": effect.get("choiceCount", 0),
+                **runtime,
+                "idempotencyKey": effect.get("idempotencyKey")
+                or stable_key(
+                    owner_id,
+                    "effect-idempotency",
+                    order,
+                    effect_kind,
+                    effect.get("quest", ""),
+                    effect.get("topic", ""),
+                    effect.get("item", ""),
+                    effect.get("rawCommand", ""),
+                ),
+                "source": native_source_ref(package, effect_id),
+            }
+        )
+    return result
+
+
+def convert_native_package(package: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    if package.get("schema") != NATIVE_PACKAGE_SCHEMA:
+        raise ValueError(
+            f"expected schema {NATIVE_PACKAGE_SCHEMA!r}, got {package.get('schema')!r}"
+        )
+
+    package_id = package.get("packageId") or stable_key(package.get("title", "native-package"))
+    package["packageId"] = package_id
+    tables = empty_tables()
+    tables["packages"].append(
+        {
+            "schema": QUESTDB_SCHEMA,
+            "packageId": package_id,
+            "sourceFile": package.get("sourceFile", ""),
+            "sourceFileName": package.get("title", package_id),
+            "author": package.get("author", ""),
+            "description": package.get("description", ""),
+            "masters": package.get("dependencies", []),
+            "importPolicy": "native-runtime-source",
+            "runtimeFormat": QUESTDB_SCHEMA,
+        }
+    )
+
+    for quest in package.get("quests", []):
+        quest_id = quest.get("questId") or stable_key(package_id, "quest", quest.get("title", "quest"))
+        source_quest_id = quest.get("sourceQuestId", quest_id)
+        tables["quest_definitions"].append(
+            {
+                "schema": QUESTDB_SCHEMA,
+                "questId": quest_id,
+                "sourceQuestId": source_quest_id,
+                "packageId": package_id,
+                "title": quest.get("title", source_quest_id),
+                "scopePolicy": quest.get("scopePolicy", "player-default"),
+                "sharingPolicy": quest.get("sharingPolicy", "explicit-party-or-world-event"),
+                "repeatPolicy": quest.get("repeatPolicy", "native-explicit"),
+                "instancingPolicy": quest.get("instancingPolicy", "server-owned-with-player-overrides"),
+                "runtimeModel": "server-owned-multiplayer-quest-v1",
+                "authorityPolicy": quest.get("authorityPolicy", "server-owned"),
+                "stateScope": quest.get("stateScope", "player-default"),
+                "transactionPolicy": quest.get("transactionPolicy", "quest-compare-and-swap"),
+                "deleted": bool(quest.get("deleted")),
+                "source": native_source_ref(package, quest_id),
+            }
+        )
+
+        for step in quest.get("steps", []):
+            step_id = step.get("stepId") or stable_key(
+                quest_id, "step", step.get("index"), step.get("text", "")
+            )
+            tables["quest_steps"].append(
+                {
+                    "schema": QUESTDB_SCHEMA,
+                    "stepId": step_id,
+                    "questId": quest_id,
+                    "packageId": package_id,
+                    "sourceInfoId": step.get("sourceInfoId", step_id),
+                    "index": step.get("index"),
+                    "status": step.get("status", "None"),
+                    "text": step.get("text", ""),
+                    "completionPolicy": step.get("completionPolicy", "advance-step"),
+                    "deleted": bool(step.get("deleted")),
+                    "source": native_source_ref(package, step_id),
+                }
+            )
+            tables["conditions"].extend(
+                make_native_conditions("quest_step", step_id, package, step.get("conditions", []))
+            )
+            tables["quest_effects"].extend(
+                make_native_effects("quest_step", step_id, package, step.get("effects", []))
+            )
+
+    for topic in package.get("dialogueTopics", []):
+        topic_id = topic.get("topicId") or stable_key(
+            package_id, "dialogue", topic.get("dialogueType", "Topic"), topic.get("displayName", "topic")
+        )
+        tables["dialogue_topics"].append(
+            {
+                "schema": QUESTDB_SCHEMA,
+                "topicId": topic_id,
+                "sourceTopicId": topic.get("sourceTopicId", topic_id),
+                "packageId": package_id,
+                "dialogueType": topic.get("dialogueType", "Topic"),
+                "displayName": topic.get("displayName", topic.get("sourceTopicId", topic_id)),
+                "visibilityPolicy": topic.get("visibilityPolicy", "server-filtered-per-player"),
+                "authorityPolicy": topic.get("authorityPolicy", "server-filtered"),
+                "deleted": bool(topic.get("deleted")),
+                "source": native_source_ref(package, topic_id),
+            }
+        )
+
+        for response in topic.get("responses", []):
+            response_id = response.get("responseId") or stable_key(
+                topic_id, "response", response.get("text", "")
+            )
+            tables["dialogue_responses"].append(
+                {
+                    "schema": QUESTDB_SCHEMA,
+                    "responseId": response_id,
+                    "topicId": topic_id,
+                    "packageId": package_id,
+                    "sourceInfoId": response.get("sourceInfoId", response_id),
+                    "order": response.get("order", 0),
+                    "actor": response.get("actor", ""),
+                    "race": response.get("race", ""),
+                    "class": response.get("class", ""),
+                    "faction": response.get("faction", ""),
+                    "cell": response.get("cell", ""),
+                    "rank": response.get("rank"),
+                    "gender": response.get("gender"),
+                    "pcRank": response.get("pcRank"),
+                    "disposition": response.get("disposition"),
+                    "text": response.get("text", ""),
+                    "resultPolicy": response.get("resultPolicy", "transactional-server-effect"),
+                    "authorityPolicy": response.get("authorityPolicy", "server-evaluated"),
+                    "transactionPolicy": response.get("transactionPolicy", "dialogue-response-effect-plan"),
+                    "deleted": bool(response.get("deleted")),
+                    "source": native_source_ref(package, response_id),
+                }
+            )
+            tables["conditions"].extend(
+                make_native_conditions("dialogue_response", response_id, package, response.get("conditions", []))
+            )
+            tables["quest_effects"].extend(
+                make_native_effects("dialogue_response", response_id, package, response.get("effects", []))
+            )
+
+    return tables
+
+
+def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    tables: dict[str, list[dict[str, Any]]] = empty_tables()
     seen: set[tuple[str, str]] = set()
     dialogues: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -259,6 +576,7 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
                         "description": row.get("description", ""),
                         "masters": row.get("masters", []),
                         "importPolicy": "content-source-only",
+                        "runtimeFormat": QUESTDB_SCHEMA,
                     }
                 )
                 seen.add(table_key)
@@ -284,6 +602,10 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
                             "sharingPolicy": "explicit-party-or-world-event",
                             "repeatPolicy": "imported-legacy-default",
                             "instancingPolicy": "server-owned-with-player-overrides",
+                            "runtimeModel": "server-owned-multiplayer-quest-v1",
+                            "authorityPolicy": "server-owned",
+                            "stateScope": "player-default",
+                            "transactionPolicy": "quest-compare-and-swap",
                             "deleted": bool(row.get("deleted")),
                             "source": source_ref(row),
                         }
@@ -302,6 +624,7 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
                             "dialogueType": dialogue_type,
                             "displayName": row.get("displayName") or dialogue_id,
                             "visibilityPolicy": "server-filtered-per-player",
+                            "authorityPolicy": "server-filtered",
                             "deleted": bool(row.get("deleted")),
                             "source": source_ref(row),
                         }
@@ -360,6 +683,8 @@ def convert_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any
                     "disposition": row.get("dataValue") if row.get("dataValueKind") == "disposition" else None,
                     "text": row.get("response", ""),
                     "resultPolicy": "transactional-server-effect",
+                    "authorityPolicy": "server-evaluated",
+                    "transactionPolicy": "dialogue-response-effect-plan",
                     "deleted": bool(row.get("deleted")),
                     "source": source_ref(row),
                 }
@@ -401,6 +726,7 @@ def write_tables(output_dir: Path, tables: dict[str, list[dict[str, Any]]]) -> d
             "playerQuestState": "append-only quest events plus compacted per-player view",
             "worldQuestState": "server-owned shared events keyed by questId and scope",
             "locks": "dialogue/container/quest transactions should acquire server leases before mutation",
+            "runtimeAuthority": "server-owned records with explicit transaction and authority metadata",
         },
     }
     with (output_dir / "manifest.json").open("w", encoding="utf-8", newline="\n") as handle:
@@ -410,11 +736,46 @@ def write_tables(output_dir: Path, tables: dict[str, list[dict[str, Any]]]) -> d
     return counts
 
 
+def read_native_package(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        package = json.load(handle)
+    if not isinstance(package, dict):
+        raise ValueError(f"{path}: native quest package must be a JSON object")
+    return package
+
+
+def import_sources(sources: Iterable[Path]) -> dict[str, list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    tables = empty_tables()
+    for source in sources:
+        if source.suffix.lower() == ".json":
+            package = read_native_package(source)
+            if package.get("schema") == NATIVE_PACKAGE_SCHEMA:
+                merge_tables(tables, convert_native_package(package))
+                continue
+
+        rows.extend(read_jsonl(source))
+
+    merge_tables(tables, convert_rows(rows))
+    return tables
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Import esmtool quest-export JSONL into CommunityMP multiplayer quest tables."
+        description=(
+            "Import esmtool quest-export JSONL or native CommunityMP quest package JSON into "
+            "CommunityMP multiplayer quest tables."
+        )
     )
-    parser.add_argument("sources", nargs="+", type=Path, help="JSONL files from `esmtool quest-export`.")
+    parser.add_argument(
+        "sources",
+        nargs="+",
+        type=Path,
+        help=(
+            "JSONL files from `esmtool quest-export` or JSON files with schema "
+            f"{NATIVE_PACKAGE_SCHEMA}."
+        ),
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -426,11 +787,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_arg_parser().parse_args()
-    all_rows: list[dict[str, Any]] = []
-    for source in args.sources:
-        all_rows.extend(read_jsonl(source))
-
-    tables = convert_rows(all_rows)
+    tables = import_sources(args.sources)
     counts = write_tables(args.output_dir, tables)
     print(
         "Imported CommunityMP quest database tables: "
