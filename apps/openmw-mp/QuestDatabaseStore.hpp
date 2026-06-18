@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace mwmp
 {
@@ -57,6 +58,58 @@ namespace mwmp
         bool deleted = false;
     };
 
+    struct DialogueTopicRecord
+    {
+        std::string topicId;
+        std::string sourceTopicId;
+        std::string packageId;
+        std::string dialogueType;
+        std::string displayName;
+        std::string visibilityPolicy;
+        bool deleted = false;
+    };
+
+    struct DialogueResponseRecord
+    {
+        std::string responseId;
+        std::string topicId;
+        std::string packageId;
+        std::string sourceInfoId;
+        std::string actor;
+        std::string race;
+        std::string className;
+        std::string faction;
+        std::string cell;
+        std::string text;
+        std::string resultPolicy;
+        int order = 0;
+        bool deleted = false;
+    };
+
+    struct QuestConditionRecord
+    {
+        std::string conditionId;
+        std::string ownerKind;
+        std::string ownerId;
+        std::string functionName;
+        std::string comparison;
+        std::string variable;
+        std::string valueType;
+        std::string value;
+        std::string evaluationScope;
+        int order = 0;
+    };
+
+    struct LegacyQuestEffectRecord
+    {
+        std::string effectId;
+        std::string ownerKind;
+        std::string ownerId;
+        std::string effectKind;
+        std::string executionPolicy;
+        std::string script;
+    };
+
     class QuestDatabaseStore
     {
     public:
@@ -70,6 +123,14 @@ namespace mwmp
         std::optional<QuestStepRecord> findQuestStepByQuestIdAndIndex(std::string_view questId, int index) const;
         std::optional<QuestStepRecord> findQuestStepBySourceQuestIdAndIndex(
             std::string_view sourceQuestId, int index) const;
+        std::optional<DialogueTopicRecord> findDialogueTopicById(std::string_view topicId) const;
+        std::optional<DialogueTopicRecord> findDialogueTopicBySourceTopicId(
+            std::string_view sourceTopicId, std::string_view dialogueType) const;
+        std::vector<DialogueResponseRecord> findDialogueResponsesByTopicId(std::string_view topicId) const;
+        std::vector<DialogueResponseRecord> findDialogueResponsesBySourceTopicId(
+            std::string_view sourceTopicId, std::string_view dialogueType) const;
+        std::vector<QuestConditionRecord> findConditionsByOwnerId(std::string_view ownerId) const;
+        std::vector<LegacyQuestEffectRecord> findLegacyEffectsByOwnerId(std::string_view ownerId) const;
 
     private:
         QuestDatabaseStore() = default;
@@ -82,6 +143,11 @@ namespace mwmp
         std::map<std::string, QuestDefinitionRecord> mQuestDefinitionsById;
         std::map<std::string, std::string> mQuestIdBySourceQuestId;
         std::map<std::pair<std::string, int>, QuestStepRecord> mQuestStepsByQuestIdAndIndex;
+        std::map<std::string, DialogueTopicRecord> mDialogueTopicsById;
+        std::map<std::pair<std::string, std::string>, std::string> mDialogueTopicIdBySourceTopicAndType;
+        std::map<std::string, std::vector<DialogueResponseRecord>> mDialogueResponsesByTopicId;
+        std::map<std::string, std::vector<QuestConditionRecord>> mConditionsByOwnerId;
+        std::map<std::string, std::vector<LegacyQuestEffectRecord>> mLegacyEffectsByOwnerId;
     };
 }
 

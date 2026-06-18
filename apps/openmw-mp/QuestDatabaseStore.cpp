@@ -211,6 +211,12 @@ namespace
         });
         return result;
     }
+
+    std::pair<std::string, std::string> dialogueLookupKey(
+        std::string_view sourceTopicId, std::string_view dialogueType)
+    {
+        return { normalizedQuestLookupKey(sourceTopicId), normalizedQuestLookupKey(dialogueType) };
+    }
 }
 
 namespace mwmp
@@ -255,6 +261,11 @@ namespace mwmp
         mQuestDefinitionsById.clear();
         mQuestIdBySourceQuestId.clear();
         mQuestStepsByQuestIdAndIndex.clear();
+        mDialogueTopicsById.clear();
+        mDialogueTopicIdBySourceTopicAndType.clear();
+        mDialogueResponsesByTopicId.clear();
+        mConditionsByOwnerId.clear();
+        mLegacyEffectsByOwnerId.clear();
 
         try
         {
@@ -321,11 +332,111 @@ namespace mwmp
                             mQuestStepsByQuestIdAndIndex[{ step.questId, step.index }] = std::move(step);
                     });
 
-                mStats.dialogueTopicCount += readJsonlTable(packageDir, "dialogue_topics.jsonl", [](const auto&) {});
-                mStats.dialogueResponseCount
-                    += readJsonlTable(packageDir, "dialogue_responses.jsonl", [](const auto&) {});
-                mStats.conditionCount += readJsonlTable(packageDir, "conditions.jsonl", [](const auto&) {});
-                mStats.legacyEffectCount += readJsonlTable(packageDir, "legacy_effects.jsonl", [](const auto&) {});
+                mStats.dialogueTopicCount += readJsonlTable(packageDir, "dialogue_topics.jsonl",
+                    [&](const boost::property_tree::ptree& row) {
+                        DialogueTopicRecord topic;
+                        topic.topicId = getString(row, "topicId");
+                        if (topic.topicId.empty())
+                            return;
+
+                        topic.sourceTopicId = getString(row, "sourceTopicId");
+                        topic.packageId = getString(row, "packageId");
+                        topic.dialogueType = getString(row, "dialogueType");
+                        topic.displayName = getString(row, "displayName");
+                        topic.visibilityPolicy = getString(row, "visibilityPolicy");
+                        topic.deleted = getBool(row, "deleted");
+
+                        if (!topic.deleted)
+                        {
+                            if (!topic.sourceTopicId.empty())
+                                mDialogueTopicIdBySourceTopicAndType[
+                                    dialogueLookupKey(topic.sourceTopicId, topic.dialogueType)] = topic.topicId;
+
+                            mDialogueTopicsById[topic.topicId] = std::move(topic);
+                        }
+                    });
+
+                mStats.dialogueResponseCount += readJsonlTable(packageDir, "dialogue_responses.jsonl",
+                    [&](const boost::property_tree::ptree& row) {
+                        DialogueResponseRecord response;
+                        response.responseId = getString(row, "responseId");
+                        response.topicId = getString(row, "topicId");
+                        if (response.responseId.empty() || response.topicId.empty())
+                            return;
+
+                        response.packageId = getString(row, "packageId");
+                        response.sourceInfoId = getString(row, "sourceInfoId");
+                        response.actor = getString(row, "actor");
+                        response.race = getString(row, "race");
+                        response.className = getString(row, "class");
+                        response.faction = getString(row, "faction");
+                        response.cell = getString(row, "cell");
+                        response.text = getString(row, "text");
+                        response.resultPolicy = getString(row, "resultPolicy");
+                        response.order = getInt(row, "order");
+                        response.deleted = getBool(row, "deleted");
+
+                        if (!response.deleted)
+                            mDialogueResponsesByTopicId[response.topicId].push_back(std::move(response));
+                    });
+
+                mStats.conditionCount += readJsonlTable(packageDir, "conditions.jsonl",
+                    [&](const boost::property_tree::ptree& row) {
+                        QuestConditionRecord condition;
+                        condition.conditionId = getString(row, "conditionId");
+                        condition.ownerKind = getString(row, "ownerKind");
+                        condition.ownerId = getString(row, "ownerId");
+                        if (condition.conditionId.empty() || condition.ownerId.empty())
+                            return;
+
+                        condition.order = getInt(row, "order");
+                        condition.functionName = getString(row, "function");
+                        condition.comparison = getString(row, "comparison");
+                        condition.variable = getString(row, "variable");
+                        condition.valueType = getString(row, "valueType");
+                        condition.value = getString(row, "value");
+                        condition.evaluationScope = getString(row, "evaluationScope");
+
+                        mConditionsByOwnerId[condition.ownerId].push_back(std::move(condition));
+                    });
+
+                mStats.legacyEffectCount += readJsonlTable(packageDir, "legacy_effects.jsonl",
+                    [&](const boost::property_tree::ptree& row) {
+                        LegacyQuestEffectRecord effect;
+                        effect.effectId = getString(row, "effectId");
+                        effect.ownerKind = getString(row, "ownerKind");
+                        effect.ownerId = getString(row, "ownerId");
+                        if (effect.effectId.empty() || effect.ownerId.empty())
+                            return;
+
+                        effect.effectKind = getString(row, "effectKind");
+                        effect.executionPolicy = getString(row, "executionPolicy");
+                        effect.script = getString(row, "script");
+
+                        mLegacyEffectsByOwnerId[effect.ownerId].push_back(std::move(effect));
+                    });
+            }
+
+            for (auto& [topicId, responses] : mDialogueResponsesByTopicId)
+            {
+                static_cast<void>(topicId);
+                std::sort(responses.begin(), responses.end(), [](const DialogueResponseRecord& left,
+                                                              const DialogueResponseRecord& right) {
+                    if (left.order != right.order)
+                        return left.order < right.order;
+                    return left.responseId < right.responseId;
+                });
+            }
+
+            for (auto& [ownerId, conditions] : mConditionsByOwnerId)
+            {
+                static_cast<void>(ownerId);
+                std::sort(conditions.begin(), conditions.end(), [](const QuestConditionRecord& left,
+                                                               const QuestConditionRecord& right) {
+                    if (left.order != right.order)
+                        return left.order < right.order;
+                    return left.conditionId < right.conditionId;
+                });
             }
 
             mStats.loaded = mStats.manifestCount > 0;
@@ -341,6 +452,11 @@ namespace mwmp
             mQuestDefinitionsById.clear();
             mQuestIdBySourceQuestId.clear();
             mQuestStepsByQuestIdAndIndex.clear();
+            mDialogueTopicsById.clear();
+            mDialogueTopicIdBySourceTopicAndType.clear();
+            mDialogueResponsesByTopicId.clear();
+            mConditionsByOwnerId.clear();
+            mLegacyEffectsByOwnerId.clear();
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                 "CommunityMP quest database unavailable root=%s error=%s",
                 pathToLogString(root).c_str(), mStats.lastError.c_str());
@@ -406,5 +522,77 @@ namespace mwmp
             return std::nullopt;
 
         return stepIt->second;
+    }
+
+    std::optional<DialogueTopicRecord> QuestDatabaseStore::findDialogueTopicById(std::string_view topicId) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mDialogueTopicsById.find(std::string(topicId));
+        if (it == mDialogueTopicsById.end())
+            return std::nullopt;
+
+        return it->second;
+    }
+
+    std::optional<DialogueTopicRecord> QuestDatabaseStore::findDialogueTopicBySourceTopicId(
+        std::string_view sourceTopicId, std::string_view dialogueType) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto sourceIt = mDialogueTopicIdBySourceTopicAndType.find(dialogueLookupKey(sourceTopicId, dialogueType));
+        if (sourceIt == mDialogueTopicIdBySourceTopicAndType.end())
+            return std::nullopt;
+
+        const auto topicIt = mDialogueTopicsById.find(sourceIt->second);
+        if (topicIt == mDialogueTopicsById.end())
+            return std::nullopt;
+
+        return topicIt->second;
+    }
+
+    std::vector<DialogueResponseRecord> QuestDatabaseStore::findDialogueResponsesByTopicId(
+        std::string_view topicId) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mDialogueResponsesByTopicId.find(std::string(topicId));
+        if (it == mDialogueResponsesByTopicId.end())
+            return {};
+
+        return it->second;
+    }
+
+    std::vector<DialogueResponseRecord> QuestDatabaseStore::findDialogueResponsesBySourceTopicId(
+        std::string_view sourceTopicId, std::string_view dialogueType) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto sourceIt = mDialogueTopicIdBySourceTopicAndType.find(dialogueLookupKey(sourceTopicId, dialogueType));
+        if (sourceIt == mDialogueTopicIdBySourceTopicAndType.end())
+            return {};
+
+        const auto responsesIt = mDialogueResponsesByTopicId.find(sourceIt->second);
+        if (responsesIt == mDialogueResponsesByTopicId.end())
+            return {};
+
+        return responsesIt->second;
+    }
+
+    std::vector<QuestConditionRecord> QuestDatabaseStore::findConditionsByOwnerId(std::string_view ownerId) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mConditionsByOwnerId.find(std::string(ownerId));
+        if (it == mConditionsByOwnerId.end())
+            return {};
+
+        return it->second;
+    }
+
+    std::vector<LegacyQuestEffectRecord> QuestDatabaseStore::findLegacyEffectsByOwnerId(
+        std::string_view ownerId) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mLegacyEffectsByOwnerId.find(std::string(ownerId));
+        if (it == mLegacyEffectsByOwnerId.end())
+            return {};
+
+        return it->second;
     }
 }
