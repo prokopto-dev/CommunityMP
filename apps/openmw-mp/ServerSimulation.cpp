@@ -1,6 +1,7 @@
 #include "ServerSimulation.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -476,6 +477,28 @@ namespace
         return "interior:" + cell.mName;
     }
 
+    std::string normalizedWorldLookupKey(std::string_view value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (const unsigned char c : value)
+        {
+            if (c == '\\')
+                result.push_back('/');
+            else
+                result.push_back(static_cast<char>(std::tolower(c)));
+        }
+        return result;
+    }
+
+    std::string getWorldDatabaseCellKey(const ESM::Cell& cell)
+    {
+        if (cell.isExterior())
+            return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
+
+        return "interior:" + normalizedWorldLookupKey(cell.mName);
+    }
+
     bool nearlyInteger(double value)
     {
         return std::abs(value - std::round(value)) < 0.001;
@@ -726,6 +749,65 @@ namespace
             && exteriorAxisMatchesPosition(cell.mData.mY, position.pos[1]);
     }
 
+    ESM::Position makeDoorDestinationPosition(const mwmp::WorldCellReferenceRecord& reference)
+    {
+        ESM::Position position;
+        position.pos[0] = reference.doorDestPosX;
+        position.pos[1] = reference.doorDestPosY;
+        position.pos[2] = reference.doorDestPosZ;
+        position.rot[0] = reference.doorDestRotX;
+        position.rot[1] = reference.doorDestRotY;
+        position.rot[2] = reference.doorDestRotZ;
+        return position;
+    }
+
+    bool worldDoorDestinationMatchesCell(const mwmp::WorldCellReferenceRecord& reference, const ESM::Cell& destinationCell)
+    {
+        if (!reference.teleport)
+            return false;
+
+        if (destinationCell.isExterior())
+            return isExteriorCellConsistentWithPosition(destinationCell, makeDoorDestinationPosition(reference));
+
+        return !reference.destCell.empty()
+            && normalizedWorldLookupKey(reference.destCell) == normalizedWorldLookupKey(destinationCell.mName);
+    }
+
+    bool worldDoorDestinationMatchesPosition(
+        const mwmp::WorldCellReferenceRecord& reference, const ESM::Position& attemptedPosition)
+    {
+        constexpr float portalDestinationTolerance = 512.f;
+        const ESM::Position destination = makeDoorDestinationPosition(reference);
+        return squaredDistance(destination, attemptedPosition)
+            <= portalDestinationTolerance * portalDestinationTolerance;
+    }
+
+    bool isImportedDoorCellChange(const ESM::Cell& sourceCell, const ESM::Cell& destinationCell,
+        const ESM::Position& attemptedPosition)
+    {
+        mwmp::WorldDatabaseStore::get().ensureLoaded();
+        const mwmp::WorldDatabaseStatistics stats = mwmp::WorldDatabaseStore::get().statistics();
+        if (!stats.loaded)
+            return false;
+
+        const std::vector<mwmp::WorldCellReferenceRecord> references
+            = mwmp::WorldDatabaseStore::get().findReferencesByCellKey(getWorldDatabaseCellKey(sourceCell));
+        for (const mwmp::WorldCellReferenceRecord& reference : references)
+        {
+            if (reference.deleted || reference.baseRecordDeleted || reference.baseRecordCategory != "door"
+                || !reference.teleport)
+                continue;
+
+            if (!worldDoorDestinationMatchesCell(reference, destinationCell))
+                continue;
+
+            if (worldDoorDestinationMatchesPosition(reference, attemptedPosition))
+                return true;
+        }
+
+        return false;
+    }
+
     bool hasServerAcceptedDestinationTransform(const Player& player)
     {
         return player.hasAcceptedPositionPacket
@@ -740,6 +822,9 @@ namespace
             return false;
 
         if (isSameSimulationCell(acceptedCell, player.cell))
+            return true;
+
+        if (isImportedDoorCellChange(acceptedCell, player.cell, player.position))
             return true;
 
         if (!acceptedCell.isExterior() || !player.cell.isExterior())
