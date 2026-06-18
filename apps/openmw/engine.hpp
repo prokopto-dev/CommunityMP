@@ -103,6 +103,11 @@ namespace MWMechanics
     class MechanicsManager;
 }
 
+namespace mwmp
+{
+    class BaseActorList;
+}
+
 namespace MWDialogue
 {
     class DialogueManager;
@@ -244,6 +249,9 @@ namespace OMW
 
         /// Advance one server-owned OpenMW simulation frame.
         bool tickServerSimulation(float deltaSeconds);
+
+        /// Export actor snapshots from the server-owned OpenMW scene.
+        void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;
 
         bool isServerSimulationPrepared() const { return mServerSimulationPrepared; }
 

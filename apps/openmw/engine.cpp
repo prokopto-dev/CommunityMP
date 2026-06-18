@@ -59,6 +59,8 @@
 #include <components/openmw-mp/Branding.hpp>
 #include <components/openmw-mp/ClientSettings.hpp>
 #endif
+#include <components/openmw-mp/Base/BaseActor.hpp>
+#include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 #include "mwinput/inputmanagerimp.hpp"
 
@@ -70,6 +72,7 @@
 #include "mwscript/interpretercontext.hpp"
 #include "mwscript/scriptmanagerimp.hpp"
 
+#include "mwmp/CellIdentity.hpp"
 #include "mwmp/Main.hpp"
 #include "mwmp/ScriptController.hpp"
 
@@ -77,7 +80,9 @@
 #include "mwsound/soundmanagerimp.hpp"
 
 #include "mwworld/class.hpp"
+#include "mwworld/cellstore.hpp"
 #include "mwworld/datetimemanager.hpp"
+#include "mwworld/scene.hpp"
 #include "mwworld/worldimp.hpp"
 
 #include "mwrender/vismask.hpp"
@@ -186,6 +191,48 @@ namespace
         viewer.getCameras(cameras);
         for (osg::Camera* camera : cameras)
             camera->getStats()->report(stream, frameNumber);
+    }
+
+    void copyDynamicStat(const MWMechanics::DynamicStat<float>& source, ESM::StatState<float>& destination)
+    {
+        destination.mBase = source.getBase();
+        destination.mCurrent = source.getCurrent();
+        destination.mMod = source.getModifier();
+    }
+
+    bool appendServerSimulationActor(mwmp::BaseActorList& actorList, const MWWorld::Ptr& ptr)
+    {
+        if (ptr.isEmpty() || !ptr.getClass().isActor())
+            return true;
+
+        const ESM::RefNum refNum = ptr.getCellRef().getRefNum();
+        if (refNum.mIndex == 0)
+            return true;
+
+        mwmp::BaseActor actor;
+        actor.refId = ptr.getCellRef().getRefId().serializeText();
+        actor.refNum = refNum.mIndex;
+        actor.mpNum = 0;
+        actor.cell = actorList.cell;
+
+        actor.position = ptr.getRefData().getPosition();
+        actor.direction = {};
+        actor.hasPositionData = true;
+        actor.movementSampleIntervalSeconds = 1.f / 30.f;
+        actor.movementLatencySeconds = 0.f;
+
+        const MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
+        actor.creatureStats.mDead = creatureStats.isDead();
+        actor.creatureStats.mDeathAnimationFinished = creatureStats.isDeathAnimationFinished();
+        for (int i = 0; i < 3; ++i)
+            copyDynamicStat(creatureStats.getDynamic(i), actor.creatureStats.mDynamic[i]);
+        actor.hasStatsDynamicData = true;
+
+        actor.drawState = static_cast<char>(static_cast<int>(creatureStats.getDrawState()));
+        actor.hasAnimFlagsData = true;
+
+        actorList.baseActors.push_back(std::move(actor));
+        return true;
     }
 
 }
@@ -1068,6 +1115,36 @@ bool OMW::Engine::tickServerSimulation(float deltaSeconds)
     }
 
     return true;
+}
+
+void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const
+{
+    if (!mServerSimulationPrepared || mWorld == nullptr)
+        return;
+
+    for (MWWorld::CellStore* cellStore : mWorld->getWorldScene().getActiveCells())
+    {
+        if (cellStore == nullptr || cellStore->getCell() == nullptr)
+            continue;
+
+        mwmp::BaseActorList actorList;
+        actorList.guid = mwmp::unassignedPacketGuid();
+        actorList.cell = mwmp::makeActorPacketCell(*cellStore->getCell());
+        actorList.action = mwmp::BaseActorList::SET;
+        actorList.isValid = true;
+        actorList.count = 0;
+
+        cellStore->forEachType<ESM::NPC>([&](const MWWorld::Ptr& ptr) {
+            return appendServerSimulationActor(actorList, ptr);
+        });
+        cellStore->forEachType<ESM::Creature>([&](const MWWorld::Ptr& ptr) {
+            return appendServerSimulationActor(actorList, ptr);
+        });
+
+        actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
+        if (actorList.count != 0)
+            actorLists.push_back(std::move(actorList));
+    }
 }
 
 // Initialise and enter main loop.

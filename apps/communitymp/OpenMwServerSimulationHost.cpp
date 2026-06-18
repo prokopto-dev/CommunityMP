@@ -209,12 +209,8 @@ namespace
         capabilities.resolvesCells = hasPreparedEngine;
         capabilities.runsScripts = hasPreparedEngine;
         capabilities.runsActorAi = hasPreparedEngine;
-
-        // The engine is now hosted in the server process, but network export is
-        // still the next hard blocker. Do not claim actor movement/combat
-        // authority until server packets are sourced from that OpenMW world.
-        capabilities.ownsActorMovement = false;
-        capabilities.ownsActorCombat = false;
+        capabilities.ownsActorMovement = hasPreparedEngine;
+        capabilities.ownsActorCombat = hasPreparedEngine;
         return capabilities;
     }
 
@@ -236,6 +232,15 @@ namespace
         {
             if (mEngine != nullptr)
                 static_cast<void>(mEngine->tickServerSimulation(deltaSeconds));
+        }
+
+        bool collectActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) override
+        {
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared())
+                return false;
+
+            mEngine->exportServerSimulationActorSnapshots(actorLists);
+            return !actorLists.empty();
         }
 
     private:
@@ -298,7 +303,7 @@ namespace communitymp
 
         const bool hasPreparedEngine = engine != nullptr && engine->isServerSimulationPrepared();
         if (hasPreparedEngine)
-            bootstrap.blockedBy = "openmw-network-actor-export-not-wired";
+            bootstrap.blockedBy.clear();
 
         const mwmp::SimulationRuntimeKind activeKind = hasPreparedEngine ? mwmp::SimulationRuntimeKind::OpenMwHeadless
                                                                          : mwmp::SimulationRuntimeKind::PacketMirror;

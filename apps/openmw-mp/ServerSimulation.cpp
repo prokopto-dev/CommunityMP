@@ -1543,7 +1543,15 @@ namespace mwmp
         mLastTick = now;
 
         mRuntime->tick(deltaSeconds);
+        std::vector<BaseActorList> runtimeActorSnapshots;
+        const bool exportedRuntimeActorSnapshots = mRuntime->collectActorSnapshots(runtimeActorSnapshots);
+        if (exportedRuntimeActorSnapshots)
+            applyRuntimeActorSnapshots(runtimeActorSnapshots, deltaSeconds);
+
         if (!canAuthoritativelySimulateActors())
+            return;
+
+        if (exportedRuntimeActorSnapshots)
             return;
 
         mActorTickAccumulator += deltaSeconds;
@@ -2010,6 +2018,108 @@ namespace mwmp
         }
 
         return liveCell->hasSimulationInterest();
+    }
+
+    void ServerSimulation::applyRuntimeActorSnapshots(
+        const std::vector<BaseActorList>& actorLists, float deltaSeconds)
+    {
+        if (actorLists.empty())
+            return;
+
+        CellController* cellController = CellController::get();
+        ServerNetworking* networking = ServerNetworking::getPtr();
+        if (cellController == nullptr || networking == nullptr || networking->getActorPacketController() == nullptr)
+            return;
+
+        ActorPacket* listPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_LIST);
+        ActorPacket* positionPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+        ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
+        if (listPacket == nullptr || positionPacket == nullptr || statsPacket == nullptr)
+            return;
+
+        const float sampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
+
+        for (const BaseActorList& runtimeList : actorLists)
+        {
+            if (runtimeList.baseActors.empty())
+                continue;
+
+            ESM::Cell lookupCell = runtimeList.cell;
+            Cell* serverCell = cellController->getCell(&lookupCell);
+            if (serverCell == nullptr)
+                serverCell = cellController->addCell(lookupCell);
+            if (serverCell == nullptr)
+                continue;
+
+            const bool hadActorListSnapshot = serverCell->hasActorListSnapshot();
+
+            BaseActorList identityList = runtimeList;
+            identityList.guid = unassignedPacketGuid();
+            identityList.action = BaseActorList::SET;
+            identityList.count = static_cast<unsigned int>(identityList.baseActors.size());
+            serverCell->readActorList(ID_ACTOR_LIST, &identityList);
+
+            if (!hadActorListSnapshot)
+            {
+                listPacket->setActorList(&identityList);
+                serverCell->sendToLoaded(listPacket, &identityList);
+            }
+
+            BaseActorList positionList;
+            positionList.cell = runtimeList.cell;
+            positionList.guid = unassignedPacketGuid();
+            positionList.action = BaseActorList::SET;
+            positionList.isValid = true;
+
+            BaseActorList statsList;
+            statsList.cell = runtimeList.cell;
+            statsList.guid = unassignedPacketGuid();
+            statsList.action = BaseActorList::SET;
+            statsList.isValid = true;
+
+            for (const BaseActor& runtimeActor : runtimeList.baseActors)
+            {
+                BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum);
+
+                if (runtimeActor.hasPositionData)
+                {
+                    BaseActor positionActor = runtimeActor;
+                    positionActor.hasPositionData = true;
+                    positionActor.positionSequence = cachedActor != nullptr && cachedActor->hasPositionData
+                        ? cachedActor->positionSequence + 1
+                        : 1;
+                    positionActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                    positionActor.movementLatencySeconds = 0.f;
+                    positionList.baseActors.push_back(std::move(positionActor));
+                }
+
+                if (runtimeActor.hasStatsDynamicData)
+                {
+                    BaseActor statsActor = runtimeActor;
+                    statsActor.hasStatsDynamicData = true;
+                    statsActor.statsDynamicSequence = cachedActor != nullptr && cachedActor->hasStatsDynamicData
+                        ? cachedActor->statsDynamicSequence + 1
+                        : 1;
+                    statsList.baseActors.push_back(std::move(statsActor));
+                }
+            }
+
+            positionList.count = static_cast<unsigned int>(positionList.baseActors.size());
+            if (positionList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_POSITION, &positionList);
+                positionPacket->setActorList(&positionList);
+                serverCell->sendToLoaded(positionPacket, &positionList);
+            }
+
+            statsList.count = static_cast<unsigned int>(statsList.baseActors.size());
+            if (statsList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_STATS_DYNAMIC, &statsList);
+                statsPacket->setActorList(&statsList);
+                serverCell->sendToLoaded(statsPacket, &statsList);
+            }
+        }
     }
 
     void ServerSimulation::sendCellActivityEvent(Player& player, const std::string& cellDescription,

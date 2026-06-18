@@ -9,6 +9,8 @@
 
 namespace mwmp
 {
+    class BaseActorList;
+
     struct SimulationRuntimeEventArgument
     {
         enum class Type
@@ -98,6 +100,7 @@ namespace mwmp
         virtual bool canOwnActorAuthority() const;
 
         virtual void tick(float deltaSeconds);
+        virtual bool collectActorSnapshots(std::vector<BaseActorList>& actorLists);
         virtual bool dispatchServerEvent(
             std::string_view eventName, const SimulationRuntimeEventArguments& arguments);
 

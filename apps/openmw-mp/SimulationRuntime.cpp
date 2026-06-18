@@ -294,6 +294,12 @@ namespace mwmp
         static_cast<void>(deltaSeconds);
     }
 
+    bool SimulationRuntime::collectActorSnapshots(std::vector<BaseActorList>& actorLists)
+    {
+        static_cast<void>(actorLists);
+        return false;
+    }
+
     bool SimulationRuntime::dispatchServerEvent(
         std::string_view eventName, const SimulationRuntimeEventArguments& arguments)
     {
