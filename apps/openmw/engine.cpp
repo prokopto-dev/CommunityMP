@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <fstream>
 #include <future>
+#include <sstream>
 #include <string_view>
 #include <system_error>
 
@@ -37,6 +39,7 @@
 #include <components/sceneutil/workqueue.hpp>
 
 #include <components/files/configurationmanager.hpp>
+#include <components/files/conversion.hpp>
 
 #include <components/version/version.hpp>
 
@@ -158,6 +161,185 @@ namespace
     {
         void operator()(std::string) const {}
     };
+
+    std::string readWholeFile(const std::filesystem::path& path)
+    {
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream.is_open())
+            return {};
+
+        std::ostringstream buffer;
+        buffer << stream.rdbuf();
+        return buffer.str();
+    }
+
+    void appendJsonString(std::string& result, std::string_view value)
+    {
+        constexpr char hex[] = "0123456789abcdef";
+        result.push_back('"');
+        for (unsigned char c : value)
+        {
+            switch (c)
+            {
+                case '"':
+                    result += "\\\"";
+                    break;
+                case '\\':
+                    result += "\\\\";
+                    break;
+                case '\b':
+                    result += "\\b";
+                    break;
+                case '\f':
+                    result += "\\f";
+                    break;
+                case '\n':
+                    result += "\\n";
+                    break;
+                case '\r':
+                    result += "\\r";
+                    break;
+                case '\t':
+                    result += "\\t";
+                    break;
+                default:
+                    if (c < 0x20)
+                    {
+                        result += "\\u00";
+                        result.push_back(hex[(c >> 4) & 0x0f]);
+                        result.push_back(hex[c & 0x0f]);
+                    }
+                    else
+                        result.push_back(static_cast<char>(c));
+            }
+        }
+        result.push_back('"');
+    }
+
+    void appendJsonStringField(std::string& result, std::string_view name, std::string_view value)
+    {
+        appendJsonString(result, name);
+        result.push_back(':');
+        appendJsonString(result, value);
+    }
+
+    std::string readFlatJsonStringField(std::string_view json, std::string_view field)
+    {
+        std::string quotedField;
+        appendJsonString(quotedField, field);
+        std::size_t pos = json.find(quotedField);
+        if (pos == std::string_view::npos)
+            return {};
+
+        pos = json.find(':', pos + quotedField.size());
+        if (pos == std::string_view::npos)
+            return {};
+
+        pos = json.find('"', pos + 1);
+        if (pos == std::string_view::npos)
+            return {};
+
+        std::string result;
+        for (++pos; pos < json.size(); ++pos)
+        {
+            const char c = json[pos];
+            if (c == '"')
+                return result;
+
+            if (c != '\\')
+            {
+                result.push_back(c);
+                continue;
+            }
+
+            if (++pos >= json.size())
+                break;
+
+            switch (json[pos])
+            {
+                case '"':
+                case '\\':
+                case '/':
+                    result.push_back(json[pos]);
+                    break;
+                case 'b':
+                    result.push_back('\b');
+                    break;
+                case 'f':
+                    result.push_back('\f');
+                    break;
+                case 'n':
+                    result.push_back('\n');
+                    break;
+                case 'r':
+                    result.push_back('\r');
+                    break;
+                case 't':
+                    result.push_back('\t');
+                    break;
+                default:
+                    result.push_back(json[pos]);
+                    break;
+            }
+        }
+
+        return {};
+    }
+
+    std::filesystem::path serverWorldManifestPath(const std::filesystem::path& savesPath)
+    {
+        if (savesPath.empty())
+            return {};
+
+        return savesPath.parent_path() / "manifest.json";
+    }
+
+    bool serverWorldManifestMatches(const std::filesystem::path& manifestPath,
+        std::string_view contentPlanFingerprint, std::string_view worldDatabaseFingerprint)
+    {
+        if (manifestPath.empty() || !std::filesystem::is_regular_file(manifestPath))
+            return true;
+
+        const std::string manifest = readWholeFile(manifestPath);
+        if (manifest.empty())
+            return true;
+
+        const std::string savedContentPlanFingerprint = readFlatJsonStringField(manifest, "contentPlanFingerprint");
+        const std::string savedWorldDatabaseFingerprint
+            = readFlatJsonStringField(manifest, "worldDatabaseFingerprint");
+
+        return (contentPlanFingerprint.empty() || savedContentPlanFingerprint == contentPlanFingerprint)
+            && (worldDatabaseFingerprint.empty() || savedWorldDatabaseFingerprint == worldDatabaseFingerprint);
+    }
+
+    void writeServerWorldManifestIfChanged(const std::filesystem::path& manifestPath,
+        std::string_view contentPlanFingerprint, std::string_view worldDatabaseFingerprint,
+        const std::filesystem::path& savePath)
+    {
+        if (manifestPath.empty())
+            return;
+
+        std::string result;
+        result.reserve(512);
+        result += "{\n  ";
+        appendJsonStringField(result, "schema", "communitymp.openmw-server-world.v1");
+        result += ",\n  ";
+        appendJsonStringField(result, "contentPlanFingerprint", contentPlanFingerprint);
+        result += ",\n  ";
+        appendJsonStringField(result, "worldDatabaseFingerprint", worldDatabaseFingerprint);
+        result += ",\n  ";
+        appendJsonStringField(result, "savePath", Files::pathToUnicodeString(savePath));
+        result += "\n}\n";
+
+        if (readWholeFile(manifestPath) == result)
+            return;
+
+        std::filesystem::create_directories(manifestPath.parent_path());
+        std::ofstream stream(manifestPath, std::ios::binary);
+        stream << result;
+        if (stream.fail())
+            throw std::runtime_error("failed to write server OpenMW world manifest");
+    }
 
     const MWState::Slot* findMostRecentSaveSlot(
         MWState::StateManager& stateManager, const MWState::Character*& character)
@@ -1106,32 +1288,47 @@ void OMW::Engine::prepareServerSimulation()
     if (mStateManager->hasQuitRequest())
         return;
 
+    std::filesystem::path serverWorldSavePath;
+    const std::filesystem::path manifestPath = serverWorldManifestPath(mServerSimulationSavesPath);
+
     if (!mSaveGameFile.empty())
     {
         Log(Debug::Info) << "Loading explicit server OpenMW world save " << mSaveGameFile;
+        serverWorldSavePath = mSaveGameFile;
         mStateManager->loadGame(mSaveGameFile);
     }
     else if (!mServerSimulationSavesPath.empty())
     {
         const MWState::Character* character = nullptr;
         const MWState::Slot* slot = findMostRecentSaveSlot(*mStateManager, character);
-        if (slot != nullptr)
+        const bool manifestMatches = serverWorldManifestMatches(manifestPath,
+            mServerSimulationContentPlanFingerprint, mServerSimulationWorldDatabaseFingerprint);
+        if (slot != nullptr && manifestMatches)
         {
             Log(Debug::Info) << "Loading server OpenMW world save " << slot->mPath;
+            serverWorldSavePath = slot->mPath;
             mStateManager->loadGame(character, slot->mPath);
         }
+        else if (slot != nullptr)
+            Log(Debug::Warning)
+                << "Server OpenMW world save manifest does not match current content database; initializing a fresh world";
 
         if (mStateManager->getState() != MWState::StateManager::State_Running)
         {
-            if (slot != nullptr)
+            if (slot != nullptr && manifestMatches)
                 Log(Debug::Warning) << "Server OpenMW world save did not reach running state; initializing a fresh world";
-            else
+            else if (slot == nullptr)
                 Log(Debug::Info) << "Initializing new server OpenMW world in " << mServerSimulationSavesPath;
 
             mStateManager->newGame(true);
 
             if (mStateManager->getState() == MWState::StateManager::State_Running)
+            {
                 mStateManager->saveGame("CommunityMP Server World");
+                const MWState::Character* savedCharacter = nullptr;
+                if (const MWState::Slot* savedSlot = findMostRecentSaveSlot(*mStateManager, savedCharacter))
+                    serverWorldSavePath = savedSlot->mPath;
+            }
         }
     }
     else
@@ -1139,6 +1336,10 @@ void OMW::Engine::prepareServerSimulation()
 
     if (mStateManager->getState() != MWState::StateManager::State_Running)
         return;
+
+    if (!serverWorldSavePath.empty())
+        writeServerWorldManifestIfChanged(manifestPath, mServerSimulationContentPlanFingerprint,
+            mServerSimulationWorldDatabaseFingerprint, serverWorldSavePath);
 
     if (!mStartupScript.empty() && mStateManager->getState() == MWState::StateManager::State_Running)
         mWindowManager->executeInConsole(mStartupScript);
@@ -1515,6 +1716,13 @@ void OMW::Engine::setSaveGameFile(const std::filesystem::path& savegame)
 void OMW::Engine::setServerSimulationSavesPath(const std::filesystem::path& path)
 {
     mServerSimulationSavesPath = path;
+}
+
+void OMW::Engine::setServerSimulationContentFingerprints(
+    std::string contentPlanFingerprint, std::string worldDatabaseFingerprint)
+{
+    mServerSimulationContentPlanFingerprint = std::move(contentPlanFingerprint);
+    mServerSimulationWorldDatabaseFingerprint = std::move(worldDatabaseFingerprint);
 }
 
 void OMW::Engine::setRandomSeed(unsigned int seed)

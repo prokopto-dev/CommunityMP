@@ -341,6 +341,9 @@ namespace
         auto engine = std::make_unique<OMW::Engine>(cfgMgr);
         engine->setRecastMaxLogLevel(Debug::getRecastMaxLogLevel());
         engine->setServerSimulationSavesPath(getServerOpenMwSavesPath());
+        const mwmp::ServerContentDatabaseStatistics contentDatabase = mwmp::ServerContentDatabase::get().statistics();
+        engine->setServerSimulationContentFingerprints(
+            contentDatabase.contentPlanFingerprint, contentDatabase.worldDatabaseFingerprint);
 
         logHeadlessOpenMwStage("prepareOpenMwServerEngine: configuring OpenMW application");
         Settings::Manager::clear();

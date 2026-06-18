@@ -181,6 +181,8 @@ namespace OMW
         int mActivationDistanceOverride;
         std::filesystem::path mSaveGameFile;
         std::filesystem::path mServerSimulationSavesPath;
+        std::string mServerSimulationContentPlanFingerprint;
+        std::string mServerSimulationWorldDatabaseFingerprint;
         // Grab mouse?
         bool mGrab;
 
@@ -295,6 +297,10 @@ namespace OMW
 
         /// Set the dedicated save root used by the server-owned OpenMW world simulation.
         void setServerSimulationSavesPath(const std::filesystem::path& path);
+
+        /// Associate the server-owned OpenMW world save with the imported content database that produced it.
+        void setServerSimulationContentFingerprints(
+            std::string contentPlanFingerprint, std::string worldDatabaseFingerprint);
 
         void setRandomSeed(unsigned int seed);
 
