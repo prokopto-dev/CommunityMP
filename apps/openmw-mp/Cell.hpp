@@ -33,6 +33,7 @@ public:
     void upsertActors(const mwmp::BaseActorList *newActorList);
     void removeActors(const mwmp::BaseActorList *newActorList);
     void requestActorListFrom(const mwmp::PacketGuid& guid);
+    bool hasPendingActorListRequest() const;
     bool hasPendingActorListRequestFrom(const mwmp::PacketGuid& guid) const;
     bool consumePendingActorListRequestFrom(const mwmp::PacketGuid& guid);
     bool hasActorListSnapshot() const;

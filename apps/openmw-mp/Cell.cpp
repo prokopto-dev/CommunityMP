@@ -376,6 +376,11 @@ void Cell::requestActorListFrom(const mwmp::PacketGuid& guid)
     actorListRequestGuid = guid;
 }
 
+bool Cell::hasPendingActorListRequest() const
+{
+    return mwmp::isPacketGuidAssigned(actorListRequestGuid);
+}
+
 bool Cell::hasPendingActorListRequestFrom(const mwmp::PacketGuid& guid) const
 {
     return mwmp::isPacketGuidAssigned(actorListRequestGuid) && actorListRequestGuid == guid;

@@ -1884,8 +1884,12 @@ namespace mwmp
             cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
             forceBroadcast && !authorityChanged ? " for joining visitor" : "");
 
-        if (authorityChanged && liveCell->hasActorListSnapshot())
-            requestActorListSnapshotFromAuthority(cellDescription, state, *liveCell, "authority changed");
+        if (authorityChanged)
+            requestActorListSnapshotFromAuthority(cellDescription, state, *liveCell,
+                liveCell->hasActorListSnapshot() ? "authority changed" : "initial authority assignment");
+        else if (!liveCell->hasActorListSnapshot())
+            requestActorListSnapshotFromAuthority(cellDescription, state, *liveCell,
+                "cell still needs an initial actor snapshot");
 
         return true;
     }
@@ -1897,6 +1901,12 @@ namespace mwmp
             return false;
 
         if (!isShadowCellAuthorityCandidate(state, state.authority))
+            return false;
+
+        if (liveCell.hasPendingActorListRequestFrom(state.authority))
+            return false;
+
+        if (liveCell.hasPendingActorListRequest() && liveCell.hasActorListSnapshot())
             return false;
 
         ServerNetworking* networking = ServerNetworking::getPtr();

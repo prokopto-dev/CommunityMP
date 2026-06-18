@@ -531,7 +531,8 @@ function BaseCell:AddVisitor(pid, options)
             self:RequestContainers(pid)
         end
 
-        if options.skipActorListRequest ~= true and not self:HasFullActorList() and not self.isRequestingActorList then
+        if options.skipActorListRequest ~= true and config.cppClientActorAuthority ~= true and
+            not self:HasFullActorList() and not self.isRequestingActorList then
             tes3mp.LogAppend(enumerations.log.INFO, "- Requesting actor list")
             local actorListRequestPid = pid
 
@@ -2084,6 +2085,9 @@ end
 
 function BaseCell:SaveActorList(actors, pid)
 
+    local isNativeCppActorListSnapshot = config.cppClientActorAuthority == true and
+        self.data.loadState.hasFullActorList ~= true and pid ~= nil and self.authority == pid
+
     if self.isRequestingActorList == true and pid ~= nil and self.actorListRequestPid ~= pid then
         tes3mp.LogAppend(enumerations.log.WARN, "- Rejected ActorList snapshot for " .. self.description ..
             " from unexpected pid " .. tostring(pid))
@@ -2101,7 +2105,7 @@ function BaseCell:SaveActorList(actors, pid)
     self:QuicksaveToDrive()
 
     -- Were we waiting on an actor list request from this pid?
-    if self.isRequestingActorList == true then
+    if self.isRequestingActorList == true or isNativeCppActorListSnapshot then
         self.isRequestingActorList = false
         self.actorListRequestPid = nil
         self.data.loadState.hasFullActorList = true
