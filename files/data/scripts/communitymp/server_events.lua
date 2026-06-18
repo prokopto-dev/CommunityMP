@@ -215,6 +215,9 @@ local function storeRuntimeStatus(state)
     if type(state.capabilities) == 'table' then
         runtimeStatus.capabilities = shallowCopy(state.capabilities)
     end
+    if type(state.movementPolicy) == 'table' then
+        runtimeStatus.movementPolicy = shallowCopy(state.movementPolicy)
+    end
 end
 
 local function getRuntimeStatus()
@@ -225,6 +228,9 @@ local function getRuntimeStatus()
     local copy = shallowCopy(runtimeStatus)
     if type(runtimeStatus.capabilities) == 'table' then
         copy.capabilities = shallowCopy(runtimeStatus.capabilities)
+    end
+    if type(runtimeStatus.movementPolicy) == 'table' then
+        copy.movementPolicy = shallowCopy(runtimeStatus.movementPolicy)
     end
     return copy
 end
@@ -319,6 +325,13 @@ return {
                 return nil
             end
             return shallowCopy(state.capabilities)
+        end,
+        getMovementPolicy = function()
+            local state = getRuntimeStatus()
+            if state == nil or type(state.movementPolicy) ~= 'table' then
+                return nil
+            end
+            return shallowCopy(state.movementPolicy)
         end,
         hasOpenMWWorld = function()
             local state = getRuntimeStatus()
