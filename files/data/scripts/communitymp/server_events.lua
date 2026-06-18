@@ -296,6 +296,9 @@ local function storeRuntimeStatus(state)
     if type(state.movementPolicy) == 'table' then
         runtimeStatus.movementPolicy = shallowCopy(state.movementPolicy)
     end
+    if type(state.questDatabase) == 'table' then
+        runtimeStatus.questDatabase = shallowCopy(state.questDatabase)
+    end
 end
 
 local function storeMovementCorrection(state)
@@ -440,6 +443,9 @@ local function getRuntimeStatus()
     if type(runtimeStatus.movementPolicy) == 'table' then
         copy.movementPolicy = shallowCopy(runtimeStatus.movementPolicy)
     end
+    if type(runtimeStatus.questDatabase) == 'table' then
+        copy.questDatabase = shallowCopy(runtimeStatus.questDatabase)
+    end
     return copy
 end
 
@@ -569,6 +575,13 @@ return {
                 return nil
             end
             return shallowCopy(state.movementPolicy)
+        end,
+        getQuestDatabaseStatus = function()
+            local state = getRuntimeStatus()
+            if state == nil or type(state.questDatabase) ~= 'table' then
+                return nil
+            end
+            return shallowCopy(state.questDatabase)
         end,
         hasOpenMWWorld = function()
             local state = getRuntimeStatus()

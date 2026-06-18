@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <components/openmw-mp/Base/ActorStatsAuthority.hpp>
+#include <components/files/conversion.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/Packets/Actor/ActorPacket.hpp>
 #include <components/openmw-mp/Packets/Player/PlayerPacket.hpp>
@@ -21,6 +22,7 @@
 #include "CellController.hpp"
 #include "CommunityMpClientLuaEventHandler.hpp"
 #include "CommunityMpLuaEventSender.hpp"
+#include "QuestDatabaseStore.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
@@ -1482,6 +1484,8 @@ namespace mwmp
         : mRuntime(createSimulationRuntime())
         , mLastTick(Clock::now())
     {
+        QuestDatabaseStore::get().ensureLoaded();
+
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Server simulation runtime requested=%s active=%s openmwWorld=%s actorAuthority=%s",
             mRuntime->requestedName(), mRuntime->activeName(), mRuntime->hasOpenMwWorld() ? "yes" : "no",
@@ -1972,6 +1976,7 @@ namespace mwmp
     void ServerSimulation::sendRuntimeStatusEvent(Player& player) const
     {
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
+        const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
         const CellController* cellController = CellController::get();
         std::size_t loadedCellCount = 0;
         if (cellController != nullptr)
@@ -1986,7 +1991,7 @@ namespace mwmp
         }
 
         std::string payload;
-        payload.reserve(420);
+        payload.reserve(760);
         payload += "{\"schema\":";
         payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
         payload += ",\"kind\":\"runtime_status\"";
@@ -2027,6 +2032,34 @@ namespace mwmp
         payload += std::to_string(luaMovementHealthFreshnessWindow.count());
         payload += ",\"luaCellObservationFreshnessSeconds\":";
         payload += std::to_string(luaObservationFreshnessWindow.count());
+        payload += "}";
+        payload += ",\"questDatabase\":{";
+        payload += "\"backend\":";
+        payload += jsonString(questDatabase.backend);
+        payload += ",\"attempted\":";
+        payload += jsonBool(questDatabase.attempted);
+        payload += ",\"loaded\":";
+        payload += jsonBool(questDatabase.loaded);
+        payload += ",\"rootPath\":";
+        payload += jsonString(Files::pathToUnicodeString(questDatabase.rootPath));
+        payload += ",\"lastError\":";
+        payload += jsonString(questDatabase.lastError);
+        payload += ",\"manifestCount\":";
+        payload += std::to_string(questDatabase.manifestCount);
+        payload += ",\"packageCount\":";
+        payload += std::to_string(questDatabase.packageCount);
+        payload += ",\"questDefinitionCount\":";
+        payload += std::to_string(questDatabase.questDefinitionCount);
+        payload += ",\"questStepCount\":";
+        payload += std::to_string(questDatabase.questStepCount);
+        payload += ",\"dialogueTopicCount\":";
+        payload += std::to_string(questDatabase.dialogueTopicCount);
+        payload += ",\"dialogueResponseCount\":";
+        payload += std::to_string(questDatabase.dialogueResponseCount);
+        payload += ",\"conditionCount\":";
+        payload += std::to_string(questDatabase.conditionCount);
+        payload += ",\"legacyEffectCount\":";
+        payload += std::to_string(questDatabase.legacyEffectCount);
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";
