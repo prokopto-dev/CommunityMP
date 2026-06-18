@@ -36,6 +36,13 @@ namespace mwmp
         std::size_t recordWinnerCount = 0;
         std::size_t recordWinnerDeletedCount = 0;
         std::size_t recordImportErrorCount = 0;
+        std::size_t cellRecordCount = 0;
+        std::size_t cellReferenceCount = 0;
+        std::size_t cellReferenceMovedCount = 0;
+        std::size_t cellReferenceDeletedCount = 0;
+        std::size_t cellReferenceWinnerCount = 0;
+        std::size_t cellReferenceWinnerDeletedCount = 0;
+        std::size_t cellImportErrorCount = 0;
         std::size_t questSourceRowCount = 0;
         std::size_t questSourcePackageCount = 0;
         std::size_t questSourceDialogueCount = 0;

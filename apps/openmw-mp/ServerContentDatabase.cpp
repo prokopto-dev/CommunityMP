@@ -4,7 +4,9 @@
 #include <components/esm/esmcommon.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/formatversion.hpp>
+#include <components/esm3/loadcell.hpp>
 #include <components/esm3/loaddial.hpp>
+#include <components/esm3/readerscache.hpp>
 #include <components/bsa/ba2dx10file.hpp>
 #include <components/bsa/ba2gnrlfile.hpp>
 #include <components/bsa/bsafile.hpp>
@@ -20,6 +22,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -42,6 +45,9 @@ namespace
     constexpr const char* resolvedAssetRowSchema = "communitymp.worlddb.resolved-asset.v1";
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
+    constexpr const char* cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
+    constexpr const char* cellReferenceRowSchema = "communitymp.worlddb.cell-reference.v1";
+    constexpr const char* cellReferenceWinnerRowSchema = "communitymp.worlddb.cell-reference-winner.v1";
     constexpr const char* questSourceRowSchema = "communitymp.quest.source.v1";
     constexpr const char* questDatabaseRowSchema = "communitymp.questdb.v1";
     constexpr const char* builtinOpenMwScripts = "builtin.omwscripts";
@@ -460,7 +466,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -486,6 +492,20 @@ namespace
         appendJsonNumberField(result, "recordWinnerDeletedCount", stats.recordWinnerDeletedCount);
         result += ",\n  ";
         appendJsonNumberField(result, "recordImportErrorCount", stats.recordImportErrorCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellRecordCount", stats.cellRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellReferenceCount", stats.cellReferenceCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellReferenceMovedCount", stats.cellReferenceMovedCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellReferenceDeletedCount", stats.cellReferenceDeletedCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellReferenceWinnerCount", stats.cellReferenceWinnerCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellReferenceWinnerDeletedCount", stats.cellReferenceWinnerDeletedCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "cellImportErrorCount", stats.cellImportErrorCount);
         result += ",\n  ";
         appendJsonNumberField(result, "questSourceRowCount", stats.questSourceRowCount);
         result += ",\n  ";
@@ -1498,6 +1518,360 @@ namespace
             if (isDeletedRecord(row))
                 ++stats.recordWinnerDeletedCount;
         }
+
+        return result;
+    }
+
+    struct CellReferenceRow
+    {
+        std::size_t engineContentIndex = 0;
+        std::string contentFile;
+        std::size_t cellRecordIndex = 0;
+        std::size_t referenceOrder = 0;
+        std::string sourceCellKey;
+        std::string effectiveCellKey;
+        bool moved = false;
+        bool deleted = false;
+        int movedTargetX = 0;
+        int movedTargetY = 0;
+        ESM::CellRef ref;
+    };
+
+    struct CellWorldTables
+    {
+        std::string cellsJsonl;
+        std::string cellReferencesJsonl;
+        std::string cellReferenceWinnersJsonl;
+    };
+
+    std::string cellKeyForGrid(const int x, const int y)
+    {
+        return "exterior:" + std::to_string(x) + "," + std::to_string(y);
+    }
+
+    std::string cellKeyForCell(const ESM::Cell& cell)
+    {
+        if ((cell.mData.mFlags & ESM::Cell::Interior) != 0)
+            return "interior:" + normalizedLookupKey(cell.mName);
+
+        return cellKeyForGrid(cell.mData.mX, cell.mData.mY);
+    }
+
+    std::string refNumKey(const ESM::RefNum& refNum)
+    {
+        return "refnum:" + std::to_string(refNum.mContentFile) + ":" + std::to_string(refNum.mIndex);
+    }
+
+    std::string finiteJsonNumber(const float value)
+    {
+        if (!std::isfinite(value))
+            return "null";
+
+        std::ostringstream stream;
+        stream << std::setprecision(9) << value;
+        return stream.str();
+    }
+
+    void appendJsonFloatField(std::string& result, std::string_view name, const float value)
+    {
+        appendJsonRawField(result, name, finiteJsonNumber(value));
+    }
+
+    void appendPositionFields(std::string& result, const std::string_view prefix, const ESM::Position& position)
+    {
+        appendJsonFloatField(result, std::string(prefix) + "PosX", position.pos[0]);
+        result.push_back(',');
+        appendJsonFloatField(result, std::string(prefix) + "PosY", position.pos[1]);
+        result.push_back(',');
+        appendJsonFloatField(result, std::string(prefix) + "PosZ", position.pos[2]);
+        result.push_back(',');
+        appendJsonFloatField(result, std::string(prefix) + "RotX", position.rot[0]);
+        result.push_back(',');
+        appendJsonFloatField(result, std::string(prefix) + "RotY", position.rot[1]);
+        result.push_back(',');
+        appendJsonFloatField(result, std::string(prefix) + "RotZ", position.rot[2]);
+    }
+
+    bool isCellRecordDeleted(const std::uint32_t recordFlags, const bool cellDeletedSubrecord)
+    {
+        return (recordFlags & ESM::FLAG_Deleted) != 0 || cellDeletedSubrecord;
+    }
+
+    void appendCellRecordRow(std::string& result, const std::size_t engineContentIndex,
+        const std::string& contentFile, const std::size_t recordIndex, const std::uint32_t recordFlags,
+        const bool cellDeletedSubrecord, const ESM::Cell& cell, const std::string& cellKey,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        result.push_back('{');
+        appendJsonStringField(result, "schema", cellRecordRowSchema);
+        result.push_back(',');
+        appendJsonNumberField(result, "loadOrderIndex", engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "engineContentIndex", engineContentIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "sourceFile", contentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordIndex", recordIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordFlags", recordFlags);
+        result.push_back(',');
+        appendJsonBoolField(result, "deleted", isCellRecordDeleted(recordFlags, cellDeletedSubrecord));
+        result.push_back(',');
+        appendJsonBoolField(result, "recordFlagDeleted", (recordFlags & ESM::FLAG_Deleted) != 0);
+        result.push_back(',');
+        appendJsonBoolField(result, "deleteSubrecord", cellDeletedSubrecord);
+        result.push_back(',');
+        appendJsonStringField(result, "cellKey", cellKey);
+        result.push_back(',');
+        appendJsonStringField(result, "cellName", cell.mName);
+        result.push_back(',');
+        appendJsonBoolField(result, "interior", (cell.mData.mFlags & ESM::Cell::Interior) != 0);
+        result.push_back(',');
+        appendJsonNumberField(result, "gridX", cell.mData.mX);
+        result.push_back(',');
+        appendJsonNumberField(result, "gridY", cell.mData.mY);
+        result.push_back(',');
+        appendJsonNumberField(result, "cellFlags", cell.mData.mFlags);
+        result.push_back(',');
+        appendJsonStringField(result, "region", refIdToString(cell.mRegion));
+        result.push_back(',');
+        appendJsonBoolField(result, "hasWaterHeight", cell.mHasWaterHeightSub);
+        result.push_back(',');
+        appendJsonFloatField(result, "water", cell.mWater);
+        result.push_back(',');
+        appendJsonNumberField(result, "mapColor", cell.mMapColor);
+        result.push_back(',');
+        appendJsonNumberField(result, "refNumCounter", cell.mRefNumCounter);
+        result.push_back(',');
+        appendJsonBoolField(result, "hasAmbient", cell.mHasAmbi);
+        result.push_back(',');
+        appendJsonNumberField(result, "ambientColor", cell.mAmbi.mAmbient);
+        result.push_back(',');
+        appendJsonNumberField(result, "sunlightColor", cell.mAmbi.mSunlight);
+        result.push_back(',');
+        appendJsonNumberField(result, "fogColor", cell.mAmbi.mFog);
+        result.push_back(',');
+        appendJsonFloatField(result, "fogDensity", cell.mAmbi.mFogDensity);
+        result += "}\n";
+        ++stats.cellRecordCount;
+    }
+
+    void appendCellReferenceCommonFields(std::string& result, const CellReferenceRow& row)
+    {
+        appendJsonStringField(result, "refKey", refNumKey(row.ref.mRefNum));
+        result.push_back(',');
+        appendJsonNumberField(result, "refNumContentFile", row.ref.mRefNum.mContentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "refNumIndex", row.ref.mRefNum.mIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "refId", refIdToString(row.ref.mRefID));
+        result.push_back(',');
+        appendJsonStringField(result, "sourceCellKey", row.sourceCellKey);
+        result.push_back(',');
+        appendJsonStringField(result, "effectiveCellKey", row.effectiveCellKey);
+        result.push_back(',');
+        appendJsonBoolField(result, "moved", row.moved);
+        result.push_back(',');
+        appendJsonBoolField(result, "deleted", row.deleted);
+        result.push_back(',');
+        appendJsonNumberField(result, "movedTargetX", row.movedTargetX);
+        result.push_back(',');
+        appendJsonNumberField(result, "movedTargetY", row.movedTargetY);
+        result.push_back(',');
+        appendJsonNumberField(result, "count", row.ref.mCount);
+        result.push_back(',');
+        appendJsonFloatField(result, "scale", row.ref.mScale);
+        result.push_back(',');
+        appendPositionFields(result, "", row.ref.mPos);
+        result.push_back(',');
+        appendJsonStringField(result, "owner", refIdToString(row.ref.mOwner));
+        result.push_back(',');
+        appendJsonStringField(result, "globalVariable", row.ref.mGlobalVariable);
+        result.push_back(',');
+        appendJsonStringField(result, "soul", refIdToString(row.ref.mSoul));
+        result.push_back(',');
+        appendJsonStringField(result, "faction", refIdToString(row.ref.mFaction));
+        result.push_back(',');
+        appendJsonNumberField(result, "factionRank", row.ref.mFactionRank);
+        result.push_back(',');
+        appendJsonNumberField(result, "chargeInt", row.ref.mChargeInt);
+        result.push_back(',');
+        appendJsonFloatField(result, "chargeIntRemainder", row.ref.mChargeIntRemainder);
+        result.push_back(',');
+        appendJsonFloatField(result, "enchantmentCharge", row.ref.mEnchantmentCharge);
+        result.push_back(',');
+        appendJsonBoolField(result, "teleport", row.ref.mTeleport);
+        result.push_back(',');
+        appendJsonStringField(result, "destCell", row.ref.mDestCell);
+        result.push_back(',');
+        appendPositionFields(result, "doorDest", row.ref.mDoorDest);
+        result.push_back(',');
+        appendJsonNumberField(result, "lockLevel", row.ref.mLockLevel);
+        result.push_back(',');
+        appendJsonBoolField(result, "locked", row.ref.mIsLocked);
+        result.push_back(',');
+        appendJsonStringField(result, "key", refIdToString(row.ref.mKey));
+        result.push_back(',');
+        appendJsonStringField(result, "trap", refIdToString(row.ref.mTrap));
+        result.push_back(',');
+        appendJsonNumberField(result, "referenceBlocked", static_cast<int>(row.ref.mReferenceBlocked));
+    }
+
+    void appendCellReferenceRow(std::string& result, const CellReferenceRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        result.push_back('{');
+        appendJsonStringField(result, "schema", cellReferenceRowSchema);
+        result.push_back(',');
+        appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "sourceFile", row.contentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "cellRecordIndex", row.cellRecordIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "referenceOrder", row.referenceOrder);
+        result.push_back(',');
+        appendCellReferenceCommonFields(result, row);
+        result += "}\n";
+
+        ++stats.cellReferenceCount;
+        if (row.moved)
+            ++stats.cellReferenceMovedCount;
+        if (row.deleted)
+            ++stats.cellReferenceDeletedCount;
+    }
+
+    void appendCellReferenceWinnerRow(std::string& result, const CellReferenceRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        result.push_back('{');
+        appendJsonStringField(result, "schema", cellReferenceWinnerRowSchema);
+        result.push_back(',');
+        appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "sourceFile", row.contentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "cellRecordIndex", row.cellRecordIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "referenceOrder", row.referenceOrder);
+        result.push_back(',');
+        appendCellReferenceCommonFields(result, row);
+        result.push_back(',');
+        appendJsonBoolField(result, "tombstone", row.deleted);
+        result.push_back(',');
+        appendJsonStringField(result, "loadOrderRule", laterContentEntryDominatesLoadOrderRule);
+        result += "}\n";
+
+        ++stats.cellReferenceWinnerCount;
+        if (row.deleted)
+            ++stats.cellReferenceWinnerDeletedCount;
+    }
+
+    CellWorldTables buildCellWorldTablesJsonl(const std::vector<std::filesystem::path>& dataDirs,
+        const std::vector<std::string>& contentFiles, const std::string& encoding,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        Files::Collections collections(dataDirs);
+        ToUTF8::Utf8Encoder encoder(ToUTF8::calculateEncoding(encoding));
+        ESM::ReadersCache readers(contentFiles.size() + 1);
+
+        CellWorldTables result;
+        result.cellsJsonl.reserve(contentFiles.size() * 4096);
+        result.cellReferencesJsonl.reserve(contentFiles.size() * 16384);
+        result.cellReferenceWinnersJsonl.reserve(contentFiles.size() * 8192);
+
+        std::map<std::string, CellReferenceRow> winningReferences;
+
+        for (std::size_t engineContentIndex = 0; engineContentIndex < contentFiles.size(); ++engineContentIndex)
+        {
+            const std::string& contentFile = contentFiles[engineContentIndex];
+            if (contentFile.empty() || isBuiltinContentFile(contentFile) || !isEsmLikeContentFile(contentFile))
+                continue;
+
+            try
+            {
+                const ESM::ReadersCache::BusyItem reader = readers.get(engineContentIndex);
+                reader->setEncoder(&encoder);
+                reader->setIndex(static_cast<int>(engineContentIndex));
+                if (!reader->isOpen())
+                    reader->open(collections.getPath(contentFile));
+                reader->resolveParentFileIndices(readers);
+
+                std::size_t recordIndex = 1;
+                while (reader->hasMoreRecs())
+                {
+                    const ESM::NAME recordName = reader->getRecName();
+                    std::uint32_t recordFlags = 0;
+                    reader->getRecHeader(recordFlags);
+
+                    if ((recordFlags & ESM::FLAG_Ignored) != 0 || recordName.toInt() != ESM::REC_CELL)
+                    {
+                        reader->skipRecord();
+                        ++recordIndex;
+                        continue;
+                    }
+
+                    ESM::Cell cell;
+                    bool cellDeletedSubrecord = false;
+                    cell.loadNameAndData(*reader, cellDeletedSubrecord);
+                    const std::string sourceCellKey = cellKeyForCell(cell);
+                    cell.loadCell(*reader, false);
+
+                    appendCellRecordRow(result.cellsJsonl, engineContentIndex, contentFile, recordIndex, recordFlags,
+                        cellDeletedSubrecord, cell, sourceCellKey, stats);
+
+                    std::size_t referenceOrder = 0;
+                    while (reader->hasMoreSubs())
+                    {
+                        ESM::CellRef ref;
+                        bool deleted = false;
+                        ESM::MovedCellRef movedRef{};
+                        bool moved = false;
+                        if (!ESM::Cell::getNextRef(
+                                *reader, ref, deleted, movedRef, moved, ESM::Cell::GetNextRefMode::LoadAll))
+                            break;
+
+                        CellReferenceRow row;
+                        row.engineContentIndex = engineContentIndex;
+                        row.contentFile = contentFile;
+                        row.cellRecordIndex = recordIndex;
+                        row.referenceOrder = referenceOrder++;
+                        row.sourceCellKey = sourceCellKey;
+                        row.moved = moved;
+                        row.deleted = deleted;
+                        row.ref = std::move(ref);
+
+                        if (moved)
+                        {
+                            row.movedTargetX = movedRef.mTarget[0];
+                            row.movedTargetY = movedRef.mTarget[1];
+                            row.effectiveCellKey = cellKeyForGrid(movedRef.mTarget[0], movedRef.mTarget[1]);
+                        }
+                        else
+                            row.effectiveCellKey = sourceCellKey;
+
+                        appendCellReferenceRow(result.cellReferencesJsonl, row, stats);
+                        winningReferences[refNumKey(row.ref.mRefNum)] = std::move(row);
+                    }
+
+                    reader->skipRecord();
+                    ++recordIndex;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                ++stats.cellImportErrorCount;
+                if (stats.lastError.empty())
+                    stats.lastError = e.what();
+            }
+        }
+
+        for (const auto& [_, row] : winningReferences)
+            appendCellReferenceWinnerRow(result.cellReferenceWinnersJsonl, row, stats);
 
         return result;
     }
@@ -2761,7 +3135,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 9;
+        mStats.tableCount = 12;
 
         try
         {
@@ -2774,6 +3148,7 @@ namespace mwmp
             const std::string archiveFilesJsonl = buildArchiveFilesJsonl(dataDirs, archives, encoding, newStats);
             const std::string resolvedAssetsJsonl = buildResolvedAssetsJsonl(dataDirs, archives, encoding, newStats);
             const RecordIndexTables recordIndexTables = buildRecordIndexTablesJsonl(dataDirs, contentFiles, newStats);
+            const CellWorldTables cellWorldTables = buildCellWorldTablesJsonl(dataDirs, contentFiles, encoding, newStats);
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb
                 = buildGeneratedQuestDatabasePackage(dataDirs, contentFiles, encoding, newStats);
@@ -2788,6 +3163,10 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "resolved_assets.jsonl", resolvedAssetsJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexTables.recordIndexJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "cells.jsonl", cellWorldTables.cellsJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "cell_references.jsonl", cellWorldTables.cellReferencesJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "cell_reference_winners.jsonl",
+                cellWorldTables.cellReferenceWinnersJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "quest_sources.jsonl", questSourcesJsonl) || changed;
             changed = writeIfChanged(newStats.manifestPath, manifestJson) || changed;
             changed = writeGeneratedQuestDatabasePackage(newStats.generatedQuestDatabasePath, generatedQuestDb) || changed;
