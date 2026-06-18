@@ -721,6 +721,8 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.attempted = true;
     serverWorldBootstrapStats.cellKey = worldDatabaseCellKeyForCell(cell);
     serverWorldReferences.clear();
+    serverWorldPathgridPoints.clear();
+    serverWorldPathgridEdges.clear();
     serverWorldActorList = {};
     serverWorldActorList.guid = mwmp::unassignedPacketGuid();
     serverWorldActorList.cell = cell;
@@ -736,6 +738,14 @@ void Cell::ensureServerWorldStateBootstrapped()
     const mwmp::WorldDatabaseStatistics worldStats = mwmp::WorldDatabaseStore::get().statistics();
     if (!worldStats.loaded)
         return;
+
+    serverWorldPathgridPoints
+        = mwmp::WorldDatabaseStore::get().findPathgridPointsByCellKey(serverWorldBootstrapStats.cellKey);
+    serverWorldPathgridEdges
+        = mwmp::WorldDatabaseStore::get().findPathgridEdgesByCellKey(serverWorldBootstrapStats.cellKey);
+    serverWorldBootstrapStats.pathgridAvailable = !serverWorldPathgridPoints.empty();
+    serverWorldBootstrapStats.pathgridPointCount = serverWorldPathgridPoints.size();
+    serverWorldBootstrapStats.pathgridEdgeCount = serverWorldPathgridEdges.size();
 
     std::vector<mwmp::WorldCellReferenceRecord> references
         = mwmp::WorldDatabaseStore::get().findReferencesByCellKey(serverWorldBootstrapStats.cellKey);
@@ -881,7 +891,7 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorAiPackageListCount,
         serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorProfileCount,
@@ -891,7 +901,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         serverWorldBootstrapStats.actorSpellbookSpellCount, serverWorldBootstrapStats.actorStatsDynamicCount,
         serverWorldBootstrapStats.actorStatsDynamicItemCount, serverWorldBootstrapStats.actorStatsDynamicAutocalcCount,
         serverWorldBootstrapStats.actorEquipmentCount,
-        serverWorldBootstrapStats.actorEquipmentItemCount, serverWorldBootstrapStats.objectCount,
+        serverWorldBootstrapStats.actorEquipmentItemCount, serverWorldBootstrapStats.pathgridPointCount,
+        serverWorldBootstrapStats.pathgridEdgeCount, serverWorldBootstrapStats.objectCount,
         serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);
 }
@@ -909,6 +920,16 @@ const Cell::ServerWorldBootstrapStats& Cell::getServerWorldBootstrapStats() cons
 const std::vector<Cell::ServerWorldReference>& Cell::getServerWorldReferences() const
 {
     return serverWorldReferences;
+}
+
+const std::vector<mwmp::WorldPathgridPointRecord>& Cell::getServerWorldPathgridPoints() const
+{
+    return serverWorldPathgridPoints;
+}
+
+const std::vector<mwmp::WorldPathgridEdgeRecord>& Cell::getServerWorldPathgridEdges() const
+{
+    return serverWorldPathgridEdges;
 }
 
 const mwmp::BaseActorList& Cell::getServerWorldActorList() const

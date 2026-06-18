@@ -13,6 +13,8 @@
 #include <components/openmw-mp/Packets/Actor/ActorPacket.hpp>
 #include <components/openmw-mp/Packets/Object/ObjectPacket.hpp>
 
+#include "WorldDatabaseStore.hpp"
+
 class Player;
 class Cell;
 
@@ -104,6 +106,9 @@ public:
         std::size_t actorStatsDynamicAutocalcCount = 0;
         std::size_t actorEquipmentCount = 0;
         std::size_t actorEquipmentItemCount = 0;
+        bool pathgridAvailable = false;
+        std::size_t pathgridPointCount = 0;
+        std::size_t pathgridEdgeCount = 0;
         std::size_t unresolvedCount = 0;
         std::size_t ambiguousCount = 0;
         std::size_t deletedBaseRecordCount = 0;
@@ -133,6 +138,8 @@ public:
     bool hasServerWorldStateBootstrap() const;
     const ServerWorldBootstrapStats& getServerWorldBootstrapStats() const;
     const std::vector<ServerWorldReference>& getServerWorldReferences() const;
+    const std::vector<mwmp::WorldPathgridPointRecord>& getServerWorldPathgridPoints() const;
+    const std::vector<mwmp::WorldPathgridEdgeRecord>& getServerWorldPathgridEdges() const;
     const mwmp::BaseActorList& getServerWorldActorList() const;
     const mwmp::BaseObjectList& getServerWorldObjectList() const;
     bool seedActorListFromServerWorldState();
@@ -181,6 +188,8 @@ private:
     mwmp::BaseObjectList serverWorldObjectList;
     std::set<std::pair<unsigned int, unsigned int>> knownContainerSnapshots;
     std::vector<ServerWorldReference> serverWorldReferences;
+    std::vector<mwmp::WorldPathgridPointRecord> serverWorldPathgridPoints;
+    std::vector<mwmp::WorldPathgridEdgeRecord> serverWorldPathgridEdges;
     ServerWorldBootstrapStats serverWorldBootstrapStats;
     bool actorListSnapshotReceived;
     bool objectListSnapshotReceived;

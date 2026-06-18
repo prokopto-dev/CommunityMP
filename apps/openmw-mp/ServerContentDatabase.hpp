@@ -53,6 +53,9 @@ namespace mwmp
         std::size_t actorEquipmentItemCount = 0;
         std::size_t containerInventoryRecordCount = 0;
         std::size_t containerInventoryItemCount = 0;
+        std::size_t pathgridRecordCount = 0;
+        std::size_t pathgridPointCount = 0;
+        std::size_t pathgridEdgeCount = 0;
         std::size_t cellRecordCount = 0;
         std::size_t cellReferenceCount = 0;
         std::size_t cellReferenceMovedCount = 0;

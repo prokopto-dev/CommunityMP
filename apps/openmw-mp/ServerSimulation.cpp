@@ -2363,6 +2363,12 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorEquipmentCount : 0);
         payload += ",\"serverWorldActorEquipmentItemCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorEquipmentItemCount : 0);
+        payload += ",\"serverWorldPathgridAvailable\":";
+        payload += jsonBool(serverWorldStats != nullptr && serverWorldStats->pathgridAvailable);
+        payload += ",\"serverWorldPathgridPointCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridPointCount : 0);
+        payload += ",\"serverWorldPathgridEdgeCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridEdgeCount : 0);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->objectCount : 0);
         payload += ",\"serverWorldActorListSeeded\":";
@@ -2440,6 +2446,9 @@ namespace mwmp
         std::size_t serverWorldActorStatsDynamicAutocalcCount = 0;
         std::size_t serverWorldActorEquipmentReferenceCount = 0;
         std::size_t serverWorldActorEquipmentItemCount = 0;
+        std::size_t serverWorldPathgridCellCount = 0;
+        std::size_t serverWorldPathgridPointCount = 0;
+        std::size_t serverWorldPathgridEdgeCount = 0;
         std::size_t serverWorldObjectReferenceCount = 0;
         std::size_t serverWorldContainerReferenceCount = 0;
         std::size_t serverWorldDoorReferenceCount = 0;
@@ -2488,6 +2497,10 @@ namespace mwmp
                 serverWorldActorStatsDynamicAutocalcCount += stats.actorStatsDynamicAutocalcCount;
                 serverWorldActorEquipmentReferenceCount += stats.actorEquipmentCount;
                 serverWorldActorEquipmentItemCount += stats.actorEquipmentItemCount;
+                if (stats.pathgridAvailable)
+                    ++serverWorldPathgridCellCount;
+                serverWorldPathgridPointCount += stats.pathgridPointCount;
+                serverWorldPathgridEdgeCount += stats.pathgridEdgeCount;
                 serverWorldObjectReferenceCount += stats.objectCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
                 serverWorldDoorReferenceCount += stats.doorCount;
@@ -2562,6 +2575,12 @@ namespace mwmp
         payload += std::to_string(serverWorldActorEquipmentReferenceCount);
         payload += ",\"serverWorldActorEquipmentItemCount\":";
         payload += std::to_string(serverWorldActorEquipmentItemCount);
+        payload += ",\"serverWorldPathgridCellCount\":";
+        payload += std::to_string(serverWorldPathgridCellCount);
+        payload += ",\"serverWorldPathgridPointCount\":";
+        payload += std::to_string(serverWorldPathgridPointCount);
+        payload += ",\"serverWorldPathgridEdgeCount\":";
+        payload += std::to_string(serverWorldPathgridEdgeCount);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldObjectReferenceCount);
         payload += ",\"serverWorldActorSeededCellCount\":";
@@ -2746,6 +2765,12 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.containerInventoryRecordCount);
         payload += ",\"containerInventoryItemCount\":";
         payload += std::to_string(serverContentDatabase.containerInventoryItemCount);
+        payload += ",\"pathgridRecordCount\":";
+        payload += std::to_string(serverContentDatabase.pathgridRecordCount);
+        payload += ",\"pathgridPointCount\":";
+        payload += std::to_string(serverContentDatabase.pathgridPointCount);
+        payload += ",\"pathgridEdgeCount\":";
+        payload += std::to_string(serverContentDatabase.pathgridEdgeCount);
         payload += ",\"cellRecordCount\":";
         payload += std::to_string(serverContentDatabase.cellRecordCount);
         payload += ",\"cellReferenceCount\":";
@@ -2880,6 +2905,14 @@ namespace mwmp
         payload += std::to_string(worldDatabase.containerInventoryRecordCount);
         payload += ",\"containerInventoryItemCount\":";
         payload += std::to_string(worldDatabase.containerInventoryItemCount);
+        payload += ",\"pathgridRecordCount\":";
+        payload += std::to_string(worldDatabase.pathgridRecordCount);
+        payload += ",\"pathgridPointCount\":";
+        payload += std::to_string(worldDatabase.pathgridPointCount);
+        payload += ",\"pathgridEdgeCount\":";
+        payload += std::to_string(worldDatabase.pathgridEdgeCount);
+        payload += ",\"pathgridIndexedCellCount\":";
+        payload += std::to_string(worldDatabase.pathgridIndexedCellCount);
         payload += ",\"baseRecordResolvedReferenceCount\":";
         payload += std::to_string(worldDatabase.baseRecordResolvedReferenceCount);
         payload += ",\"baseRecordUnresolvedReferenceCount\":";
