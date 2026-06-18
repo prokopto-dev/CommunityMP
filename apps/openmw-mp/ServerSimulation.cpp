@@ -55,6 +55,7 @@ namespace
     constexpr float followerCellChangeBehindDistance = 96.f;
     constexpr float followerCellChangeRowSpacing = 48.f;
     constexpr float followerCellChangeColumnSpacing = 48.f;
+    constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
 
     bool containsGuid(const std::vector<mwmp::PacketGuid>& guids, mwmp::PacketGuid guid)
     {
@@ -363,6 +364,38 @@ namespace
         return observation.cellKey == getCellSimulationKey(cell)
             || observation.cellId == cell.mName
             || observation.cellName == cell.mName;
+    }
+
+    std::optional<float> getFreshLuaMovementHealthSampleIntervalSeconds(const Player& player)
+    {
+        std::optional<mwmp::CommunityMpPlayerObservation> observation
+            = mwmp::CommunityMpClientLuaEventHandler::getLatestMovementHealthObservation(player.guid);
+        if (!observation || observation->kind != "movement_health" || !observation->hasFrameStats)
+            return std::nullopt;
+
+        if (observation->receivedAt == std::chrono::steady_clock::time_point()
+            || std::chrono::steady_clock::now() - observation->receivedAt > luaMovementHealthFreshnessWindow)
+            return std::nullopt;
+
+        if (!observationMatchesCell(*observation, player.cell))
+            return std::nullopt;
+
+        if (observation->frameCount <= 0 || !std::isfinite(observation->averageFrameSeconds)
+            || observation->averageFrameSeconds <= 0.0)
+            return std::nullopt;
+
+        return mwmp::sanitizeMovementSampleIntervalSeconds(static_cast<float>(observation->averageFrameSeconds));
+    }
+
+    float getObservedPlayerSampleIntervalSeconds(const Player& player)
+    {
+        const float packetSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+            player.movementSampleIntervalSeconds);
+        const std::optional<float> luaSampleIntervalSeconds = getFreshLuaMovementHealthSampleIntervalSeconds(player);
+        if (!luaSampleIntervalSeconds)
+            return packetSampleIntervalSeconds;
+
+        return std::max(packetSampleIntervalSeconds, *luaSampleIntervalSeconds);
     }
 
     enum class LuaObservationCellStatus
@@ -2366,8 +2399,9 @@ namespace mwmp
         }
 
         const float serverDeltaSeconds = std::chrono::duration<float>(now - movementState.lastMovementPacket).count();
+        const float observedSampleIntervalSeconds = getObservedPlayerSampleIntervalSeconds(player);
         const float plausibilityDeltaSeconds = getPlayerPlausibilityDeltaSeconds(
-            serverDeltaSeconds, player.movementSampleIntervalSeconds, estimateOneWayLatencySeconds(player.guid));
+            serverDeltaSeconds, observedSampleIntervalSeconds, estimateOneWayLatencySeconds(player.guid));
         movementState.lastMovementPacket = now;
 
         if (!isPlausiblePlayerMovement(player.acceptedPosition, clientPosition, plausibilityDeltaSeconds))
