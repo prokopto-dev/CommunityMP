@@ -1,8 +1,10 @@
 #include "engine.hpp"
+#include "serversimulationmode.hpp"
 
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <future>
 #include <sstream>
@@ -101,6 +103,7 @@
 #include "mwmechanics/aisequence.hpp"
 #include "mwmechanics/creaturestats.hpp"
 #include "mwmechanics/mechanicsmanagerimp.hpp"
+#include "mwmechanics/movement.hpp"
 
 #include "mwstate/statemanagerimp.hpp"
 
@@ -423,6 +426,15 @@ namespace
         destination.mMod = source.getModifier();
     }
 
+    float sanitizeServerSimulationMovementComponent(float value)
+    {
+        constexpr float movementEpsilon = 0.0001f;
+        if (!std::isfinite(value) || std::abs(value) <= movementEpsilon)
+            return 0.f;
+
+        return value;
+    }
+
     bool appendServerSimulationActor(mwmp::BaseActorList& actorList, const MWWorld::Ptr& ptr)
     {
         if (ptr.isEmpty() || !ptr.getClass().isActor())
@@ -439,7 +451,12 @@ namespace
         actor.cell = actorList.cell;
 
         actor.position = ptr.getRefData().getPosition();
-        actor.direction = {};
+        const MWMechanics::Movement& movement = ptr.getClass().getMovementSettings(ptr);
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            actor.direction.pos[axis] = sanitizeServerSimulationMovementComponent(movement.mPosition[axis]);
+            actor.direction.rot[axis] = sanitizeServerSimulationMovementComponent(movement.mRotation[axis]);
+        }
         actor.hasPositionData = true;
         actor.movementSampleIntervalSeconds = 1.f / 30.f;
         actor.movementLatencySeconds = 0.f;
@@ -452,6 +469,17 @@ namespace
         actor.hasStatsDynamicData = true;
 
         actor.drawState = static_cast<char>(static_cast<int>(creatureStats.getDrawState()));
+        actor.movementFlags = 0;
+        if (creatureStats.getMovementFlag(MWMechanics::CreatureStats::Flag_Sneak))
+            actor.movementFlags |= MWMechanics::CreatureStats::Flag_Sneak;
+        if (creatureStats.getMovementFlag(MWMechanics::CreatureStats::Flag_Run))
+            actor.movementFlags |= MWMechanics::CreatureStats::Flag_Run;
+        if (creatureStats.getMovementFlag(MWMechanics::CreatureStats::Flag_ForceJump))
+            actor.movementFlags |= MWMechanics::CreatureStats::Flag_ForceJump;
+        if (creatureStats.getMovementFlag(MWMechanics::CreatureStats::Flag_ForceMoveJump))
+            actor.movementFlags |= MWMechanics::CreatureStats::Flag_ForceMoveJump;
+        actor.isJumping = creatureStats.getMovementFlag(MWMechanics::CreatureStats::Flag_ForceJump);
+        actor.isFlying = MWBase::Environment::get().getWorld()->isFlying(ptr);
         actor.hasAnimFlagsData = true;
 
         actorList.baseActors.push_back(std::move(actor));
@@ -478,8 +506,20 @@ void OMW::Engine::executeLocalScripts()
     }
 }
 
+void OMW::Engine::hideServerSimulationWindow()
+{
+    if (!mServerSimulationMode || mWindow == nullptr)
+        return;
+
+    SDL_SetWindowTitle(mWindow, "CommunityMP Server Simulation");
+    SDL_SetWindowData(mWindow, "OpenMW.ServerSimulationHidden", mWindow);
+    SDL_HideWindow(mWindow);
+}
+
 void OMW::Engine::neutralizeServerSimulationPlayer()
 {
+    hideServerSimulationWindow();
+
     if (!mServerSimulationMode || mWorld == nullptr || mMechanicsManager == nullptr || mStateManager == nullptr
         || mStateManager->getState() != MWBase::StateManager::State_Running)
         return;
@@ -741,6 +781,9 @@ OMW::Engine::Engine(Files::ConfigurationManager& configurationManager)
 
 OMW::Engine::~Engine()
 {
+    if (mServerSimulationMode)
+        OMW::setServerSimulationModeActive(false);
+
 #ifdef BUILD_TES3MP_CLIENT
     if (mwmp::Main::isInitialized())
     {
@@ -897,15 +940,17 @@ void OMW::Engine::createWindow()
     {
         while (!mWindow)
         {
-            mWindow = SDL_CreateWindow(
 #ifdef BUILD_TES3MP_CLIENT
-                mwmp::Branding::productName,
+            const char* windowTitle
+                = hiddenServerSimulationWindow ? "CommunityMP Server Simulation" : mwmp::Branding::productName;
 #else
-                "OpenMW",
+            const char* windowTitle = hiddenServerSimulationWindow ? "CommunityMP Server Simulation" : "OpenMW";
 #endif
+            mWindow = SDL_CreateWindow(
+                windowTitle,
                 posX, posY, width, height, flags);
             if (mWindow != nullptr && hiddenServerSimulationWindow)
-                SDL_SetWindowData(mWindow, "OpenMW.ServerSimulationHidden", mWindow);
+                hideServerSimulationWindow();
             if (!mWindow)
             {
                 // Try with a lower AA
@@ -1055,6 +1100,8 @@ void OMW::Engine::createWindow()
     }
 
     mViewer->realize();
+    if (hiddenServerSimulationWindow)
+        hideServerSimulationWindow();
     mGlMaxTextureImageUnits = identifyOp->getMaxTextureImageUnits();
 
     mViewer->getEventQueue()->getCurrentEventState()->setWindowRectangle(
@@ -1316,6 +1363,7 @@ void OMW::Engine::prepareServerSimulation()
         return;
 
     mServerSimulationMode = true;
+    OMW::setServerSimulationModeActive(true);
     mServerSimulationWorldSavePath.clear();
     mServerSimulationWorldManifestPath = serverWorldManifestPath(mServerSimulationSavesPath);
     mServerSimulationWorldLoadedFromSave = false;

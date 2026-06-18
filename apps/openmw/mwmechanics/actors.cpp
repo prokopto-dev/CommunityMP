@@ -3,6 +3,8 @@
 #include <array>
 #include <optional>
 
+#include "../serversimulationmode.hpp"
+
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
 
@@ -500,6 +502,14 @@ namespace MWMechanics
         if (!actorClass.isActor() || actor == getPlayer())
             return;
 
+        if (OMW::isServerSimulationModeActive())
+        {
+            actorState.setTurningToPlayer(false);
+            actorState.setGreetingTimer(0);
+            actorState.setGreetingState(GreetingState::None);
+            return;
+        }
+
         const CreatureStats& actorStats = actorClass.getCreatureStats(actor);
         const MWMechanics::AiSequence& seq = actorStats.getAiSequence();
         const auto packageId = seq.getTypeId();
@@ -683,6 +693,9 @@ namespace MWMechanics
         }
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
+        if (OMW::isServerSimulationModeActive() && actor2 == player)
+            return;
+
         const std::set<MWWorld::Ptr>& playerAllies = cachedAllies.getActorsSidingWith(player);
 
         bool isPlayerFollowerOrEscorter = playerAllies.find(actor1) != playerAllies.end();
@@ -1144,6 +1157,9 @@ namespace MWMechanics
     {
         const MWWorld::Ptr player = getPlayer();
         if (ptr == player)
+            return;
+
+        if (OMW::isServerSimulationModeActive())
             return;
 
         const auto& actorClass = ptr.getClass();

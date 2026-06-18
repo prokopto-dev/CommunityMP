@@ -221,6 +221,7 @@ namespace OMW
         void prepareEngine();
 
         void neutralizeServerSimulationPlayer();
+        void hideServerSimulationWindow();
 
         void createWindow();
         void setWindowIcon();

@@ -2439,6 +2439,7 @@ namespace mwmp
             return;
 
         const float sampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
+        ++mRuntimeActorSnapshotStats.snapshotBatchCount;
 
         for (const BaseActorList& runtimeList : actorLists)
         {
@@ -2451,6 +2452,11 @@ namespace mwmp
                 serverCell = cellController->addCell(lookupCell);
             if (serverCell == nullptr)
                 continue;
+
+            ++mRuntimeActorSnapshotStats.snapshotCellCount;
+            mRuntimeActorSnapshotStats.snapshotActorCount += runtimeList.baseActors.size();
+            mRuntimeActorSnapshotStats.lastSnapshotCellDescription = serverCell->getShortDescription();
+            mRuntimeActorSnapshotStats.lastSnapshotActorCount = runtimeList.baseActors.size();
 
             const bool hadActorListSnapshot = serverCell->hasActorListSnapshot();
 
@@ -2920,6 +2926,24 @@ namespace mwmp
         payload += jsonBool(runtimeFocusState.lastFocusHadPosition);
         payload += ",\"openMwRuntimeLastFocusSucceeded\":";
         payload += jsonBool(runtimeFocusState.lastFocusSucceeded);
+        payload += ",\"openMwRuntimeActorSnapshotBatchCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.snapshotBatchCount);
+        payload += ",\"openMwRuntimeActorSnapshotCellCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.snapshotCellCount);
+        payload += ",\"openMwRuntimeActorSnapshotActorCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.snapshotActorCount);
+        payload += ",\"openMwRuntimeLastActorSnapshotCell\":";
+        payload += jsonString(mRuntimeActorSnapshotStats.lastSnapshotCellDescription);
+        payload += ",\"openMwRuntimeLastActorSnapshotActorCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.lastSnapshotActorCount);
+        payload += ",\"openMwRuntimeRejectedClientActorMovementPackets\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorMovementPackets);
+        payload += ",\"openMwRuntimeRejectedClientActorAiPackets\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorAiPackets);
+        payload += ",\"openMwRuntimeRejectedClientActorAttackPackets\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorAttackPackets);
+        payload += ",\"openMwRuntimeRejectedClientActorCastPackets\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorCastPackets);
         payload += ",\"serverWorldBootstrappedCellCount\":";
         payload += std::to_string(serverWorldBootstrappedCellCount);
         payload += ",\"serverWorldReferenceCount\":";
@@ -3572,7 +3596,10 @@ namespace mwmp
     bool ServerSimulation::acceptActorCasts(BaseActorList& actorList, Cell& serverCell)
     {
         if (runtimeOwnsActorCell(serverCell))
+        {
+            ++mRuntimeActorSnapshotStats.rejectedClientActorCastPackets;
             return false;
+        }
 
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
@@ -3610,7 +3637,10 @@ namespace mwmp
     bool ServerSimulation::acceptActorAiSnapshot(BaseActorList& actorList, Cell& serverCell)
     {
         if (runtimeOwnsActorCell(serverCell))
+        {
+            ++mRuntimeActorSnapshotStats.rejectedClientActorAiPackets;
             return false;
+        }
 
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
@@ -3639,7 +3669,10 @@ namespace mwmp
     bool ServerSimulation::acceptActorAttacks(BaseActorList& actorList, Cell& serverCell)
     {
         if (runtimeOwnsActorCell(serverCell))
+        {
+            ++mRuntimeActorSnapshotStats.rejectedClientActorAttackPackets;
             return false;
+        }
 
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
@@ -3744,6 +3777,7 @@ namespace mwmp
 
         if (runtimeOwnsActorCell(serverCell))
         {
+            ++mRuntimeActorSnapshotStats.rejectedClientActorMovementPackets;
             for (const BaseActor& actor : actorList.baseActors)
             {
                 BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);

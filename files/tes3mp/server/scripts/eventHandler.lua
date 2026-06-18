@@ -854,11 +854,11 @@ eventHandler.InitializeDefaultHandlers = function()
         end
 
         tes3mp.CopyReceivedObjectListToStore()
-        -- Dialogue choices cannot be triggered clientside without the server's approval,
-        -- so we send the packet back to the player who sent it, but we avoid sending it to
-        -- other players
-        -- i.e. sendToOtherPlayers is false and skipAttachedPlayer is false
-        tes3mp.SendObjectDialogueChoice(false, false)
+        -- The originating client already applied the local dialogue click before
+        -- reporting it to the server. Echoing it back replays the same topic or
+        -- service selection and can duplicate responses in the dialogue window.
+        -- Other players should not receive another player's dialogue UI action.
+        tes3mp.SendObjectDialogueChoice(false, true)
     end)
 
 end

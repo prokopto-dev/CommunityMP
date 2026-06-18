@@ -113,12 +113,26 @@ namespace mwmp
             bool hasCell = false;
         };
 
+        struct RuntimeActorSnapshotStats
+        {
+            std::uint64_t snapshotBatchCount = 0;
+            std::uint64_t snapshotCellCount = 0;
+            std::uint64_t snapshotActorCount = 0;
+            std::uint64_t rejectedClientActorMovementPackets = 0;
+            std::uint64_t rejectedClientActorAiPackets = 0;
+            std::uint64_t rejectedClientActorAttackPackets = 0;
+            std::uint64_t rejectedClientActorCastPackets = 0;
+            std::string lastSnapshotCellDescription;
+            std::size_t lastSnapshotActorCount = 0;
+        };
+
         std::map<PacketGuid, PlayerMovementState> mPlayerMovementStates;
         std::map<PacketGuid, ESM::Cell> mPlayerAcceptedCells;
         std::map<ActorMovementKey, PlayerMovementState> mActorMovementStates;
         std::map<ActorMovementKey, ActorWanderState> mActorWanderStates;
         std::map<ActorMovementKey, ActorPathgridRouteState> mActorPathgridRouteStates;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
+        RuntimeActorSnapshotStats mRuntimeActorSnapshotStats;
         std::unique_ptr<SimulationRuntime> mRuntime;
         Clock::time_point mLastTick;
         float mActorTickAccumulator = 0.f;
