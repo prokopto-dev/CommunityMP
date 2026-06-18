@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -81,6 +82,33 @@ namespace
         const auto previousSize = guids.size();
         guids.erase(std::remove(guids.begin(), guids.end(), guid), guids.end());
         return guids.size() != previousSize;
+    }
+
+    using ActorIdentityPair = std::pair<unsigned int, unsigned int>;
+
+    ActorIdentityPair actorIdentityPair(const mwmp::BaseActor& actor)
+    {
+        return { actor.refNum, actor.mpNum };
+    }
+
+    bool sameEquipmentItem(const mwmp::Item& left, const mwmp::Item& right)
+    {
+        return left.refId == right.refId
+            && left.count == right.count
+            && left.charge == right.charge
+            && left.enchantmentCharge == right.enchantmentCharge
+            && left.soul == right.soul;
+    }
+
+    bool sameActorEquipment(const mwmp::BaseActor& left, const mwmp::BaseActor& right)
+    {
+        for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
+        {
+            if (!sameEquipmentItem(left.equipmentItems[slot], right.equipmentItems[slot]))
+                return false;
+        }
+
+        return true;
     }
 
     std::string shadowAuthorityName(mwmp::PacketGuid guid)
@@ -2435,7 +2463,9 @@ namespace mwmp
         ActorPacket* positionPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
         ActorPacket* animFlagsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ANIM_FLAGS);
         ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
-        if (listPacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr || statsPacket == nullptr)
+        ActorPacket* equipmentPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
+        if (listPacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
+            || statsPacket == nullptr || equipmentPacket == nullptr)
             return;
 
         const float sampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
@@ -2459,6 +2489,12 @@ namespace mwmp
             mRuntimeActorSnapshotStats.lastSnapshotActorCount = runtimeList.baseActors.size();
 
             const bool hadActorListSnapshot = serverCell->hasActorListSnapshot();
+            std::map<ActorIdentityPair, BaseActor> cachedActorsBeforeIdentity;
+            for (const BaseActor& runtimeActor : runtimeList.baseActors)
+            {
+                if (BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum))
+                    cachedActorsBeforeIdentity.emplace(actorIdentityPair(runtimeActor), *cachedActor);
+            }
 
             BaseActorList identityList = runtimeList;
             identityList.guid = unassignedPacketGuid();
@@ -2490,9 +2526,19 @@ namespace mwmp
             statsList.action = BaseActorList::SET;
             statsList.isValid = true;
 
+            BaseActorList equipmentList;
+            equipmentList.cell = runtimeList.cell;
+            equipmentList.guid = unassignedPacketGuid();
+            equipmentList.action = BaseActorList::SET;
+            equipmentList.isValid = true;
+
             for (const BaseActor& runtimeActor : runtimeList.baseActors)
             {
                 BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum);
+                const auto previousActorIt = cachedActorsBeforeIdentity.find(actorIdentityPair(runtimeActor));
+                const BaseActor* previousActor = previousActorIt != cachedActorsBeforeIdentity.end()
+                    ? &previousActorIt->second
+                    : nullptr;
                 const std::uint32_t nextPositionSequence = cachedActor != nullptr && cachedActor->hasPositionData
                     ? cachedActor->positionSequence + 1
                     : 1;
@@ -2532,6 +2578,18 @@ namespace mwmp
                         : 1;
                     statsList.baseActors.push_back(std::move(statsActor));
                 }
+
+                if (runtimeActor.hasEquipmentData && hasValidActorEquipment(runtimeActor)
+                    && (previousActor == nullptr || !previousActor->hasEquipmentData
+                        || !sameActorEquipment(*previousActor, runtimeActor)))
+                {
+                    BaseActor equipmentActor = runtimeActor;
+                    equipmentActor.hasEquipmentData = true;
+                    equipmentActor.equipmentSequence = previousActor != nullptr && previousActor->hasEquipmentData
+                        ? previousActor->equipmentSequence + 1
+                        : 1;
+                    equipmentList.baseActors.push_back(std::move(equipmentActor));
+                }
             }
 
             positionList.count = static_cast<unsigned int>(positionList.baseActors.size());
@@ -2556,6 +2614,14 @@ namespace mwmp
                 serverCell->readActorList(ID_ACTOR_STATS_DYNAMIC, &statsList);
                 statsPacket->setActorList(&statsList);
                 serverCell->sendToLoaded(statsPacket, &statsList);
+            }
+
+            equipmentList.count = static_cast<unsigned int>(equipmentList.baseActors.size());
+            if (equipmentList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_EQUIPMENT, &equipmentList);
+                equipmentPacket->setActorList(&equipmentList);
+                serverCell->sendToLoaded(equipmentPacket, &equipmentList);
             }
         }
     }

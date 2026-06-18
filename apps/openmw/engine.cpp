@@ -88,6 +88,7 @@
 
 #include "mwworld/class.hpp"
 #include "mwworld/cellstore.hpp"
+#include "mwworld/inventorystore.hpp"
 #include "mwworld/datetimemanager.hpp"
 #include "mwworld/scene.hpp"
 #include "mwworld/worldimp.hpp"
@@ -426,6 +427,36 @@ namespace
         destination.mMod = source.getModifier();
     }
 
+    void copyServerSimulationEquipment(mwmp::BaseActor& actor, const MWWorld::Ptr& ptr)
+    {
+        if (!ptr.getClass().hasInventoryStore(ptr))
+            return;
+
+        MWWorld::InventoryStore& inventoryStore = ptr.getClass().getInventoryStore(ptr);
+        for (int slot = 0; slot < MWWorld::InventoryStore::Slots && slot < mwmp::equipmentSlotCount; ++slot)
+        {
+            MWWorld::ContainerStoreIterator it = inventoryStore.getSlot(slot);
+            mwmp::Item& item = actor.equipmentItems[slot];
+            if (it == inventoryStore.end())
+            {
+                item.refId.clear();
+                item.count = 0;
+                item.charge = -1;
+                item.enchantmentCharge = -1.f;
+                item.soul.clear();
+                continue;
+            }
+
+            item.refId = it->getCellRef().getRefId().serializeText();
+            item.count = it->getCellRef().getCount();
+            item.charge = it->getCellRef().getCharge();
+            item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
+            item.soul = it->getCellRef().getSoul().serializeText();
+        }
+
+        actor.hasEquipmentData = true;
+    }
+
     float sanitizeServerSimulationMovementComponent(float value)
     {
         constexpr float movementEpsilon = 0.0001f;
@@ -481,6 +512,8 @@ namespace
         actor.isJumping = creatureStats.getMovementFlag(MWMechanics::CreatureStats::Flag_ForceJump);
         actor.isFlying = MWBase::Environment::get().getWorld()->isFlying(ptr);
         actor.hasAnimFlagsData = true;
+
+        copyServerSimulationEquipment(actor, ptr);
 
         actorList.baseActors.push_back(std::move(actor));
         return true;
