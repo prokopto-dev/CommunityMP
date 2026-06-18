@@ -37,6 +37,8 @@ namespace mwmp
         std::size_t recordWinnerDeletedCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
+        std::size_t actorSpellbookRecordCount = 0;
+        std::size_t actorSpellbookSpellCount = 0;
         std::size_t actorStatsDynamicRecordCount = 0;
         std::size_t actorStatsDynamicItemCount = 0;
         std::size_t actorEquipmentRecordCount = 0;
@@ -136,6 +138,8 @@ namespace mwmp
         unsigned int actorAiAlarm = 0;
         bool actorInventoryImported = false;
         std::size_t actorInventoryItemCount = 0;
+        bool actorSpellbookImported = false;
+        std::size_t actorSpellbookSpellCount = 0;
         bool actorStatsDynamicImported = false;
         bool actorStatsDynamicAutocalc = false;
         std::size_t actorStatsDynamicItemCount = 0;
@@ -160,6 +164,18 @@ namespace mwmp
 
     using WorldActorInventoryItem = WorldRecordInventoryItem;
     using WorldContainerInventoryItem = WorldRecordInventoryItem;
+
+    struct WorldActorSpellbookEntry
+    {
+        std::string recordKey;
+        std::string recordId;
+        std::string sourceFile;
+        std::size_t loadOrderIndex = 0;
+        std::size_t engineContentIndex = 0;
+        std::size_t recordIndex = 0;
+        std::size_t spellOrder = 0;
+        std::string spellId;
+    };
 
     struct WorldActorStatsDynamicItem
     {
@@ -253,6 +269,8 @@ namespace mwmp
         std::size_t baseRecordLoadOrderIndex = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
+        bool baseActorSpellbookImported = false;
+        std::size_t baseActorSpellbookSpellCount = 0;
         bool baseActorStatsDynamicImported = false;
         bool baseActorStatsDynamicAutocalc = false;
         std::size_t baseActorStatsDynamicItemCount = 0;
@@ -297,6 +315,7 @@ namespace mwmp
         std::vector<WorldCellReferenceRecord> findReferencesByCellKey(
             std::string_view cellKey, bool includeDeleted = false) const;
         std::vector<WorldActorInventoryItem> findActorInventoryByRecordKey(std::string_view recordKey) const;
+        std::vector<WorldActorSpellbookEntry> findActorSpellbookByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorStatsDynamicItem> findActorStatsDynamicByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorEquipmentItem> findActorEquipmentByRecordKey(std::string_view recordKey) const;
         std::vector<WorldContainerInventoryItem> findContainerInventoryByRecordKey(std::string_view recordKey) const;
@@ -316,6 +335,7 @@ namespace mwmp
         std::map<std::string, WorldRecordWinner> mRecordWinnersByWinnerKey;
         std::map<std::string, std::vector<std::string>> mRecordWinnerKeysByRecordKey;
         std::map<std::string, std::vector<WorldActorInventoryItem>> mActorInventoryByRecordKey;
+        std::map<std::string, std::vector<WorldActorSpellbookEntry>> mActorSpellbookByRecordKey;
         std::map<std::string, std::vector<WorldActorStatsDynamicItem>> mActorStatsDynamicByRecordKey;
         std::map<std::string, std::vector<WorldActorEquipmentItem>> mActorEquipmentByRecordKey;
         std::map<std::string, std::vector<WorldContainerInventoryItem>> mContainerInventoryByRecordKey;

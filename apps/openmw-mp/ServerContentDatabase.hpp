@@ -38,6 +38,8 @@ namespace mwmp
         std::size_t recordImportErrorCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
+        std::size_t actorSpellbookRecordCount = 0;
+        std::size_t actorSpellbookSpellCount = 0;
         std::size_t actorStatsDynamicRecordCount = 0;
         std::size_t actorStatsDynamicItemCount = 0;
         std::size_t itemEquipmentRecordCount = 0;

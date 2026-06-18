@@ -2337,6 +2337,10 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryCount : 0);
         payload += ",\"serverWorldActorInventoryItemCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryItemCount : 0);
+        payload += ",\"serverWorldActorSpellbookReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorSpellbookCount : 0);
+        payload += ",\"serverWorldActorSpellbookSpellCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorSpellbookSpellCount : 0);
         payload += ",\"serverWorldActorStatsDynamicReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorStatsDynamicCount : 0);
         payload += ",\"serverWorldActorStatsDynamicItemCount\":";
@@ -2411,6 +2415,8 @@ namespace mwmp
         std::size_t serverWorldActorAiReferenceCount = 0;
         std::size_t serverWorldActorInventoryReferenceCount = 0;
         std::size_t serverWorldActorInventoryItemCount = 0;
+        std::size_t serverWorldActorSpellbookReferenceCount = 0;
+        std::size_t serverWorldActorSpellbookSpellCount = 0;
         std::size_t serverWorldActorStatsDynamicReferenceCount = 0;
         std::size_t serverWorldActorStatsDynamicItemCount = 0;
         std::size_t serverWorldActorStatsDynamicAutocalcCount = 0;
@@ -2451,6 +2457,8 @@ namespace mwmp
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
                 serverWorldActorInventoryReferenceCount += stats.actorInventoryCount;
                 serverWorldActorInventoryItemCount += stats.actorInventoryItemCount;
+                serverWorldActorSpellbookReferenceCount += stats.actorSpellbookCount;
+                serverWorldActorSpellbookSpellCount += stats.actorSpellbookSpellCount;
                 serverWorldActorStatsDynamicReferenceCount += stats.actorStatsDynamicCount;
                 serverWorldActorStatsDynamicItemCount += stats.actorStatsDynamicItemCount;
                 serverWorldActorStatsDynamicAutocalcCount += stats.actorStatsDynamicAutocalcCount;
@@ -2504,6 +2512,10 @@ namespace mwmp
         payload += std::to_string(serverWorldActorInventoryReferenceCount);
         payload += ",\"serverWorldActorInventoryItemCount\":";
         payload += std::to_string(serverWorldActorInventoryItemCount);
+        payload += ",\"serverWorldActorSpellbookReferenceCount\":";
+        payload += std::to_string(serverWorldActorSpellbookReferenceCount);
+        payload += ",\"serverWorldActorSpellbookSpellCount\":";
+        payload += std::to_string(serverWorldActorSpellbookSpellCount);
         payload += ",\"serverWorldActorStatsDynamicReferenceCount\":";
         payload += std::to_string(serverWorldActorStatsDynamicReferenceCount);
         payload += ",\"serverWorldActorStatsDynamicItemCount\":";
@@ -2668,6 +2680,10 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
         payload += std::to_string(serverContentDatabase.actorInventoryItemCount);
+        payload += ",\"actorSpellbookRecordCount\":";
+        payload += std::to_string(serverContentDatabase.actorSpellbookRecordCount);
+        payload += ",\"actorSpellbookSpellCount\":";
+        payload += std::to_string(serverContentDatabase.actorSpellbookSpellCount);
         payload += ",\"actorStatsDynamicRecordCount\":";
         payload += std::to_string(serverContentDatabase.actorStatsDynamicRecordCount);
         payload += ",\"actorStatsDynamicItemCount\":";
@@ -2788,6 +2804,10 @@ namespace mwmp
         payload += std::to_string(worldDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
         payload += std::to_string(worldDatabase.actorInventoryItemCount);
+        payload += ",\"actorSpellbookRecordCount\":";
+        payload += std::to_string(worldDatabase.actorSpellbookRecordCount);
+        payload += ",\"actorSpellbookSpellCount\":";
+        payload += std::to_string(worldDatabase.actorSpellbookSpellCount);
         payload += ",\"actorStatsDynamicRecordCount\":";
         payload += std::to_string(worldDatabase.actorStatsDynamicRecordCount);
         payload += ",\"actorStatsDynamicItemCount\":";

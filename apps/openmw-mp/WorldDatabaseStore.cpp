@@ -22,6 +22,7 @@ namespace
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr std::string_view actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
+    constexpr std::string_view actorSpellbookRowSchema = "communitymp.worlddb.actor-spellbook.v1";
     constexpr std::string_view actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
     constexpr std::string_view actorEquipmentRowSchema = "communitymp.worlddb.actor-equipment.v1";
     constexpr std::string_view containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
@@ -348,6 +349,7 @@ namespace mwmp
         mRecordWinnersByWinnerKey.clear();
         mRecordWinnerKeysByRecordKey.clear();
         mActorInventoryByRecordKey.clear();
+        mActorSpellbookByRecordKey.clear();
         mActorStatsDynamicByRecordKey.clear();
         mActorEquipmentByRecordKey.clear();
         mContainerInventoryByRecordKey.clear();
@@ -425,6 +427,8 @@ namespace mwmp
                     winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
                     winner.actorInventoryImported = getBool(row, "actorInventoryImported");
                     winner.actorInventoryItemCount = getSizeT(row, "actorInventoryItemCount");
+                    winner.actorSpellbookImported = getBool(row, "actorSpellbookImported");
+                    winner.actorSpellbookSpellCount = getSizeT(row, "actorSpellbookSpellCount");
                     winner.actorStatsDynamicImported = getBool(row, "actorStatsDynamicImported");
                     winner.actorStatsDynamicAutocalc = getBool(row, "actorStatsDynamicAutocalc");
                     winner.actorStatsDynamicItemCount = getSizeT(row, "actorStatsDynamicItemCount");
@@ -438,6 +442,8 @@ namespace mwmp
                         ++mStats.recordWinnerDeletedCount;
                     if (!deletedWinner && winner.actorInventoryImported && !winner.recordKey.empty())
                         ++mStats.actorInventoryRecordCount;
+                    if (!deletedWinner && winner.actorSpellbookImported && !winner.recordKey.empty())
+                        ++mStats.actorSpellbookRecordCount;
                     if (!deletedWinner && winner.actorStatsDynamicImported && !winner.recordKey.empty())
                         ++mStats.actorStatsDynamicRecordCount;
                     if (!deletedWinner && winner.actorEquipmentImported && !winner.recordKey.empty())
@@ -479,6 +485,32 @@ namespace mwmp
                         if (left.itemRefId != right.itemRefId)
                             return left.itemRefId < right.itemRefId;
                         return left.count < right.count;
+                    });
+            }
+
+            mStats.actorSpellbookSpellCount = readJsonlTable(root, "actor_spellbook.jsonl",
+                actorSpellbookRowSchema, [&](const boost::property_tree::ptree& row) {
+                    WorldActorSpellbookEntry spell;
+                    spell.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    spell.recordId = getString(row, "recordId");
+                    spell.sourceFile = getString(row, "sourceFile");
+                    spell.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    spell.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    spell.recordIndex = getSizeT(row, "recordIndex");
+                    spell.spellOrder = getSizeT(row, "spellOrder");
+                    spell.spellId = getString(row, "spellId");
+
+                    if (!spell.recordKey.empty() && !spell.spellId.empty())
+                        mActorSpellbookByRecordKey[spell.recordKey].push_back(std::move(spell));
+                });
+            for (auto& [recordKey, spells] : mActorSpellbookByRecordKey)
+            {
+                static_cast<void>(recordKey);
+                std::sort(spells.begin(), spells.end(),
+                    [](const WorldActorSpellbookEntry& left, const WorldActorSpellbookEntry& right) {
+                        if (left.spellOrder != right.spellOrder)
+                            return left.spellOrder < right.spellOrder;
+                        return left.spellId < right.spellId;
                     });
             }
 
@@ -672,9 +704,10 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu actorSpellbooks=%zu actorSpells=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
                 pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
                 mStats.actorInventoryRecordCount, mStats.actorInventoryItemCount,
+                mStats.actorSpellbookRecordCount, mStats.actorSpellbookSpellCount,
                 mStats.actorStatsDynamicRecordCount, mStats.actorStatsDynamicItemCount,
                 mStats.actorEquipmentRecordCount, mStats.actorEquipmentItemCount,
                 mStats.containerInventoryRecordCount, mStats.containerInventoryItemCount,
@@ -692,6 +725,9 @@ namespace mwmp
             mRecordWinnersByWinnerKey.clear();
             mRecordWinnerKeysByRecordKey.clear();
             mActorInventoryByRecordKey.clear();
+            mActorSpellbookByRecordKey.clear();
+            mActorStatsDynamicByRecordKey.clear();
+            mActorEquipmentByRecordKey.clear();
             mContainerInventoryByRecordKey.clear();
             mCellsByKey.clear();
             mReferencesByKey.clear();
@@ -718,9 +754,13 @@ namespace mwmp
         ref.baseRecordLoadOrderIndex = 0;
         ref.baseActorInventoryImported = false;
         ref.baseActorInventoryItemCount = 0;
+        ref.baseActorSpellbookImported = false;
+        ref.baseActorSpellbookSpellCount = 0;
         ref.baseActorStatsDynamicImported = false;
         ref.baseActorStatsDynamicAutocalc = false;
         ref.baseActorStatsDynamicItemCount = 0;
+        ref.baseActorEquipmentImported = false;
+        ref.baseActorEquipmentItemCount = 0;
         ref.baseContainerInventoryImported = false;
         ref.baseContainerInventoryItemCount = 0;
         ref.baseActorAiAvailable = false;
@@ -789,6 +829,13 @@ namespace mwmp
             && importedActorInventoryItemCount == selected->actorInventoryItemCount;
         ref.baseActorInventoryItemCount
             = ref.baseActorInventoryImported ? importedActorInventoryItemCount : 0;
+        const auto actorSpellbookIt = mActorSpellbookByRecordKey.find(selected->recordKey);
+        const std::size_t importedActorSpellbookSpellCount
+            = actorSpellbookIt != mActorSpellbookByRecordKey.end() ? actorSpellbookIt->second.size() : 0;
+        ref.baseActorSpellbookImported = selected->actorSpellbookImported
+            && importedActorSpellbookSpellCount == selected->actorSpellbookSpellCount;
+        ref.baseActorSpellbookSpellCount
+            = ref.baseActorSpellbookImported ? importedActorSpellbookSpellCount : 0;
         const auto actorStatsIt = mActorStatsDynamicByRecordKey.find(selected->recordKey);
         const std::size_t importedActorStatsDynamicItemCount
             = actorStatsIt != mActorStatsDynamicByRecordKey.end() ? actorStatsIt->second.size() : 0;
@@ -1043,6 +1090,17 @@ namespace mwmp
         std::lock_guard lock(mMutex);
         const auto it = mActorStatsDynamicByRecordKey.find(normalizedLookupKey(recordKey));
         if (it == mActorStatsDynamicByRecordKey.end())
+            return {};
+
+        return it->second;
+    }
+
+    std::vector<WorldActorSpellbookEntry> WorldDatabaseStore::findActorSpellbookByRecordKey(
+        std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mActorSpellbookByRecordKey.find(normalizedLookupKey(recordKey));
+        if (it == mActorSpellbookByRecordKey.end())
             return {};
 
         return it->second;

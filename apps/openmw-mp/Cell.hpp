@@ -30,6 +30,8 @@ public:
         std::string baseRecordSourceFile;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
+        bool baseActorSpellbookImported = false;
+        std::size_t baseActorSpellbookSpellCount = 0;
         bool baseActorStatsDynamicImported = false;
         bool baseActorStatsDynamicAutocalc = false;
         std::size_t baseActorStatsDynamicItemCount = 0;
@@ -83,6 +85,8 @@ public:
         std::size_t actorAiCount = 0;
         std::size_t actorInventoryCount = 0;
         std::size_t actorInventoryItemCount = 0;
+        std::size_t actorSpellbookCount = 0;
+        std::size_t actorSpellbookSpellCount = 0;
         std::size_t actorStatsDynamicCount = 0;
         std::size_t actorStatsDynamicItemCount = 0;
         std::size_t actorStatsDynamicAutocalcCount = 0;

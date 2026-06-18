@@ -14,6 +14,7 @@
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadweap.hpp>
 #include <components/esm3/readerscache.hpp>
+#include <components/esm3/spelllist.hpp>
 #include <components/bsa/ba2dx10file.hpp>
 #include <components/bsa/ba2gnrlfile.hpp>
 #include <components/bsa/bsafile.hpp>
@@ -55,6 +56,7 @@ namespace
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr const char* actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
+    constexpr const char* actorSpellbookRowSchema = "communitymp.worlddb.actor-spellbook.v1";
     constexpr const char* actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
     constexpr const char* actorEquipmentRowSchema = "communitymp.worlddb.actor-equipment.v1";
     constexpr const char* containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
@@ -479,7 +481,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_inventory.jsonl\",\"actor_stats_dynamic.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_inventory.jsonl\",\"actor_spellbook.jsonl\",\"actor_stats_dynamic.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -509,6 +511,10 @@ namespace
         appendJsonNumberField(result, "actorInventoryRecordCount", stats.actorInventoryRecordCount);
         result += ",\n  ";
         appendJsonNumberField(result, "actorInventoryItemCount", stats.actorInventoryItemCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorSpellbookRecordCount", stats.actorSpellbookRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorSpellbookSpellCount", stats.actorSpellbookSpellCount);
         result += ",\n  ";
         appendJsonNumberField(result, "actorStatsDynamicRecordCount", stats.actorStatsDynamicRecordCount);
         result += ",\n  ";
@@ -977,6 +983,11 @@ namespace
         int count = 0;
     };
 
+    struct ImportedActorSpell
+    {
+        std::string spellId;
+    };
+
     struct ImportedDynamicStat
     {
         float base = 0.f;
@@ -1043,6 +1054,8 @@ namespace
         unsigned int actorAiAlarm = 0;
         bool actorInventoryImported = false;
         std::vector<ImportedInventoryItem> actorInventory;
+        bool actorSpellbookImported = false;
+        std::vector<ImportedActorSpell> actorSpellbook;
         bool actorStatsDynamicImported = false;
         bool actorStatsDynamicAutocalc = false;
         std::array<ImportedDynamicStat, 3> actorStatsDynamic;
@@ -1060,6 +1073,7 @@ namespace
         std::string recordIndexJsonl;
         std::string recordWinnersJsonl;
         std::string actorInventoryJsonl;
+        std::string actorSpellbookJsonl;
         std::string actorStatsDynamicJsonl;
         std::string actorEquipmentJsonl;
         std::string containerInventoryJsonl;
@@ -1655,6 +1669,20 @@ namespace
         }
     }
 
+    void importSpellList(const ESM::SpellList& spells, std::vector<ImportedActorSpell>& result)
+    {
+        result.reserve(spells.mList.size());
+        for (const ESM::RefId& spell : spells.mList)
+        {
+            if (spell.empty())
+                continue;
+
+            ImportedActorSpell imported;
+            imported.spellId = refIdToString(spell);
+            result.push_back(std::move(imported));
+        }
+    }
+
     ImportedDynamicStat makeImportedDynamicStat(const float value)
     {
         ImportedDynamicStat stat;
@@ -1751,6 +1779,8 @@ namespace
                     static_cast<float>(npc.mNpdt.mMana), static_cast<float>(npc.mNpdt.mFatigue));
             row.actorInventoryImported = true;
             importInventoryList(npc.mInventory, row.actorInventory);
+            row.actorSpellbookImported = true;
+            importSpellList(npc.mSpells, row.actorSpellbook);
             return true;
         }
 
@@ -1766,6 +1796,8 @@ namespace
                 static_cast<float>(creature.mData.mMana), static_cast<float>(creature.mData.mFatigue));
             row.actorInventoryImported = true;
             importInventoryList(creature.mInventory, row.actorInventory);
+            row.actorSpellbookImported = true;
+            importSpellList(creature.mSpells, row.actorSpellbook);
             return true;
         }
 
@@ -1911,6 +1943,10 @@ namespace
         result.push_back(',');
         appendJsonNumberField(result, "actorInventoryItemCount", row.actorInventory.size());
         result.push_back(',');
+        appendJsonBoolField(result, "actorSpellbookImported", row.actorSpellbookImported);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorSpellbookSpellCount", row.actorSpellbook.size());
+        result.push_back(',');
         appendJsonBoolField(result, "actorStatsDynamicImported", row.actorStatsDynamicImported);
         result.push_back(',');
         appendJsonBoolField(result, "actorStatsDynamicAutocalc", row.actorStatsDynamicAutocalc);
@@ -1991,6 +2027,42 @@ namespace
 
         appendInventoryRows(result, row, row.actorInventory, actorInventoryRowSchema,
             stats.actorInventoryRecordCount, stats.actorInventoryItemCount);
+    }
+
+    void appendActorSpellbookRows(std::string& result, const IndexedRecordRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        if (!row.actorSpellbookImported || isDeletedRecord(row) || !row.identity.available)
+            return;
+
+        ++stats.actorSpellbookRecordCount;
+        for (std::size_t spellOrder = 0; spellOrder < row.actorSpellbook.size(); ++spellOrder)
+        {
+            const ImportedActorSpell& spell = row.actorSpellbook[spellOrder];
+            if (spell.spellId.empty())
+                continue;
+
+            result.push_back('{');
+            appendJsonStringField(result, "schema", actorSpellbookRowSchema);
+            result.push_back(',');
+            appendJsonStringField(result, "recordKey", row.identity.recordKey);
+            result.push_back(',');
+            appendJsonStringField(result, "recordId", row.identity.recordId);
+            result.push_back(',');
+            appendJsonStringField(result, "sourceFile", row.contentFile);
+            result.push_back(',');
+            appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "recordIndex", row.recordIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "spellOrder", spellOrder);
+            result.push_back(',');
+            appendJsonStringField(result, "spellId", spell.spellId);
+            result += "}\n";
+            ++stats.actorSpellbookSpellCount;
+        }
     }
 
     void appendActorStatsDynamicRows(std::string& result, const IndexedRecordRow& row,
@@ -2387,6 +2459,7 @@ namespace
         {
             appendRecordWinnerRow(result.recordWinnersJsonl, row);
             appendActorInventoryRows(result.actorInventoryJsonl, row, stats);
+            appendActorSpellbookRows(result.actorSpellbookJsonl, row, stats);
             appendActorStatsDynamicRows(result.actorStatsDynamicJsonl, row, stats);
             appendActorEquipmentRows(result.actorEquipmentJsonl, row, stats);
             appendContainerInventoryRows(result.containerInventoryJsonl, row, stats);
@@ -4014,7 +4087,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 16;
+        mStats.tableCount = 17;
 
         try
         {
@@ -4044,6 +4117,8 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_inventory.jsonl",
                 recordIndexTables.actorInventoryJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "actor_spellbook.jsonl",
+                recordIndexTables.actorSpellbookJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_stats_dynamic.jsonl",
                 recordIndexTables.actorStatsDynamicJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_equipment.jsonl",

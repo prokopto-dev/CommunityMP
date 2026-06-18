@@ -760,6 +760,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
         snapshot.baseActorInventoryImported = ref.baseActorInventoryImported;
         snapshot.baseActorInventoryItemCount = ref.baseActorInventoryItemCount;
+        snapshot.baseActorSpellbookImported = ref.baseActorSpellbookImported;
+        snapshot.baseActorSpellbookSpellCount = ref.baseActorSpellbookSpellCount;
         snapshot.baseActorStatsDynamicImported = ref.baseActorStatsDynamicImported;
         snapshot.baseActorStatsDynamicAutocalc = ref.baseActorStatsDynamicAutocalc;
         snapshot.baseActorStatsDynamicItemCount = ref.baseActorStatsDynamicItemCount;
@@ -812,6 +814,11 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorInventoryCount;
                 serverWorldBootstrapStats.actorInventoryItemCount += snapshot.baseActorInventoryItemCount;
             }
+            if (snapshot.baseActorSpellbookImported)
+            {
+                ++serverWorldBootstrapStats.actorSpellbookCount;
+                serverWorldBootstrapStats.actorSpellbookSpellCount += snapshot.baseActorSpellbookSpellCount;
+            }
             if (snapshot.baseActorStatsDynamicImported)
             {
                 ++serverWorldBootstrapStats.actorStatsDynamicCount;
@@ -853,10 +860,11 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorInventoryCount,
-        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorStatsDynamicCount,
+        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorSpellbookCount,
+        serverWorldBootstrapStats.actorSpellbookSpellCount, serverWorldBootstrapStats.actorStatsDynamicCount,
         serverWorldBootstrapStats.actorStatsDynamicItemCount, serverWorldBootstrapStats.actorStatsDynamicAutocalcCount,
         serverWorldBootstrapStats.actorEquipmentCount,
         serverWorldBootstrapStats.actorEquipmentItemCount, serverWorldBootstrapStats.objectCount,
