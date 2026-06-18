@@ -55,6 +55,7 @@ namespace
     constexpr const char* resolvedAssetRowSchema = "communitymp.worlddb.resolved-asset.v1";
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
+    constexpr const char* actorProfileRowSchema = "communitymp.worlddb.actor-profile.v1";
     constexpr const char* actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
     constexpr const char* actorSpellbookRowSchema = "communitymp.worlddb.actor-spellbook.v1";
     constexpr const char* actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
@@ -557,7 +558,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_inventory.jsonl\",\"actor_spellbook.jsonl\",\"actor_stats_dynamic.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"actor_profile.jsonl\",\"actor_inventory.jsonl\",\"actor_spellbook.jsonl\",\"actor_stats_dynamic.jsonl\",\"actor_equipment.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -583,6 +584,14 @@ namespace
         appendJsonNumberField(result, "recordWinnerDeletedCount", stats.recordWinnerDeletedCount);
         result += ",\n  ";
         appendJsonNumberField(result, "recordImportErrorCount", stats.recordImportErrorCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorProfileRecordCount", stats.actorProfileRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorProfileNpcCount", stats.actorProfileNpcCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorProfileCreatureCount", stats.actorProfileCreatureCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "actorProfileAutocalcNpcCount", stats.actorProfileAutocalcNpcCount);
         result += ",\n  ";
         appendJsonNumberField(result, "actorInventoryRecordCount", stats.actorInventoryRecordCount);
         result += ",\n  ";
@@ -1064,6 +1073,38 @@ namespace
         std::string spellId;
     };
 
+    struct ImportedActorProfile
+    {
+        bool npc = false;
+        bool autocalc = false;
+        int level = 0;
+        int flags = 0;
+        int bloodType = 0;
+        int services = 0;
+        std::string displayName;
+        std::string model;
+        std::string script;
+        std::string race;
+        std::string classId;
+        std::string faction;
+        std::string head;
+        std::string hair;
+        std::string original;
+        int factionRank = -1;
+        int disposition = -1;
+        int reputation = -1;
+        int gold = 0;
+        int creatureType = -1;
+        int soul = -1;
+        int combat = -1;
+        int magic = -1;
+        int stealth = -1;
+        float scale = 1.f;
+        std::array<int, ESM::Attribute::Length> attributes{};
+        std::array<int, ESM::Skill::Length> skills{};
+        std::array<int, 6> attacks{};
+    };
+
     struct ImportedDynamicStat
     {
         float base = 0.f;
@@ -1128,6 +1169,8 @@ namespace
         unsigned int actorAiFight = 0;
         unsigned int actorAiFlee = 0;
         unsigned int actorAiAlarm = 0;
+        bool actorProfileImported = false;
+        ImportedActorProfile actorProfile;
         bool actorInventoryImported = false;
         std::vector<ImportedInventoryItem> actorInventory;
         bool actorSpellbookImported = false;
@@ -1148,6 +1191,7 @@ namespace
     {
         std::string recordIndexJsonl;
         std::string recordWinnersJsonl;
+        std::string actorProfileJsonl;
         std::string actorInventoryJsonl;
         std::string actorSpellbookJsonl;
         std::string actorStatsDynamicJsonl;
@@ -1779,6 +1823,74 @@ namespace
         row.actorStatsDynamic[2] = makeImportedDynamicStat(fatigue);
     }
 
+    void applyNpcActorProfile(IndexedRecordRow& row, const ESM::NPC& npc)
+    {
+        row.actorProfileImported = true;
+        ImportedActorProfile& profile = row.actorProfile;
+        profile = {};
+        profile.npc = true;
+        profile.autocalc = npc.mNpdtType == ESM::NPC::NPC_WITH_AUTOCALCULATED_STATS;
+        profile.level = npc.mNpdt.mLevel;
+        profile.flags = npc.mFlags;
+        profile.bloodType = npc.mBloodType;
+        profile.services = npc.mAiData.mServices;
+        profile.displayName = npc.mName;
+        profile.model = npc.mModel;
+        profile.script = refIdToString(npc.mScript);
+        profile.race = refIdToString(npc.mRace);
+        profile.classId = refIdToString(npc.mClass);
+        profile.faction = refIdToString(npc.mFaction);
+        profile.head = refIdToString(npc.mHead);
+        profile.hair = refIdToString(npc.mHair);
+        profile.factionRank = npc.getFactionRank();
+        profile.disposition = npc.mNpdt.mDisposition;
+        profile.reputation = npc.mNpdt.mReputation;
+        profile.gold = npc.mNpdt.mGold;
+        profile.skills.fill(-1);
+        profile.attacks.fill(0);
+
+        if (!profile.autocalc)
+        {
+            for (std::size_t i = 0; i < profile.attributes.size(); ++i)
+                profile.attributes[i] = npc.mNpdt.mAttributes[i];
+            for (std::size_t i = 0; i < profile.skills.size(); ++i)
+                profile.skills[i] = npc.mNpdt.mSkills[i];
+        }
+        else
+        {
+            profile.attributes.fill(-1);
+        }
+    }
+
+    void applyCreatureActorProfile(IndexedRecordRow& row, const ESM::Creature& creature)
+    {
+        row.actorProfileImported = true;
+        ImportedActorProfile& profile = row.actorProfile;
+        profile = {};
+        profile.npc = false;
+        profile.level = creature.mData.mLevel;
+        profile.flags = creature.mFlags;
+        profile.bloodType = creature.mBloodType;
+        profile.services = creature.mAiData.mServices;
+        profile.displayName = creature.mName;
+        profile.model = creature.mModel;
+        profile.script = refIdToString(creature.mScript);
+        profile.original = refIdToString(creature.mOriginal);
+        profile.creatureType = creature.mData.mType;
+        profile.soul = creature.mData.mSoul;
+        profile.combat = creature.mData.mCombat;
+        profile.magic = creature.mData.mMagic;
+        profile.stealth = creature.mData.mStealth;
+        profile.gold = creature.mData.mGold;
+        profile.scale = creature.mScale;
+        profile.skills.fill(-1);
+
+        for (std::size_t i = 0; i < profile.attributes.size(); ++i)
+            profile.attributes[i] = creature.mData.mAttributes[i];
+        for (std::size_t i = 0; i < profile.attacks.size(); ++i)
+            profile.attacks[i] = creature.mData.mAttack[i];
+    }
+
     bool loadEquippableItemRecordRowData(ESM::ESMReader& esm, const ESM::NAME recordName, IndexedRecordRow& row)
     {
         if (recordName.toInt() == ESM::REC_WEAP)
@@ -1849,6 +1961,7 @@ namespace
             row.identity = makeActorRecordIdentity(refIdToString(npc.mId), deletedSubrecord);
             applyAiData(row, npc.mAiData);
             applyPrimaryAiPackage(row, npc.mAiPackage);
+            applyNpcActorProfile(row, npc);
             row.actorStatsDynamicAutocalc = npc.mNpdtType == ESM::NPC::NPC_WITH_AUTOCALCULATED_STATS;
             if (!row.actorStatsDynamicAutocalc)
                 applyDirectActorStatsDynamic(row, static_cast<float>(npc.mNpdt.mHealth),
@@ -1868,6 +1981,7 @@ namespace
             row.identity = makeActorRecordIdentity(refIdToString(creature.mId), deletedSubrecord);
             applyAiData(row, creature.mAiData);
             applyPrimaryAiPackage(row, creature.mAiPackage);
+            applyCreatureActorProfile(row, creature);
             applyDirectActorStatsDynamic(row, static_cast<float>(creature.mData.mHealth),
                 static_cast<float>(creature.mData.mMana), static_cast<float>(creature.mData.mFatigue));
             row.actorInventoryImported = true;
@@ -2015,6 +2129,12 @@ namespace
         result.push_back(',');
         appendJsonNumberField(result, "actorAiAlarm", row.actorAiAlarm);
         result.push_back(',');
+        appendJsonBoolField(result, "actorProfileImported", row.actorProfileImported);
+        result.push_back(',');
+        appendJsonBoolField(result, "actorProfileNpc", row.actorProfile.npc);
+        result.push_back(',');
+        appendJsonBoolField(result, "actorProfileAutocalc", row.actorProfile.autocalc);
+        result.push_back(',');
         appendJsonBoolField(result, "actorInventoryImported", row.actorInventoryImported);
         result.push_back(',');
         appendJsonNumberField(result, "actorInventoryItemCount", row.actorInventory.size());
@@ -2103,6 +2223,108 @@ namespace
 
         appendInventoryRows(result, row, row.actorInventory, actorInventoryRowSchema,
             stats.actorInventoryRecordCount, stats.actorInventoryItemCount);
+    }
+
+    void appendActorProfileRows(std::string& result, const IndexedRecordRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        if (!row.actorProfileImported || isDeletedRecord(row) || !row.identity.available)
+            return;
+
+        const ImportedActorProfile& profile = row.actorProfile;
+        result.push_back('{');
+        appendJsonStringField(result, "schema", actorProfileRowSchema);
+        result.push_back(',');
+        appendJsonStringField(result, "recordKey", row.identity.recordKey);
+        result.push_back(',');
+        appendJsonStringField(result, "recordId", row.identity.recordId);
+        result.push_back(',');
+        appendJsonStringField(result, "sourceFile", row.contentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordIndex", row.recordIndex);
+        result.push_back(',');
+        appendJsonStringField(result, "actorKind", profile.npc ? "npc" : "creature");
+        result.push_back(',');
+        appendJsonBoolField(result, "npc", profile.npc);
+        result.push_back(',');
+        appendJsonBoolField(result, "autocalc", profile.autocalc);
+        result.push_back(',');
+        appendJsonNumberField(result, "level", profile.level);
+        result.push_back(',');
+        appendJsonNumberField(result, "flags", profile.flags);
+        result.push_back(',');
+        appendJsonNumberField(result, "bloodType", profile.bloodType);
+        result.push_back(',');
+        appendJsonNumberField(result, "services", profile.services);
+        result.push_back(',');
+        appendJsonStringField(result, "displayName", profile.displayName);
+        result.push_back(',');
+        appendJsonStringField(result, "model", profile.model);
+        result.push_back(',');
+        appendJsonStringField(result, "script", profile.script);
+        result.push_back(',');
+        appendJsonStringField(result, "race", profile.race);
+        result.push_back(',');
+        appendJsonStringField(result, "class", profile.classId);
+        result.push_back(',');
+        appendJsonStringField(result, "faction", profile.faction);
+        result.push_back(',');
+        appendJsonStringField(result, "head", profile.head);
+        result.push_back(',');
+        appendJsonStringField(result, "hair", profile.hair);
+        result.push_back(',');
+        appendJsonStringField(result, "original", profile.original);
+        result.push_back(',');
+        appendJsonNumberField(result, "factionRank", profile.factionRank);
+        result.push_back(',');
+        appendJsonNumberField(result, "disposition", profile.disposition);
+        result.push_back(',');
+        appendJsonNumberField(result, "reputation", profile.reputation);
+        result.push_back(',');
+        appendJsonNumberField(result, "gold", profile.gold);
+        result.push_back(',');
+        appendJsonNumberField(result, "creatureType", profile.creatureType);
+        result.push_back(',');
+        appendJsonNumberField(result, "soul", profile.soul);
+        result.push_back(',');
+        appendJsonNumberField(result, "combat", profile.combat);
+        result.push_back(',');
+        appendJsonNumberField(result, "magic", profile.magic);
+        result.push_back(',');
+        appendJsonNumberField(result, "stealth", profile.stealth);
+        result.push_back(',');
+        appendJsonNumberField(result, "scale", profile.scale);
+        for (std::size_t i = 0; i < profile.attributes.size(); ++i)
+        {
+            const std::string fieldName = "attribute" + std::to_string(i);
+            result.push_back(',');
+            appendJsonNumberField(result, fieldName, profile.attributes[i]);
+        }
+        for (std::size_t i = 0; i < profile.skills.size(); ++i)
+        {
+            const std::string fieldName = "skill" + std::to_string(i);
+            result.push_back(',');
+            appendJsonNumberField(result, fieldName, profile.skills[i]);
+        }
+        for (std::size_t i = 0; i < profile.attacks.size(); ++i)
+        {
+            const std::string fieldName = "attack" + std::to_string(i);
+            result.push_back(',');
+            appendJsonNumberField(result, fieldName, profile.attacks[i]);
+        }
+        result += "}\n";
+
+        ++stats.actorProfileRecordCount;
+        if (profile.npc)
+            ++stats.actorProfileNpcCount;
+        else
+            ++stats.actorProfileCreatureCount;
+        if (profile.npc && profile.autocalc)
+            ++stats.actorProfileAutocalcNpcCount;
     }
 
     void appendActorSpellbookRows(std::string& result, const IndexedRecordRow& row,
@@ -2537,6 +2759,7 @@ namespace
         for (const auto& [_, row] : winningRows)
         {
             appendRecordWinnerRow(result.recordWinnersJsonl, row);
+            appendActorProfileRows(result.actorProfileJsonl, row, stats);
             appendActorInventoryRows(result.actorInventoryJsonl, row, stats);
             appendActorSpellbookRows(result.actorSpellbookJsonl, row, stats);
             appendActorStatsDynamicRows(result.actorStatsDynamicJsonl, row, stats);
@@ -4166,7 +4389,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 17;
+        mStats.tableCount = 18;
 
         try
         {
@@ -4195,6 +4418,8 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "resolved_assets.jsonl", resolvedAssetsJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexTables.recordIndexJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "actor_profile.jsonl",
+                recordIndexTables.actorProfileJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_inventory.jsonl",
                 recordIndexTables.actorInventoryJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "actor_spellbook.jsonl",

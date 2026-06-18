@@ -28,6 +28,10 @@ public:
         std::string baseRecordType;
         std::string baseRecordCategory;
         std::string baseRecordSourceFile;
+        bool baseActorProfileImported = false;
+        bool baseActorProfileNpc = false;
+        bool baseActorProfileAutocalc = false;
+        int baseActorProfileLevel = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
         bool baseActorSpellbookImported = false;
@@ -83,6 +87,10 @@ public:
         std::size_t activatorCount = 0;
         std::size_t objectCount = 0;
         std::size_t actorAiCount = 0;
+        std::size_t actorProfileCount = 0;
+        std::size_t actorProfileNpcCount = 0;
+        std::size_t actorProfileCreatureCount = 0;
+        std::size_t actorProfileAutocalcNpcCount = 0;
         std::size_t actorInventoryCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookCount = 0;

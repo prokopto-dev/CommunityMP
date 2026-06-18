@@ -21,6 +21,7 @@ namespace
     constexpr std::string_view manifestSchema = "communitymp.worlddb.v1";
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
+    constexpr std::string_view actorProfileRowSchema = "communitymp.worlddb.actor-profile.v1";
     constexpr std::string_view actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
     constexpr std::string_view actorSpellbookRowSchema = "communitymp.worlddb.actor-spellbook.v1";
     constexpr std::string_view actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
@@ -348,6 +349,7 @@ namespace mwmp
         mLoadOrderByContentFile.clear();
         mRecordWinnersByWinnerKey.clear();
         mRecordWinnerKeysByRecordKey.clear();
+        mActorProfilesByRecordKey.clear();
         mActorInventoryByRecordKey.clear();
         mActorSpellbookByRecordKey.clear();
         mActorStatsDynamicByRecordKey.clear();
@@ -425,6 +427,9 @@ namespace mwmp
                     winner.actorAiFight = getUnsigned(row, "actorAiFight");
                     winner.actorAiFlee = getUnsigned(row, "actorAiFlee");
                     winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
+                    winner.actorProfileImported = getBool(row, "actorProfileImported");
+                    winner.actorProfileNpc = getBool(row, "actorProfileNpc");
+                    winner.actorProfileAutocalc = getBool(row, "actorProfileAutocalc");
                     winner.actorInventoryImported = getBool(row, "actorInventoryImported");
                     winner.actorInventoryItemCount = getSizeT(row, "actorInventoryItemCount");
                     winner.actorSpellbookImported = getBool(row, "actorSpellbookImported");
@@ -440,6 +445,16 @@ namespace mwmp
                     const bool deletedWinner = winner.deleted || winner.tombstone;
                     if (deletedWinner)
                         ++mStats.recordWinnerDeletedCount;
+                    if (!deletedWinner && winner.actorProfileImported && !winner.recordKey.empty())
+                    {
+                        ++mStats.actorProfileRecordCount;
+                        if (winner.actorProfileNpc)
+                            ++mStats.actorProfileNpcCount;
+                        else
+                            ++mStats.actorProfileCreatureCount;
+                        if (winner.actorProfileNpc && winner.actorProfileAutocalc)
+                            ++mStats.actorProfileAutocalcNpcCount;
+                    }
                     if (!deletedWinner && winner.actorInventoryImported && !winner.recordKey.empty())
                         ++mStats.actorInventoryRecordCount;
                     if (!deletedWinner && winner.actorSpellbookImported && !winner.recordKey.empty())
@@ -457,6 +472,62 @@ namespace mwmp
                     winner.winnerKey = winnerLookupKey(winner.recordType, winner.recordKey);
                     mRecordWinnerKeysByRecordKey[winner.recordKey].push_back(winner.winnerKey);
                     mRecordWinnersByWinnerKey[winner.winnerKey] = std::move(winner);
+                });
+
+            readJsonlTable(root, "actor_profile.jsonl", actorProfileRowSchema,
+                [&](const boost::property_tree::ptree& row) {
+                    WorldActorProfileRecord profile;
+                    profile.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    profile.recordId = getString(row, "recordId");
+                    profile.sourceFile = getString(row, "sourceFile");
+                    profile.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    profile.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    profile.recordIndex = getSizeT(row, "recordIndex");
+                    profile.actorKind = getString(row, "actorKind");
+                    profile.npc = getBool(row, "npc");
+                    profile.autocalc = getBool(row, "autocalc");
+                    profile.level = getInt(row, "level");
+                    profile.flags = getInt(row, "flags");
+                    profile.bloodType = getInt(row, "bloodType");
+                    profile.services = getInt(row, "services");
+                    profile.displayName = getString(row, "displayName");
+                    profile.model = getString(row, "model");
+                    profile.script = getString(row, "script");
+                    profile.race = getString(row, "race");
+                    profile.classId = getString(row, "class");
+                    profile.faction = getString(row, "faction");
+                    profile.head = getString(row, "head");
+                    profile.hair = getString(row, "hair");
+                    profile.original = getString(row, "original");
+                    profile.factionRank = getInt(row, "factionRank", -1);
+                    profile.disposition = getInt(row, "disposition", -1);
+                    profile.reputation = getInt(row, "reputation", -1);
+                    profile.gold = getInt(row, "gold");
+                    profile.creatureType = getInt(row, "creatureType", -1);
+                    profile.soul = getInt(row, "soul", -1);
+                    profile.combat = getInt(row, "combat", -1);
+                    profile.magic = getInt(row, "magic", -1);
+                    profile.stealth = getInt(row, "stealth", -1);
+                    profile.scale = getFloat(row, "scale", 1.f);
+
+                    for (std::size_t i = 0; i < profile.attributes.size(); ++i)
+                    {
+                        const std::string fieldName = "attribute" + std::to_string(i);
+                        profile.attributes[i] = getInt(row, fieldName, -1);
+                    }
+                    for (std::size_t i = 0; i < profile.skills.size(); ++i)
+                    {
+                        const std::string fieldName = "skill" + std::to_string(i);
+                        profile.skills[i] = getInt(row, fieldName, -1);
+                    }
+                    for (std::size_t i = 0; i < profile.attacks.size(); ++i)
+                    {
+                        const std::string fieldName = "attack" + std::to_string(i);
+                        profile.attacks[i] = getInt(row, fieldName, 0);
+                    }
+
+                    if (!profile.recordKey.empty())
+                        mActorProfilesByRecordKey[profile.recordKey] = std::move(profile);
                 });
 
             mStats.actorInventoryItemCount = readJsonlTable(root, "actor_inventory.jsonl",
@@ -704,8 +775,10 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu actorSpellbooks=%zu actorSpells=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorProfiles=%zu actorProfileNpcs=%zu actorProfileCreatures=%zu actorProfileAutocalcNpcs=%zu actorInventories=%zu actorItems=%zu actorSpellbooks=%zu actorSpells=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
                 pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
+                mStats.actorProfileRecordCount, mStats.actorProfileNpcCount,
+                mStats.actorProfileCreatureCount, mStats.actorProfileAutocalcNpcCount,
                 mStats.actorInventoryRecordCount, mStats.actorInventoryItemCount,
                 mStats.actorSpellbookRecordCount, mStats.actorSpellbookSpellCount,
                 mStats.actorStatsDynamicRecordCount, mStats.actorStatsDynamicItemCount,
@@ -724,6 +797,7 @@ namespace mwmp
             mLoadOrderByContentFile.clear();
             mRecordWinnersByWinnerKey.clear();
             mRecordWinnerKeysByRecordKey.clear();
+            mActorProfilesByRecordKey.clear();
             mActorInventoryByRecordKey.clear();
             mActorSpellbookByRecordKey.clear();
             mActorStatsDynamicByRecordKey.clear();
@@ -752,6 +826,10 @@ namespace mwmp
         ref.baseRecordCategory.clear();
         ref.baseRecordSourceFile.clear();
         ref.baseRecordLoadOrderIndex = 0;
+        ref.baseActorProfileImported = false;
+        ref.baseActorProfileNpc = false;
+        ref.baseActorProfileAutocalc = false;
+        ref.baseActorProfileLevel = 0;
         ref.baseActorInventoryImported = false;
         ref.baseActorInventoryItemCount = 0;
         ref.baseActorSpellbookImported = false;
@@ -822,6 +900,15 @@ namespace mwmp
         ref.baseRecordCategory = selected->category;
         ref.baseRecordSourceFile = selected->sourceFile;
         ref.baseRecordLoadOrderIndex = selected->loadOrderIndex;
+        const auto actorProfileIt = mActorProfilesByRecordKey.find(selected->recordKey);
+        ref.baseActorProfileImported = selected->actorProfileImported
+            && actorProfileIt != mActorProfilesByRecordKey.end();
+        if (ref.baseActorProfileImported)
+        {
+            ref.baseActorProfileNpc = actorProfileIt->second.npc;
+            ref.baseActorProfileAutocalc = actorProfileIt->second.autocalc;
+            ref.baseActorProfileLevel = actorProfileIt->second.level;
+        }
         const auto actorInventoryIt = mActorInventoryByRecordKey.find(selected->recordKey);
         const std::size_t importedActorInventoryItemCount
             = actorInventoryIt != mActorInventoryByRecordKey.end() ? actorInventoryIt->second.size() : 0;
@@ -1071,6 +1158,17 @@ namespace mwmp
 
         std::sort(result.begin(), result.end(), referenceSortLess);
         return result;
+    }
+
+    std::optional<WorldActorProfileRecord> WorldDatabaseStore::findActorProfileByRecordKey(
+        std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mActorProfilesByRecordKey.find(normalizedLookupKey(recordKey));
+        if (it == mActorProfilesByRecordKey.end())
+            return std::nullopt;
+
+        return it->second;
     }
 
     std::vector<WorldActorInventoryItem> WorldDatabaseStore::findActorInventoryByRecordKey(

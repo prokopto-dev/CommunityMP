@@ -1,6 +1,7 @@
 #ifndef OPENMW_MP_WORLDDATABASESTORE_HPP
 #define OPENMW_MP_WORLDDATABASESTORE_HPP
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <map>
@@ -35,6 +36,10 @@ namespace mwmp
         std::size_t cellReferenceIndexedCellCount = 0;
         std::size_t recordWinnerCount = 0;
         std::size_t recordWinnerDeletedCount = 0;
+        std::size_t actorProfileRecordCount = 0;
+        std::size_t actorProfileNpcCount = 0;
+        std::size_t actorProfileCreatureCount = 0;
+        std::size_t actorProfileAutocalcNpcCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookRecordCount = 0;
@@ -136,6 +141,9 @@ namespace mwmp
         unsigned int actorAiFight = 0;
         unsigned int actorAiFlee = 0;
         unsigned int actorAiAlarm = 0;
+        bool actorProfileImported = false;
+        bool actorProfileNpc = false;
+        bool actorProfileAutocalc = false;
         bool actorInventoryImported = false;
         std::size_t actorInventoryItemCount = 0;
         bool actorSpellbookImported = false;
@@ -164,6 +172,45 @@ namespace mwmp
 
     using WorldActorInventoryItem = WorldRecordInventoryItem;
     using WorldContainerInventoryItem = WorldRecordInventoryItem;
+
+    struct WorldActorProfileRecord
+    {
+        std::string recordKey;
+        std::string recordId;
+        std::string sourceFile;
+        std::size_t loadOrderIndex = 0;
+        std::size_t engineContentIndex = 0;
+        std::size_t recordIndex = 0;
+        std::string actorKind;
+        bool npc = false;
+        bool autocalc = false;
+        int level = 0;
+        int flags = 0;
+        int bloodType = 0;
+        int services = 0;
+        std::string displayName;
+        std::string model;
+        std::string script;
+        std::string race;
+        std::string classId;
+        std::string faction;
+        std::string head;
+        std::string hair;
+        std::string original;
+        int factionRank = -1;
+        int disposition = -1;
+        int reputation = -1;
+        int gold = 0;
+        int creatureType = -1;
+        int soul = -1;
+        int combat = -1;
+        int magic = -1;
+        int stealth = -1;
+        float scale = 1.f;
+        std::array<int, 8> attributes{};
+        std::array<int, 27> skills{};
+        std::array<int, 6> attacks{};
+    };
 
     struct WorldActorSpellbookEntry
     {
@@ -267,6 +314,10 @@ namespace mwmp
         std::string baseRecordCategory;
         std::string baseRecordSourceFile;
         std::size_t baseRecordLoadOrderIndex = 0;
+        bool baseActorProfileImported = false;
+        bool baseActorProfileNpc = false;
+        bool baseActorProfileAutocalc = false;
+        int baseActorProfileLevel = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
         bool baseActorSpellbookImported = false;
@@ -314,6 +365,7 @@ namespace mwmp
         std::optional<WorldRecordWinner> findBaseRecordForReference(std::string_view refKey) const;
         std::vector<WorldCellReferenceRecord> findReferencesByCellKey(
             std::string_view cellKey, bool includeDeleted = false) const;
+        std::optional<WorldActorProfileRecord> findActorProfileByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorInventoryItem> findActorInventoryByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorSpellbookEntry> findActorSpellbookByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorStatsDynamicItem> findActorStatsDynamicByRecordKey(std::string_view recordKey) const;
@@ -334,6 +386,7 @@ namespace mwmp
         std::map<std::string, WorldLoadOrderEntry> mLoadOrderByContentFile;
         std::map<std::string, WorldRecordWinner> mRecordWinnersByWinnerKey;
         std::map<std::string, std::vector<std::string>> mRecordWinnerKeysByRecordKey;
+        std::map<std::string, WorldActorProfileRecord> mActorProfilesByRecordKey;
         std::map<std::string, std::vector<WorldActorInventoryItem>> mActorInventoryByRecordKey;
         std::map<std::string, std::vector<WorldActorSpellbookEntry>> mActorSpellbookByRecordKey;
         std::map<std::string, std::vector<WorldActorStatsDynamicItem>> mActorStatsDynamicByRecordKey;

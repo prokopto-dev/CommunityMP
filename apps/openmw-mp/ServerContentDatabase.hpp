@@ -36,6 +36,10 @@ namespace mwmp
         std::size_t recordWinnerCount = 0;
         std::size_t recordWinnerDeletedCount = 0;
         std::size_t recordImportErrorCount = 0;
+        std::size_t actorProfileRecordCount = 0;
+        std::size_t actorProfileNpcCount = 0;
+        std::size_t actorProfileCreatureCount = 0;
+        std::size_t actorProfileAutocalcNpcCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
         std::size_t actorSpellbookRecordCount = 0;
