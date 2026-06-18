@@ -170,7 +170,11 @@ void ServerFunctions::SetServerPassword(const char *password) noexcept
 
 void ServerFunctions::SetDataFileEnforcementState(bool state) noexcept
 {
-    mwmp::ServerNetworking::getPtr()->setDataFileEnforcementState(state);
+    mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
+    if (networking == nullptr || networking->usesNativeDataFileRegistry())
+        return;
+
+    networking->setDataFileEnforcementState(state);
 }
 
 void ServerFunctions::SetScriptErrorIgnoringState(bool state) noexcept
