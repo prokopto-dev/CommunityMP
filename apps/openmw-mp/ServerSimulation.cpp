@@ -2212,9 +2212,12 @@ namespace mwmp
         const std::string cellKey = serverCell != nullptr ? getLuaCellKey(serverCell->getCellData()) : "";
         const std::string serverCellKey = serverCell != nullptr ? getCellSimulationKey(serverCell->getCellData()) : "";
         const bool simulationInterest = serverCell != nullptr && serverCell->hasSimulationInterest();
+        const Cell::ServerWorldBootstrapStats* serverWorldStats = nullptr;
+        if (serverCell != nullptr && serverCell->hasServerWorldStateBootstrap())
+            serverWorldStats = &serverCell->getServerWorldBootstrapStats();
 
         std::string payload;
-        payload.reserve(260 + cellDescription.size() + cellKey.size() + serverCellKey.size());
+        payload.reserve(520 + cellDescription.size() + cellKey.size() + serverCellKey.size());
         payload += "{\"schema\":";
         payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
         payload += ",\"kind\":\"cell_activity\",\"cellDescription\":";
@@ -2229,6 +2232,20 @@ namespace mwmp
         payload += jsonBool(localPlayerLoaded);
         payload += ",\"simulationInterest\":";
         payload += jsonBool(simulationInterest);
+        payload += ",\"serverWorldBootstrapped\":";
+        payload += jsonBool(serverWorldStats != nullptr);
+        payload += ",\"serverWorldCellKey\":";
+        payload += jsonString(serverWorldStats != nullptr ? serverWorldStats->cellKey : std::string{});
+        payload += ",\"serverWorldReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->referenceCount : 0);
+        payload += ",\"serverWorldActorReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorCount : 0);
+        payload += ",\"serverWorldContainerReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->containerCount : 0);
+        payload += ",\"serverWorldDoorReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->doorCount : 0);
+        payload += ",\"serverWorldUnresolvedReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->unresolvedCount : 0);
         payload += ",\"serverActorAuthority\":";
         payload += jsonBool(canAuthoritativelySimulateActors());
         payload += ",\"runtimeRequested\":";
@@ -2271,8 +2288,33 @@ namespace mwmp
         const QuestEventJournalStatistics questEventJournal = QuestEventJournalStore::get().statistics();
         const CellController* cellController = CellController::get();
         std::size_t loadedCellCount = 0;
+        std::size_t serverWorldBootstrappedCellCount = 0;
+        std::size_t serverWorldReferenceCount = 0;
+        std::size_t serverWorldActorReferenceCount = 0;
+        std::size_t serverWorldContainerReferenceCount = 0;
+        std::size_t serverWorldDoorReferenceCount = 0;
+        std::size_t serverWorldItemReferenceCount = 0;
+        std::size_t serverWorldUnresolvedReferenceCount = 0;
+        std::size_t serverWorldAmbiguousReferenceCount = 0;
         if (cellController != nullptr)
+        {
             loadedCellCount = cellController->getCells().size();
+            for (const Cell* cell : cellController->getCells())
+            {
+                if (cell == nullptr || !cell->hasServerWorldStateBootstrap())
+                    continue;
+
+                const Cell::ServerWorldBootstrapStats& stats = cell->getServerWorldBootstrapStats();
+                ++serverWorldBootstrappedCellCount;
+                serverWorldReferenceCount += stats.referenceCount;
+                serverWorldActorReferenceCount += stats.actorCount;
+                serverWorldContainerReferenceCount += stats.containerCount;
+                serverWorldDoorReferenceCount += stats.doorCount;
+                serverWorldItemReferenceCount += stats.itemCount;
+                serverWorldUnresolvedReferenceCount += stats.unresolvedCount;
+                serverWorldAmbiguousReferenceCount += stats.ambiguousCount;
+            }
+        }
 
         std::size_t playerTrackedCellCount = 0;
         for (const auto& [cellDescription, state] : mShadowCellAuthority)
@@ -2301,6 +2343,22 @@ namespace mwmp
         payload += jsonString(authorityBlockReason);
         payload += ",\"loadedCellCount\":";
         payload += std::to_string(loadedCellCount);
+        payload += ",\"serverWorldBootstrappedCellCount\":";
+        payload += std::to_string(serverWorldBootstrappedCellCount);
+        payload += ",\"serverWorldReferenceCount\":";
+        payload += std::to_string(serverWorldReferenceCount);
+        payload += ",\"serverWorldActorReferenceCount\":";
+        payload += std::to_string(serverWorldActorReferenceCount);
+        payload += ",\"serverWorldContainerReferenceCount\":";
+        payload += std::to_string(serverWorldContainerReferenceCount);
+        payload += ",\"serverWorldDoorReferenceCount\":";
+        payload += std::to_string(serverWorldDoorReferenceCount);
+        payload += ",\"serverWorldItemReferenceCount\":";
+        payload += std::to_string(serverWorldItemReferenceCount);
+        payload += ",\"serverWorldUnresolvedReferenceCount\":";
+        payload += std::to_string(serverWorldUnresolvedReferenceCount);
+        payload += ",\"serverWorldAmbiguousReferenceCount\":";
+        payload += std::to_string(serverWorldAmbiguousReferenceCount);
         payload += ",\"trackedCellCount\":";
         payload += std::to_string(mShadowCellAuthority.size());
         payload += ",\"playerTrackedCellCount\":";

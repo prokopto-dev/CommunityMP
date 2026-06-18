@@ -107,12 +107,14 @@ Cell *CellController::addCell(ESM::Cell cellData)
         LOG_APPEND(TimedLog::LOG_INFO, "- Adding %s to CellController", cellData.getDescription().c_str());
 
         cell = new Cell(cellData);
+        cell->ensureServerWorldStateBootstrapped();
         cells.push_back(cell);
     }
     else
     {
         LOG_APPEND(TimedLog::LOG_INFO, "- Found %s in CellController", cellData.getDescription().c_str());
         cell = *it;
+        cell->ensureServerWorldStateBootstrapped();
     }
 
     return cell;

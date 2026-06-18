@@ -4,11 +4,14 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cctype>
 #include <cmath>
 #include <iostream>
+#include <string_view>
 #include <utility>
 #include "Player.hpp"
 #include "ServerEventDispatcher.hpp"
+#include "WorldDatabaseStore.hpp"
 
 namespace
 {
@@ -60,6 +63,61 @@ namespace
         for (std::size_t i = 0; i < count; ++i)
             actorList.baseActors[i].movementLatencySeconds = latencies[i];
     }
+
+    std::string normalizedWorldLookupKey(std::string_view value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (const unsigned char c : value)
+        {
+            if (c == '\\')
+                result.push_back('/');
+            else
+                result.push_back(static_cast<char>(std::tolower(c)));
+        }
+        return result;
+    }
+
+    std::string worldDatabaseCellKeyForCell(const ESM::Cell& cell)
+    {
+        if (cell.isExterior())
+            return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
+
+        return "interior:" + normalizedWorldLookupKey(cell.mName);
+    }
+
+    ESM::Position makePosition(float posX, float posY, float posZ, float rotX, float rotY, float rotZ)
+    {
+        ESM::Position position;
+        position.pos[0] = posX;
+        position.pos[1] = posY;
+        position.pos[2] = posZ;
+        position.rot[0] = rotX;
+        position.rot[1] = rotY;
+        position.rot[2] = rotZ;
+        return position;
+    }
+
+    bool isActorBootstrapCategory(std::string_view category)
+    {
+        return category == "actor" || category == "levelledActor";
+    }
+
+    mwmp::BaseActor buildServerWorldActor(const Cell::ServerWorldReference& reference, const ESM::Cell& cell)
+    {
+        mwmp::BaseActor actor;
+        actor.refId = reference.refId;
+        actor.refNum = reference.refNum;
+        actor.mpNum = reference.mpNum;
+        actor.position = reference.position;
+        actor.direction = {};
+        actor.cell = cell;
+        actor.hasPositionData = true;
+        actor.positionSequence = 1;
+        actor.movementSampleIntervalSeconds = 1.f / 60.f;
+        actor.movementLatencySeconds = 0.f;
+        return actor;
+    }
 }
 
 Cell::Cell(ESM::Cell cell)
@@ -70,6 +128,7 @@ Cell::Cell(ESM::Cell cell)
     , simulationInterest(false)
 {
     cellActorList.count = 0;
+    serverWorldActorList.count = 0;
 }
 
 Cell::Iterator Cell::begin() const
@@ -398,6 +457,116 @@ bool Cell::consumePendingActorListRequestFrom(const mwmp::PacketGuid& guid)
 bool Cell::hasActorListSnapshot() const
 {
     return actorListSnapshotReceived;
+}
+
+void Cell::ensureServerWorldStateBootstrapped()
+{
+    if (serverWorldBootstrapStats.attempted)
+        return;
+
+    serverWorldBootstrapStats = {};
+    serverWorldBootstrapStats.attempted = true;
+    serverWorldBootstrapStats.cellKey = worldDatabaseCellKeyForCell(cell);
+    serverWorldReferences.clear();
+    serverWorldActorList = {};
+    serverWorldActorList.guid = mwmp::unassignedPacketGuid();
+    serverWorldActorList.cell = cell;
+    serverWorldActorList.action = mwmp::BaseActorList::SET;
+    serverWorldActorList.isValid = true;
+
+    mwmp::WorldDatabaseStore::get().ensureLoaded();
+    const mwmp::WorldDatabaseStatistics worldStats = mwmp::WorldDatabaseStore::get().statistics();
+    if (!worldStats.loaded)
+        return;
+
+    std::vector<mwmp::WorldCellReferenceRecord> references
+        = mwmp::WorldDatabaseStore::get().findReferencesByCellKey(serverWorldBootstrapStats.cellKey);
+    serverWorldReferences.reserve(references.size());
+    serverWorldActorList.baseActors.reserve(references.size());
+
+    for (const mwmp::WorldCellReferenceRecord& ref : references)
+    {
+        if (ref.baseRecordDeleted)
+        {
+            ++serverWorldBootstrapStats.deletedBaseRecordCount;
+            continue;
+        }
+
+        ServerWorldReference snapshot;
+        snapshot.refKey = ref.refKey;
+        snapshot.refId = ref.refId;
+        snapshot.baseRecordType = ref.baseRecordType;
+        snapshot.baseRecordCategory = ref.baseRecordCategory;
+        snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
+        snapshot.refNum = ref.refNumIndex;
+        snapshot.mpNum = 0;
+        snapshot.refNumContentFile = ref.refNumContentFile;
+        snapshot.count = ref.count;
+        snapshot.scale = ref.scale;
+        snapshot.position = makePosition(ref.posX, ref.posY, ref.posZ, ref.rotX, ref.rotY, ref.rotZ);
+        snapshot.moved = ref.moved;
+        snapshot.teleport = ref.teleport;
+        snapshot.locked = ref.locked;
+        snapshot.lockLevel = ref.lockLevel;
+        snapshot.destinationCell = ref.destCell;
+        snapshot.destinationPosition = makePosition(ref.doorDestPosX, ref.doorDestPosY, ref.doorDestPosZ,
+            ref.doorDestRotX, ref.doorDestRotY, ref.doorDestRotZ);
+        snapshot.baseRecordResolved = ref.baseRecordResolved;
+        snapshot.baseRecordAmbiguous = ref.baseRecordAmbiguous;
+        snapshot.baseRecordDeleted = ref.baseRecordDeleted;
+
+        if (snapshot.baseRecordAmbiguous)
+            ++serverWorldBootstrapStats.ambiguousCount;
+        else if (!snapshot.baseRecordResolved)
+            ++serverWorldBootstrapStats.unresolvedCount;
+        else if (isActorBootstrapCategory(snapshot.baseRecordCategory))
+        {
+            ++serverWorldBootstrapStats.actorCount;
+            serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell));
+        }
+        else if (snapshot.baseRecordCategory == "container")
+            ++serverWorldBootstrapStats.containerCount;
+        else if (snapshot.baseRecordCategory == "door")
+            ++serverWorldBootstrapStats.doorCount;
+        else if (snapshot.baseRecordCategory == "item" || snapshot.baseRecordCategory == "levelledItem")
+            ++serverWorldBootstrapStats.itemCount;
+        else if (snapshot.baseRecordCategory == "static")
+            ++serverWorldBootstrapStats.staticCount;
+        else if (snapshot.baseRecordCategory == "activator")
+            ++serverWorldBootstrapStats.activatorCount;
+
+        serverWorldReferences.push_back(std::move(snapshot));
+    }
+
+    serverWorldBootstrapStats.referenceCount = serverWorldReferences.size();
+    serverWorldActorList.count = static_cast<unsigned int>(serverWorldActorList.baseActors.size());
+    serverWorldBootstrapStats.loaded = true;
+
+    LOG_APPEND(TimedLog::LOG_INFO,
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu containers, %zu doors, %zu unresolved",
+        getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
+        serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
+        serverWorldBootstrapStats.unresolvedCount);
+}
+
+bool Cell::hasServerWorldStateBootstrap() const
+{
+    return serverWorldBootstrapStats.loaded;
+}
+
+const Cell::ServerWorldBootstrapStats& Cell::getServerWorldBootstrapStats() const
+{
+    return serverWorldBootstrapStats;
+}
+
+const std::vector<Cell::ServerWorldReference>& Cell::getServerWorldReferences() const
+{
+    return serverWorldReferences;
+}
+
+const mwmp::BaseActorList& Cell::getServerWorldActorList() const
+{
+    return serverWorldActorList;
 }
 
 mwmp::PacketGuid *Cell::getAuthority()

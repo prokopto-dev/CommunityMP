@@ -2,6 +2,7 @@
 #define OPENMW_SERVERCELL_HPP
 
 #include <deque>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <components/esm/records.hpp>
@@ -17,6 +18,47 @@ class Cell
 {
     friend class CellController;
 public:
+    struct ServerWorldReference
+    {
+        std::string refKey;
+        std::string refId;
+        std::string baseRecordType;
+        std::string baseRecordCategory;
+        std::string baseRecordSourceFile;
+        unsigned int refNum = 0;
+        unsigned int mpNum = 0;
+        int refNumContentFile = -1;
+        int count = 1;
+        float scale = 1.f;
+        ESM::Position position;
+        bool moved = false;
+        bool teleport = false;
+        bool locked = false;
+        int lockLevel = 0;
+        std::string destinationCell;
+        ESM::Position destinationPosition;
+        bool baseRecordResolved = false;
+        bool baseRecordAmbiguous = false;
+        bool baseRecordDeleted = false;
+    };
+
+    struct ServerWorldBootstrapStats
+    {
+        bool attempted = false;
+        bool loaded = false;
+        std::string cellKey;
+        std::size_t referenceCount = 0;
+        std::size_t actorCount = 0;
+        std::size_t containerCount = 0;
+        std::size_t doorCount = 0;
+        std::size_t itemCount = 0;
+        std::size_t staticCount = 0;
+        std::size_t activatorCount = 0;
+        std::size_t unresolvedCount = 0;
+        std::size_t ambiguousCount = 0;
+        std::size_t deletedBaseRecordCount = 0;
+    };
+
     Cell(ESM::Cell cell);
     typedef std::deque<Player*> TPlayers;
     typedef TPlayers::const_iterator Iterator;
@@ -37,6 +79,11 @@ public:
     bool hasPendingActorListRequestFrom(const mwmp::PacketGuid& guid) const;
     bool consumePendingActorListRequestFrom(const mwmp::PacketGuid& guid);
     bool hasActorListSnapshot() const;
+    void ensureServerWorldStateBootstrapped();
+    bool hasServerWorldStateBootstrap() const;
+    const ServerWorldBootstrapStats& getServerWorldBootstrapStats() const;
+    const std::vector<ServerWorldReference>& getServerWorldReferences() const;
+    const mwmp::BaseActorList& getServerWorldActorList() const;
 
     mwmp::PacketGuid *getAuthority();
     void setAuthority(const mwmp::PacketGuid& guid);
@@ -64,6 +111,9 @@ private:
     mwmp::PacketGuid authorityGuid;
     mwmp::PacketGuid actorListRequestGuid;
     mwmp::BaseActorList cellActorList;
+    mwmp::BaseActorList serverWorldActorList;
+    std::vector<ServerWorldReference> serverWorldReferences;
+    ServerWorldBootstrapStats serverWorldBootstrapStats;
     bool actorListSnapshotReceived;
     bool simulationInterest;
 };
