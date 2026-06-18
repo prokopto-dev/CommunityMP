@@ -723,6 +723,7 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldReferences.clear();
     serverWorldPathgridPoints.clear();
     serverWorldPathgridEdges.clear();
+    serverWorldPathgridNavigator.clear();
     serverWorldActorList = {};
     serverWorldActorList.guid = mwmp::unassignedPacketGuid();
     serverWorldActorList.cell = cell;
@@ -743,9 +744,16 @@ void Cell::ensureServerWorldStateBootstrapped()
         = mwmp::WorldDatabaseStore::get().findPathgridPointsByCellKey(serverWorldBootstrapStats.cellKey);
     serverWorldPathgridEdges
         = mwmp::WorldDatabaseStore::get().findPathgridEdgesByCellKey(serverWorldBootstrapStats.cellKey);
-    serverWorldBootstrapStats.pathgridAvailable = !serverWorldPathgridPoints.empty();
-    serverWorldBootstrapStats.pathgridPointCount = serverWorldPathgridPoints.size();
-    serverWorldBootstrapStats.pathgridEdgeCount = serverWorldPathgridEdges.size();
+    serverWorldPathgridNavigator.rebuild(
+        serverWorldBootstrapStats.cellKey, serverWorldPathgridPoints, serverWorldPathgridEdges);
+    const mwmp::ServerPathgridNavigationStats& navigationStats = serverWorldPathgridNavigator.statistics();
+    serverWorldBootstrapStats.pathgridAvailable = navigationStats.available;
+    serverWorldBootstrapStats.pathgridPointCount = navigationStats.pointCount;
+    serverWorldBootstrapStats.pathgridEdgeCount = navigationStats.rawEdgeCount;
+    serverWorldBootstrapStats.pathgridUsableDirectedEdgeCount = navigationStats.usableDirectedEdgeCount;
+    serverWorldBootstrapStats.pathgridInvalidEdgeCount = navigationStats.invalidEdgeCount;
+    serverWorldBootstrapStats.pathgridConnectedComponentCount = navigationStats.connectedComponentCount;
+    serverWorldBootstrapStats.pathgridLargestConnectedComponentSize = navigationStats.largestConnectedComponentSize;
 
     std::vector<mwmp::WorldCellReferenceRecord> references
         = mwmp::WorldDatabaseStore::get().findReferencesByCellKey(serverWorldBootstrapStats.cellKey);
@@ -891,7 +899,7 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu usable pathgrid directed edges, %zu pathgrid components, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorAiPackageListCount,
         serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorProfileCount,
@@ -902,7 +910,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         serverWorldBootstrapStats.actorStatsDynamicItemCount, serverWorldBootstrapStats.actorStatsDynamicAutocalcCount,
         serverWorldBootstrapStats.actorEquipmentCount,
         serverWorldBootstrapStats.actorEquipmentItemCount, serverWorldBootstrapStats.pathgridPointCount,
-        serverWorldBootstrapStats.pathgridEdgeCount, serverWorldBootstrapStats.objectCount,
+        serverWorldBootstrapStats.pathgridEdgeCount, serverWorldBootstrapStats.pathgridUsableDirectedEdgeCount,
+        serverWorldBootstrapStats.pathgridConnectedComponentCount, serverWorldBootstrapStats.objectCount,
         serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);
 }
@@ -930,6 +939,11 @@ const std::vector<mwmp::WorldPathgridPointRecord>& Cell::getServerWorldPathgridP
 const std::vector<mwmp::WorldPathgridEdgeRecord>& Cell::getServerWorldPathgridEdges() const
 {
     return serverWorldPathgridEdges;
+}
+
+const mwmp::ServerPathgridNavigator& Cell::getServerWorldPathgridNavigator() const
+{
+    return serverWorldPathgridNavigator;
 }
 
 const mwmp::BaseActorList& Cell::getServerWorldActorList() const

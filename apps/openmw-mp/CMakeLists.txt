@@ -51,6 +51,7 @@ set(SERVER_CORE
     ServerContentDatabase.cpp
     ServerContentRegistry.cpp
     ServerEventDispatcher.cpp
+    ServerPathgridNavigator.cpp
     SimulationRuntime.cpp
     WorldDatabaseStore.cpp
     ServerNetworking.cpp
@@ -98,6 +99,7 @@ set(SERVER_HEADER
         ServerContentDatabase.hpp
         ServerContentRegistry.hpp
         ServerEventDispatcher.hpp
+        ServerPathgridNavigator.hpp
         SimulationRuntime.hpp
         WorldDatabaseStore.hpp
         ServerSimulation.hpp

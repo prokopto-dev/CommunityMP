@@ -2369,6 +2369,14 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridPointCount : 0);
         payload += ",\"serverWorldPathgridEdgeCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridEdgeCount : 0);
+        payload += ",\"serverWorldPathgridUsableDirectedEdgeCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridUsableDirectedEdgeCount : 0);
+        payload += ",\"serverWorldPathgridInvalidEdgeCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridInvalidEdgeCount : 0);
+        payload += ",\"serverWorldPathgridConnectedComponentCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridConnectedComponentCount : 0);
+        payload += ",\"serverWorldPathgridLargestConnectedComponentSize\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->pathgridLargestConnectedComponentSize : 0);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->objectCount : 0);
         payload += ",\"serverWorldActorListSeeded\":";
@@ -2449,6 +2457,10 @@ namespace mwmp
         std::size_t serverWorldPathgridCellCount = 0;
         std::size_t serverWorldPathgridPointCount = 0;
         std::size_t serverWorldPathgridEdgeCount = 0;
+        std::size_t serverWorldPathgridUsableDirectedEdgeCount = 0;
+        std::size_t serverWorldPathgridInvalidEdgeCount = 0;
+        std::size_t serverWorldPathgridConnectedComponentCount = 0;
+        std::size_t serverWorldPathgridLargestConnectedComponentSize = 0;
         std::size_t serverWorldObjectReferenceCount = 0;
         std::size_t serverWorldContainerReferenceCount = 0;
         std::size_t serverWorldDoorReferenceCount = 0;
@@ -2501,6 +2513,11 @@ namespace mwmp
                     ++serverWorldPathgridCellCount;
                 serverWorldPathgridPointCount += stats.pathgridPointCount;
                 serverWorldPathgridEdgeCount += stats.pathgridEdgeCount;
+                serverWorldPathgridUsableDirectedEdgeCount += stats.pathgridUsableDirectedEdgeCount;
+                serverWorldPathgridInvalidEdgeCount += stats.pathgridInvalidEdgeCount;
+                serverWorldPathgridConnectedComponentCount += stats.pathgridConnectedComponentCount;
+                serverWorldPathgridLargestConnectedComponentSize = std::max(
+                    serverWorldPathgridLargestConnectedComponentSize, stats.pathgridLargestConnectedComponentSize);
                 serverWorldObjectReferenceCount += stats.objectCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
                 serverWorldDoorReferenceCount += stats.doorCount;
@@ -2581,6 +2598,14 @@ namespace mwmp
         payload += std::to_string(serverWorldPathgridPointCount);
         payload += ",\"serverWorldPathgridEdgeCount\":";
         payload += std::to_string(serverWorldPathgridEdgeCount);
+        payload += ",\"serverWorldPathgridUsableDirectedEdgeCount\":";
+        payload += std::to_string(serverWorldPathgridUsableDirectedEdgeCount);
+        payload += ",\"serverWorldPathgridInvalidEdgeCount\":";
+        payload += std::to_string(serverWorldPathgridInvalidEdgeCount);
+        payload += ",\"serverWorldPathgridConnectedComponentCount\":";
+        payload += std::to_string(serverWorldPathgridConnectedComponentCount);
+        payload += ",\"serverWorldPathgridLargestConnectedComponentSize\":";
+        payload += std::to_string(serverWorldPathgridLargestConnectedComponentSize);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldObjectReferenceCount);
         payload += ",\"serverWorldActorSeededCellCount\":";
