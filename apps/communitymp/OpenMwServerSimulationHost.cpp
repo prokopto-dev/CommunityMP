@@ -2,14 +2,22 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
+#include <memory>
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
+#include <components/debug/debugging.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/files/configurationmanager.hpp>
+#include <components/misc/osgpluginchecker.hpp>
+#include <components/platform/platform.hpp>
 
 #include "../openmw/OpenMWApplication.hpp"
+#include "../openmw/engine.hpp"
 #include "../openmw-mp/ServerContentRegistry.hpp"
 
 namespace
@@ -108,7 +116,7 @@ namespace
         return missing;
     }
 
-    mwmp::SimulationRuntimeBootstrap buildOpenMwBootstrap()
+    mwmp::SimulationRuntimeBootstrap buildOpenMwBootstrap(std::vector<std::string>& selectedEngineArguments)
     {
         const mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
         std::vector<std::string> engineArguments = buildOpenMwConfigArguments(false);
@@ -119,13 +127,30 @@ namespace
         bootstrap.canConfigureOpenMwApplication = getOpenMwApplicationConfigurator() != nullptr;
         bootstrap.canLoadOpenMwApplicationSettings = getOpenMwApplicationSettingsLoader() != nullptr
             && loadOpenMwSettingsFromArguments(engineArguments, settings, cfgMgr);
+        selectedEngineArguments = engineArguments;
+
+        if (bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0)
+        {
+            const std::set<std::string> serverContentNames = getServerContentNames();
+            const std::set<std::string> openMwContentNames = getOpenMwContentNames(settings);
+            if (countMissingNames(serverContentNames, openMwContentNames) != 0
+                || countMissingNames(openMwContentNames, serverContentNames) != 0)
+                bootstrap.canLoadOpenMwApplicationSettings = false;
+        }
+
         if (!bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0)
         {
             engineArguments = buildOpenMwConfigArguments(true);
             Files::ConfigurationManager fallbackCfgMgr(true);
+            OpenMwApplicationSettings fallbackSettings;
             bootstrap.canLoadOpenMwApplicationSettings
-                = loadOpenMwSettingsFromArguments(engineArguments, settings, fallbackCfgMgr);
+                = loadOpenMwSettingsFromArguments(engineArguments, fallbackSettings, fallbackCfgMgr);
             bootstrap.usedServerContentFallback = bootstrap.canLoadOpenMwApplicationSettings;
+            if (bootstrap.canLoadOpenMwApplicationSettings)
+            {
+                settings = std::move(fallbackSettings);
+                selectedEngineArguments = engineArguments;
+            }
         }
         bootstrap.contentRegistryLoaded = content.loaded;
         bootstrap.contentFileCount = content.dataFileCount;
@@ -166,15 +191,81 @@ namespace
         return bootstrap;
     }
 
-    mwmp::SimulationRuntimeTopology buildOpenMwTopology()
+    mwmp::SimulationRuntimeTopology buildOpenMwTopology(bool hasPreparedEngine)
     {
         mwmp::SimulationRuntimeTopology topology;
         topology.unifiedExecutable = true;
         topology.linksOpenMwCore = true;
-        topology.hasHeadlessOpenMwEngine = false;
-        topology.runsOpenMwLua = false;
+        topology.hasHeadlessOpenMwEngine = hasPreparedEngine;
+        topology.runsOpenMwLua = hasPreparedEngine;
         topology.rendererClientProtocol = false;
         return topology;
+    }
+
+    mwmp::SimulationRuntimeCapabilities buildOpenMwCapabilities(bool hasPreparedEngine)
+    {
+        mwmp::SimulationRuntimeCapabilities capabilities;
+        capabilities.ownsWorldState = hasPreparedEngine;
+        capabilities.resolvesCells = hasPreparedEngine;
+        capabilities.runsScripts = hasPreparedEngine;
+        capabilities.runsActorAi = hasPreparedEngine;
+
+        // The engine is now hosted in the server process, but network export is
+        // still the next hard blocker. Do not claim actor movement/combat
+        // authority until server packets are sourced from that OpenMW world.
+        capabilities.ownsActorMovement = false;
+        capabilities.ownsActorCombat = false;
+        return capabilities;
+    }
+
+    class OpenMwServerSimulationRuntime final : public mwmp::SimulationRuntime
+    {
+    public:
+        OpenMwServerSimulationRuntime(mwmp::SimulationRuntimeKind activeKind,
+            mwmp::SimulationRuntimeCapabilities capabilities, mwmp::SimulationRuntimeTopology topology,
+            mwmp::SimulationRuntimeBootstrap bootstrap, std::unique_ptr<Files::ConfigurationManager> cfgMgr,
+            std::unique_ptr<OMW::Engine> engine)
+            : mwmp::SimulationRuntime(
+                  mwmp::SimulationRuntimeKind::OpenMwHeadless, activeKind, capabilities, topology, std::move(bootstrap))
+            , mCfgMgr(std::move(cfgMgr))
+            , mEngine(std::move(engine))
+        {
+        }
+
+        void tick(float deltaSeconds) override
+        {
+            if (mEngine != nullptr)
+                static_cast<void>(mEngine->tickServerSimulation(deltaSeconds));
+        }
+
+    private:
+        std::unique_ptr<Files::ConfigurationManager> mCfgMgr;
+        std::unique_ptr<OMW::Engine> mEngine;
+    };
+
+    std::unique_ptr<OMW::Engine> prepareOpenMwServerEngine(
+        const std::vector<std::string>& engineArguments, Files::ConfigurationManager& cfgMgr)
+    {
+        Platform::init();
+
+        std::vector<std::string> mutableArguments = engineArguments;
+        std::vector<char*> argv = makeMutableArgv(mutableArguments);
+
+        auto engine = std::make_unique<OMW::Engine>(cfgMgr);
+        engine->setRecastMaxLogLevel(Debug::getRecastMaxLogLevel());
+
+        if (!configureOpenMwApplication(static_cast<int>(mutableArguments.size()), argv.data(), *engine, cfgMgr,
+                "CommunityMP-server-openmw"))
+            return nullptr;
+
+        if (!Misc::checkRequiredOSGPluginsArePresent())
+            return nullptr;
+
+        engine->prepareServerSimulation();
+        if (!engine->isServerSimulationPrepared())
+            return nullptr;
+
+        return engine;
     }
 }
 
@@ -182,8 +273,36 @@ namespace communitymp
 {
     std::unique_ptr<mwmp::SimulationRuntime> createOpenMwServerSimulationRuntime()
     {
-        return std::make_unique<mwmp::SimulationRuntime>(mwmp::SimulationRuntimeKind::OpenMwHeadless,
-            mwmp::SimulationRuntimeKind::PacketMirror, mwmp::SimulationRuntimeCapabilities{}, buildOpenMwTopology(),
-            buildOpenMwBootstrap());
+        std::vector<std::string> engineArguments;
+        mwmp::SimulationRuntimeBootstrap bootstrap = buildOpenMwBootstrap(engineArguments);
+        std::unique_ptr<Files::ConfigurationManager> cfgMgr;
+        std::unique_ptr<OMW::Engine> engine;
+
+        if (bootstrap.blockedBy.empty() || bootstrap.blockedBy == "headless-openmw-engine-not-created")
+        {
+            try
+            {
+                cfgMgr = std::make_unique<Files::ConfigurationManager>(true);
+                engine = prepareOpenMwServerEngine(engineArguments, *cfgMgr);
+                if (engine == nullptr)
+                    bootstrap.blockedBy = "openmw-server-engine-prepare-failed";
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Error) << "Failed to prepare server OpenMW simulation runtime: " << e.what();
+                bootstrap.blockedBy = "openmw-server-engine-prepare-failed";
+                engine = nullptr;
+                cfgMgr = nullptr;
+            }
+        }
+
+        const bool hasPreparedEngine = engine != nullptr && engine->isServerSimulationPrepared();
+        if (hasPreparedEngine)
+            bootstrap.blockedBy = "openmw-network-actor-export-not-wired";
+
+        const mwmp::SimulationRuntimeKind activeKind = hasPreparedEngine ? mwmp::SimulationRuntimeKind::OpenMwHeadless
+                                                                         : mwmp::SimulationRuntimeKind::PacketMirror;
+        return std::make_unique<OpenMwServerSimulationRuntime>(activeKind, buildOpenMwCapabilities(hasPreparedEngine),
+            buildOpenMwTopology(hasPreparedEngine), std::move(bootstrap), std::move(cfgMgr), std::move(engine));
     }
 }

@@ -1,5 +1,6 @@
 #include "engine.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <future>
@@ -234,12 +235,12 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
         {
             ScopedProfile<UserStatsType::Sound> profile(frameStart, frameNumber, *timer, *stats);
 
-            if (!mWindowManager->isWindowVisible())
+            if (!mServerSimulationMode && !mWindowManager->isWindowVisible())
             {
                 mSoundManager->pausePlayback();
                 return false;
             }
-            else
+            else if (!mServerSimulationMode)
                 mSoundManager->resumePlayback();
 
             // sound
@@ -993,6 +994,80 @@ void OMW::Engine::prepareEngine()
 
     // starts a separate lua thread if "lua num threads" > 0
     mLuaWorker = std::make_unique<MWLua::Worker>(*mLuaManager);
+}
+
+void OMW::Engine::prepareServerSimulation()
+{
+    assert(!mContentFiles.empty());
+
+    if (mServerSimulationPrepared)
+        return;
+
+    mServerSimulationMode = true;
+
+    Log(Debug::Info) << "OSG version: " << osgGetVersion();
+    SDL_version sdlVersion;
+    SDL_GetVersion(&sdlVersion);
+    Log(Debug::Info) << "SDL version: " << (int)sdlVersion.major << "." << (int)sdlVersion.minor << "."
+                     << (int)sdlVersion.patch;
+
+    Misc::Rng::init(mRandomSeed);
+
+    Settings::ShaderManager::get().load(mCfgMgr.getUserConfigPath() / "shaders.yaml");
+
+    MWClass::registerClasses();
+
+    mEncoder = std::make_unique<ToUTF8::Utf8Encoder>(mEncoding);
+
+    mViewer = new osgViewer::Viewer;
+    mViewer->setReleaseContextAtEndOfFrameHint(false);
+    mViewer->setUseConfigureAffinity(false);
+
+    mEnvironment.setFrameRateLimit(0.f);
+
+    prepareEngine();
+
+    if (mStateManager->hasQuitRequest())
+        return;
+
+    if (!mSaveGameFile.empty())
+        mStateManager->loadGame(mSaveGameFile);
+    else
+        mStateManager->newGame(!mNewGame);
+
+    if (!mStartupScript.empty() && mStateManager->getState() == MWState::StateManager::State_Running)
+        mWindowManager->executeInConsole(mStartupScript);
+
+    mServerSimulationPrepared = true;
+}
+
+bool OMW::Engine::tickServerSimulation(float deltaSeconds)
+{
+    if (!mServerSimulationPrepared || mViewer == nullptr || mStateManager == nullptr || mWorld == nullptr
+        || mStateManager->hasQuitRequest())
+        return false;
+
+    constexpr float maxSimulationInterval = 0.2f;
+    const float clampedDeltaSeconds = std::clamp(deltaSeconds, 0.f, maxSimulationInterval);
+
+    MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
+    const double dt = clampedDeltaSeconds * timeManager.getSimulationTimeScale();
+
+    mViewer->advance(timeManager.getRenderingSimulationTime());
+
+    const unsigned frameNumber = mViewer->getFrameStamp()->getFrameNumber();
+
+    if (!frame(frameNumber, static_cast<float>(dt)))
+        return false;
+
+    timeManager.updateIsPaused();
+    if (!timeManager.isPaused())
+    {
+        timeManager.setSimulationTime(timeManager.getSimulationTime() + dt);
+        timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + dt);
+    }
+
+    return true;
 }
 
 // Initialise and enter main loop.

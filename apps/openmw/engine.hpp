@@ -185,6 +185,8 @@ namespace OMW
 
         Files::ConfigurationManager& mCfgMgr;
         int mGlMaxTextureImageUnits;
+        bool mServerSimulationMode = false;
+        bool mServerSimulationPrepared = false;
 
         // not implemented
         Engine(const Engine&);
@@ -236,6 +238,14 @@ namespace OMW
 
         /// Initialise and enter main loop.
         void go();
+
+        /// Initialise the OpenMW game systems without entering the client render loop.
+        void prepareServerSimulation();
+
+        /// Advance one server-owned OpenMW simulation frame.
+        bool tickServerSimulation(float deltaSeconds);
+
+        bool isServerSimulationPrepared() const { return mServerSimulationPrepared; }
 
         /// Compile all scripts (excludign dialogue scripts) at startup?
         void setCompileAll(bool all);
