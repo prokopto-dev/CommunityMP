@@ -7,14 +7,18 @@
 #include <string_view>
 #include <vector>
 
-namespace ESM
-{
-    struct Cell;
-}
+#include <components/esm3/loadcell.hpp>
 
 namespace mwmp
 {
     class BaseActorList;
+
+    struct SimulationCellFocus
+    {
+        ESM::Cell cell;
+        ESM::Position position;
+        bool hasPosition = false;
+    };
 
     struct SimulationRuntimeEventArgument
     {
@@ -105,7 +109,7 @@ namespace mwmp
         virtual bool canOwnActorAuthority() const;
 
         virtual void tick(float deltaSeconds);
-        virtual void setSimulationCells(const std::vector<ESM::Cell>& cells);
+        virtual void setSimulationCellFocuses(const std::vector<SimulationCellFocus>& focuses);
         virtual bool collectActorSnapshots(std::vector<BaseActorList>& actorLists);
         virtual bool dispatchServerEvent(
             std::string_view eventName, const SimulationRuntimeEventArguments& arguments);

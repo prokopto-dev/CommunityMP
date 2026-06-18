@@ -2033,14 +2033,37 @@ namespace mwmp
         if (cellController == nullptr)
             return;
 
-        std::vector<ESM::Cell> simulationCells;
+        std::vector<SimulationCellFocus> simulationFocuses;
         for (Cell* cell : cellController->getCells())
         {
-            if (cell != nullptr && cell->hasSimulationInterest())
-                simulationCells.push_back(cell->getCellData());
+            if (cell == nullptr || !cell->hasSimulationInterest())
+                continue;
+
+            SimulationCellFocus focus;
+            focus.cell = cell->getCellData();
+
+            const auto stateIt = mShadowCellAuthority.find(cell->getShortDescription());
+            if (stateIt != mShadowCellAuthority.end())
+            {
+                for (PacketGuid visitorGuid : stateIt->second.visitors)
+                {
+                    Player* visitor = Players::getPlayer(visitorGuid);
+                    if (visitor == nullptr || visitor->getLoadState() == Player::KICKED)
+                        continue;
+
+                    if (!visitor->hasFinitePositionPacket() || !isSameSimulationCell(visitor->cell, focus.cell))
+                        continue;
+
+                    focus.position = visitor->position;
+                    focus.hasPosition = true;
+                    break;
+                }
+            }
+
+            simulationFocuses.push_back(std::move(focus));
         }
 
-        mRuntime->setSimulationCells(simulationCells);
+        mRuntime->setSimulationCellFocuses(simulationFocuses);
     }
 
     void ServerSimulation::applyRuntimeActorSnapshots(

@@ -294,9 +294,9 @@ namespace mwmp
         static_cast<void>(deltaSeconds);
     }
 
-    void SimulationRuntime::setSimulationCells(const std::vector<ESM::Cell>& cells)
+    void SimulationRuntime::setSimulationCellFocuses(const std::vector<SimulationCellFocus>& focuses)
     {
-        static_cast<void>(cells);
+        static_cast<void>(focuses);
     }
 
     bool SimulationRuntime::collectActorSnapshots(std::vector<BaseActorList>& actorLists)

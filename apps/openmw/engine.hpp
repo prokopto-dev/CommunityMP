@@ -5,6 +5,7 @@
 
 #include <components/compiler/extensions.hpp>
 #include <components/debug/debuglog.hpp>
+#include <components/esm/position.hpp>
 #include <components/esm/refid.hpp>
 #include <components/files/collections.hpp>
 #include <components/settings/settings.hpp>
@@ -198,6 +199,8 @@ namespace OMW
         bool mServerSimulationMode = false;
         bool mServerSimulationPrepared = false;
         std::string mServerSimulationFocusCellDescription;
+        ESM::Position mServerSimulationFocusPosition;
+        bool mServerSimulationFocusPositionSet = false;
 
         // not implemented
         Engine(const Engine&);
@@ -257,7 +260,7 @@ namespace OMW
         bool tickServerSimulation(float deltaSeconds);
 
         /// Move the server-owned OpenMW simulation scene to the requested cell.
-        bool focusServerSimulationCell(const ESM::Cell& cell);
+        bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;

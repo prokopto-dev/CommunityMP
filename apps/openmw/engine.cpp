@@ -1118,7 +1118,7 @@ bool OMW::Engine::tickServerSimulation(float deltaSeconds)
     return true;
 }
 
-bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell)
+bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mStateManager == nullptr || mStateManager->hasQuitRequest())
         return false;
@@ -1127,24 +1127,39 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell)
     if (cellDescription.empty())
         return false;
 
-    if (mServerSimulationFocusCellDescription == cellDescription)
-        return true;
-
-    ESM::Position position{};
+    ESM::Position position = focusPosition != nullptr ? *focusPosition : ESM::Position{};
     try
     {
+        if (mServerSimulationFocusCellDescription == cellDescription)
+        {
+            if (focusPosition != nullptr && (!mServerSimulationFocusPositionSet
+                    || mServerSimulationFocusPosition != position))
+            {
+                MWWorld::Ptr player = mWorld->getPlayerPtr();
+                mWorld->moveObject(player, position.asVec3(), true);
+                mWorld->rotateObject(player, position.asRotationVec3());
+                mServerSimulationFocusPosition = position;
+                mServerSimulationFocusPositionSet = true;
+            }
+            return true;
+        }
+
         if (cell.isExterior())
         {
-            const ESM::ExteriorCellLocation cellLocation(
-                cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId);
-            const osg::Vec2f cellCenter = ESM::indexToPosition(cellLocation, true);
-            position.pos[0] = cellCenter.x();
-            position.pos[1] = cellCenter.y();
-            position.pos[2] = 0.f;
-            mWorld->changeToCell(ESM::RefId::esm3ExteriorCell(cell.mData.mX, cell.mData.mY), position, true, false);
+            if (focusPosition == nullptr)
+            {
+                const ESM::ExteriorCellLocation cellLocation(
+                    cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId);
+                const osg::Vec2f cellCenter = ESM::indexToPosition(cellLocation, true);
+                position.pos[0] = cellCenter.x();
+                position.pos[1] = cellCenter.y();
+                position.pos[2] = 0.f;
+            }
+            mWorld->changeToCell(
+                ESM::RefId::esm3ExteriorCell(cell.mData.mX, cell.mData.mY), position, focusPosition == nullptr, false);
         }
         else
-            mWorld->changeToInteriorCell(cell.mName, position, true, false);
+            mWorld->changeToInteriorCell(cell.mName, position, focusPosition == nullptr, false);
     }
     catch (const std::exception& e)
     {
@@ -1153,7 +1168,16 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell)
     }
 
     mServerSimulationFocusCellDescription = cellDescription;
-    Log(Debug::Info) << "Focused server OpenMW simulation cell " << cellDescription;
+    if (focusPosition != nullptr)
+    {
+        mServerSimulationFocusPosition = position;
+        mServerSimulationFocusPositionSet = true;
+    }
+    else
+        mServerSimulationFocusPositionSet = false;
+
+    Log(Debug::Info) << "Focused server OpenMW simulation cell " << cellDescription
+                     << (focusPosition != nullptr ? " at player position" : " without player position");
     return true;
 }
 

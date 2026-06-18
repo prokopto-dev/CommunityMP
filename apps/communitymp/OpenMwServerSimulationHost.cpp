@@ -229,11 +229,11 @@ namespace
         {
         }
 
-        void setSimulationCells(const std::vector<ESM::Cell>& cells) override
+        void setSimulationCellFocuses(const std::vector<mwmp::SimulationCellFocus>& focuses) override
         {
-            mSimulationCells = cells;
-            if (mNextSimulationCell >= mSimulationCells.size())
-                mNextSimulationCell = 0;
+            mSimulationFocuses = focuses;
+            if (mNextSimulationFocus >= mSimulationFocuses.size())
+                mNextSimulationFocus = 0;
         }
 
         void tick(float deltaSeconds) override
@@ -257,21 +257,22 @@ namespace
     private:
         void focusNextSimulationCell()
         {
-            if (mEngine == nullptr || mSimulationCells.empty())
+            if (mEngine == nullptr || mSimulationFocuses.empty())
                 return;
 
-            if (mNextSimulationCell >= mSimulationCells.size())
-                mNextSimulationCell = 0;
+            if (mNextSimulationFocus >= mSimulationFocuses.size())
+                mNextSimulationFocus = 0;
 
-            const ESM::Cell& cell = mSimulationCells[mNextSimulationCell];
-            mNextSimulationCell = (mNextSimulationCell + 1) % mSimulationCells.size();
-            static_cast<void>(mEngine->focusServerSimulationCell(cell));
+            const mwmp::SimulationCellFocus& focus = mSimulationFocuses[mNextSimulationFocus];
+            mNextSimulationFocus = (mNextSimulationFocus + 1) % mSimulationFocuses.size();
+            static_cast<void>(mEngine->focusServerSimulationCell(
+                focus.cell, focus.hasPosition ? &focus.position : nullptr));
         }
 
         std::unique_ptr<Files::ConfigurationManager> mCfgMgr;
         std::unique_ptr<OMW::Engine> mEngine;
-        std::vector<ESM::Cell> mSimulationCells;
-        std::size_t mNextSimulationCell = 0;
+        std::vector<mwmp::SimulationCellFocus> mSimulationFocuses;
+        std::size_t mNextSimulationFocus = 0;
     };
 
     std::unique_ptr<OMW::Engine> prepareOpenMwServerEngine(
