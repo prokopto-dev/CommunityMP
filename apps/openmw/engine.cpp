@@ -98,6 +98,8 @@
 #include "mwdialogue/journalimp.hpp"
 #include "mwdialogue/scripttest.hpp"
 
+#include "mwmechanics/aisequence.hpp"
+#include "mwmechanics/creaturestats.hpp"
 #include "mwmechanics/mechanicsmanagerimp.hpp"
 
 #include "mwstate/statemanagerimp.hpp"
@@ -473,6 +475,36 @@ void OMW::Engine::executeLocalScripts()
         interpreterContext.trackContextType(ScriptController::ScriptLocal);
         interpreterContext.trackCurrentScriptName(scriptName);
         mScriptManager->run(script.first, interpreterContext);
+    }
+}
+
+void OMW::Engine::neutralizeServerSimulationPlayer()
+{
+    if (!mServerSimulationMode || mWorld == nullptr || mMechanicsManager == nullptr || mStateManager == nullptr
+        || mStateManager->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    if (player.isEmpty() || !player.getClass().isActor())
+        return;
+
+    if (!mWorld->getGodModeState())
+        static_cast<void>(mWorld->toggleGodMode());
+
+    MWMechanics::CreatureStats& playerStats = player.getClass().getCreatureStats(player);
+    playerStats.getAiSequence().clear();
+    playerStats.setHitAttemptActor({});
+    playerStats.setDrawState(MWMechanics::DrawState::Nothing);
+
+    const std::vector<MWWorld::Ptr> serverFocusDummyTargets{ player };
+    for (const MWWorld::Ptr& actor : mMechanicsManager->getActorsFighting(player))
+    {
+        if (actor.isEmpty() || actor == player || !actor.getClass().isActor())
+            continue;
+
+        MWMechanics::CreatureStats& actorStats = actor.getClass().getCreatureStats(actor);
+        actorStats.getAiSequence().stopCombat(serverFocusDummyTargets);
+        actorStats.setHitAttemptActor({});
     }
 }
 
@@ -1391,6 +1423,7 @@ void OMW::Engine::prepareServerSimulation()
     mServerSimulationWorldSavePath = serverWorldSavePath;
     mServerSimulationWorldLoadedFromSave = loadedServerWorldFromSave;
     mServerSimulationWorldInitializedNew = initializedNewServerWorld;
+    neutralizeServerSimulationPlayer();
 
     if (!serverWorldSavePath.empty())
         writeServerWorldManifestIfChanged(manifestPath, mServerSimulationContentPlanFingerprint,
@@ -1419,8 +1452,10 @@ bool OMW::Engine::tickServerSimulation(float deltaSeconds)
 
     const unsigned frameNumber = mViewer->getFrameStamp()->getFrameNumber();
 
+    neutralizeServerSimulationPlayer();
     if (!frame(frameNumber, static_cast<float>(dt)))
         return false;
+    neutralizeServerSimulationPlayer();
 
     timeManager.updateIsPaused();
     if (!timeManager.isPaused())
@@ -1489,6 +1524,8 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
     }
     else
         mServerSimulationFocusPositionSet = false;
+
+    neutralizeServerSimulationPlayer();
 
     Log(Debug::Info) << "Focused server OpenMW simulation cell " << cellDescription
                      << (focusPosition != nullptr ? " at player position" : " without player position");

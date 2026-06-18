@@ -220,6 +220,8 @@ namespace OMW
         /// Prepare engine for game play
         void prepareEngine();
 
+        void neutralizeServerSimulationPlayer();
+
         void createWindow();
         void setWindowIcon();
 
