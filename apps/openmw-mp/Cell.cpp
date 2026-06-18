@@ -125,6 +125,8 @@ Cell::Cell(ESM::Cell cell)
     , authorityGuid(mwmp::unassignedPacketGuid())
     , actorListRequestGuid(mwmp::unassignedPacketGuid())
     , actorListSnapshotReceived(false)
+    , serverWorldActorListSeeded(false)
+    , serverWorldSeededActorCount(0)
     , simulationInterest(false)
 {
     cellActorList.count = 0;
@@ -567,6 +569,46 @@ const std::vector<Cell::ServerWorldReference>& Cell::getServerWorldReferences() 
 const mwmp::BaseActorList& Cell::getServerWorldActorList() const
 {
     return serverWorldActorList;
+}
+
+bool Cell::seedActorListFromServerWorldState()
+{
+    ensureServerWorldStateBootstrapped();
+
+    if (serverWorldActorListSeeded)
+        return false;
+
+    if (!serverWorldBootstrapStats.loaded || serverWorldActorList.baseActors.empty())
+        return false;
+
+    if (actorListSnapshotReceived || !cellActorList.baseActors.empty())
+        return false;
+
+    mwmp::BaseActorList seedList = serverWorldActorList;
+    seedList.guid = mwmp::unassignedPacketGuid();
+    seedList.cell = cell;
+    seedList.action = mwmp::BaseActorList::SET;
+    seedList.isValid = true;
+    seedList.count = static_cast<unsigned int>(seedList.baseActors.size());
+
+    readActorList(ID_ACTOR_LIST, &seedList);
+    serverWorldActorListSeeded = true;
+    serverWorldSeededActorCount = seedList.baseActors.size();
+
+    LOG_APPEND(TimedLog::LOG_INFO,
+        "- Seeded live actor cache for server world cell %s from worlddb with %zu actors",
+        getShortDescription().c_str(), serverWorldSeededActorCount);
+    return true;
+}
+
+bool Cell::hasServerWorldSeededActorList() const
+{
+    return serverWorldActorListSeeded;
+}
+
+std::size_t Cell::getServerWorldSeededActorCount() const
+{
+    return serverWorldSeededActorCount;
 }
 
 mwmp::PacketGuid *Cell::getAuthority()

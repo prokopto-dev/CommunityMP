@@ -5,9 +5,13 @@
 #include <components/openmw-mp/Utils.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <fstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <set>
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
@@ -15,6 +19,7 @@
 namespace
 {
     constexpr const char* dataFilesRelativePath = "saves/server/config/data-files.xml";
+    constexpr const char* loadOrderRelativePath = "saves/server/config/load-order.cfg";
     constexpr const char* builtinOpenMwScripts = "builtin.omwscripts";
 
     std::string getAttribute(const boost::property_tree::ptree& node, const char* key)
@@ -89,6 +94,134 @@ namespace
         return Misc::StringUtils::ciEqual(contentFile, builtinOpenMwScripts);
     }
 
+    std::string trimAscii(std::string_view value)
+    {
+        std::size_t begin = 0;
+        while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin])))
+            ++begin;
+
+        std::size_t end = value.size();
+        while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1])))
+            --end;
+
+        return std::string(value.substr(begin, end - begin));
+    }
+
+    std::string stripMatchingQuotes(std::string value)
+    {
+        if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"')
+                                     || (value.front() == '\'' && value.back() == '\'')))
+            return value.substr(1, value.size() - 2);
+
+        return value;
+    }
+
+    bool startsWithComment(std::string_view value)
+    {
+        return !value.empty() && (value.front() == '#' || value.front() == ';');
+    }
+
+    std::string parseLoadOrderLine(std::string_view line)
+    {
+        std::string trimmed = trimAscii(line);
+        if (trimmed.empty() || startsWithComment(trimmed))
+            return {};
+
+        const std::size_t equals = trimmed.find('=');
+        if (equals == std::string::npos)
+            return stripMatchingQuotes(trimAscii(trimmed));
+
+        const std::string key = trimAscii(std::string_view(trimmed).substr(0, equals));
+        if (!Misc::StringUtils::ciEqual(key, "content"))
+            return {};
+
+        return stripMatchingQuotes(trimAscii(std::string_view(trimmed).substr(equals + 1)));
+    }
+
+    std::vector<std::string> readServerLoadOrder(
+        const std::filesystem::path& path, mwmp::ServerContentRegistryStatistics& stats)
+    {
+        stats.loadOrderPath = path;
+        stats.loadOrderAttempted = true;
+
+        if (!std::filesystem::is_regular_file(path))
+            return {};
+
+        std::ifstream stream(path);
+        if (!stream.is_open())
+            throw std::runtime_error("server load-order config could not be opened");
+
+        std::vector<std::string> result;
+        std::set<std::string, Misc::StringUtils::CiComp> seen;
+        std::string line;
+        while (std::getline(stream, line))
+        {
+            std::string contentFile = parseLoadOrderLine(line);
+            if (contentFile.empty() || isBuiltinContentFile(contentFile))
+                continue;
+
+            ++stats.loadOrderEntryCount;
+            if (!seen.insert(contentFile).second)
+            {
+                ++stats.loadOrderDuplicateCount;
+                continue;
+            }
+
+            result.push_back(std::move(contentFile));
+        }
+
+        return result;
+    }
+
+    void applyServerLoadOrder(std::vector<mwmp::ServerDataFileRequirement>& dataFiles,
+        const std::vector<std::string>& loadOrder, mwmp::ServerContentRegistryStatistics& stats)
+    {
+        if (dataFiles.empty() || loadOrder.empty())
+            return;
+
+        std::vector<mwmp::ServerDataFileRequirement> reordered;
+        reordered.reserve(dataFiles.size());
+        std::vector<bool> used(dataFiles.size(), false);
+
+        for (const std::string& contentFile : loadOrder)
+        {
+            auto found = std::find_if(dataFiles.begin(), dataFiles.end(),
+                [&](const mwmp::ServerDataFileRequirement& requirement) {
+                    return Misc::StringUtils::ciEqual(requirement.name, contentFile);
+                });
+
+            if (found == dataFiles.end())
+            {
+                ++stats.loadOrderMissingRegistryCount;
+                continue;
+            }
+
+            const std::size_t index = static_cast<std::size_t>(std::distance(dataFiles.begin(), found));
+            if (used[index])
+                continue;
+
+            used[index] = true;
+            reordered.push_back(*found);
+            ++stats.loadOrderAppliedCount;
+        }
+
+        for (std::size_t index = 0; index < dataFiles.size(); ++index)
+        {
+            if (used[index])
+                continue;
+
+            reordered.push_back(dataFiles[index]);
+            ++stats.loadOrderMissingConfigCount;
+        }
+
+        if (stats.loadOrderAppliedCount != 0)
+        {
+            dataFiles = std::move(reordered);
+            stats.loadOrderLoaded = true;
+            stats.loadOrderSource = "server-config-load-order-cfg";
+        }
+    }
+
     mwmp::ServerDataFileRequirement* findRequirement(
         std::vector<mwmp::ServerDataFileRequirement>& dataFiles, const std::string& name)
     {
@@ -155,8 +288,12 @@ namespace mwmp
                 throw std::runtime_error("server content registry has no data node");
 
             mStats.checksumCount = appendDataFiles(*dataNode, mDataFiles);
+            const std::vector<std::string> loadOrder = readServerLoadOrder(dataDirectory / loadOrderRelativePath, mStats);
+            applyServerLoadOrder(mDataFiles, loadOrder, mStats);
             mStats.dataFileCount = mDataFiles.size();
             mStats.loaded = true;
+            if (mStats.loadOrderLoaded)
+                mStats.backend += "+server-load-order-cfg";
         }
         catch (const std::exception& e)
         {

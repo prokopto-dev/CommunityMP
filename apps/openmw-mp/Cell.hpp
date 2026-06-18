@@ -84,6 +84,9 @@ public:
     const ServerWorldBootstrapStats& getServerWorldBootstrapStats() const;
     const std::vector<ServerWorldReference>& getServerWorldReferences() const;
     const mwmp::BaseActorList& getServerWorldActorList() const;
+    bool seedActorListFromServerWorldState();
+    bool hasServerWorldSeededActorList() const;
+    std::size_t getServerWorldSeededActorCount() const;
 
     mwmp::PacketGuid *getAuthority();
     void setAuthority(const mwmp::PacketGuid& guid);
@@ -115,6 +118,8 @@ private:
     std::vector<ServerWorldReference> serverWorldReferences;
     ServerWorldBootstrapStats serverWorldBootstrapStats;
     bool actorListSnapshotReceived;
+    bool serverWorldActorListSeeded;
+    std::size_t serverWorldSeededActorCount;
     bool simulationInterest;
 };
 

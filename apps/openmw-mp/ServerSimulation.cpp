@@ -1620,13 +1620,19 @@ namespace mwmp
             state.visitors.push_back(player->guid);
 
         updateCellSimulationInterest(cellDescription, state);
-        broadcastCellActivityEvent(cellDescription, state);
 
         if (canAuthoritativelySimulateActors())
         {
+            Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+            if (liveCell != nullptr)
+                liveCell->seedActorListFromServerWorldState();
+
+            broadcastCellActivityEvent(cellDescription, state);
             state.authority = mwmp::unassignedPacketGuid();
             return;
         }
+
+        broadcastCellActivityEvent(cellDescription, state);
 
         if (!previousAuthorityWasCandidate)
         {
@@ -2240,6 +2246,10 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->referenceCount : 0);
         payload += ",\"serverWorldActorReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorCount : 0);
+        payload += ",\"serverWorldActorListSeeded\":";
+        payload += jsonBool(serverCell != nullptr && serverCell->hasServerWorldSeededActorList());
+        payload += ",\"serverWorldSeededActorCount\":";
+        payload += std::to_string(serverCell != nullptr ? serverCell->getServerWorldSeededActorCount() : 0);
         payload += ",\"serverWorldContainerReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->containerCount : 0);
         payload += ",\"serverWorldDoorReferenceCount\":";
@@ -2296,6 +2306,8 @@ namespace mwmp
         std::size_t serverWorldItemReferenceCount = 0;
         std::size_t serverWorldUnresolvedReferenceCount = 0;
         std::size_t serverWorldAmbiguousReferenceCount = 0;
+        std::size_t serverWorldActorSeededCellCount = 0;
+        std::size_t serverWorldSeededActorCount = 0;
         if (cellController != nullptr)
         {
             loadedCellCount = cellController->getCells().size();
@@ -2306,6 +2318,11 @@ namespace mwmp
 
                 const Cell::ServerWorldBootstrapStats& stats = cell->getServerWorldBootstrapStats();
                 ++serverWorldBootstrappedCellCount;
+                if (cell->hasServerWorldSeededActorList())
+                {
+                    ++serverWorldActorSeededCellCount;
+                    serverWorldSeededActorCount += cell->getServerWorldSeededActorCount();
+                }
                 serverWorldReferenceCount += stats.referenceCount;
                 serverWorldActorReferenceCount += stats.actorCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
@@ -2349,6 +2366,10 @@ namespace mwmp
         payload += std::to_string(serverWorldReferenceCount);
         payload += ",\"serverWorldActorReferenceCount\":";
         payload += std::to_string(serverWorldActorReferenceCount);
+        payload += ",\"serverWorldActorSeededCellCount\":";
+        payload += std::to_string(serverWorldActorSeededCellCount);
+        payload += ",\"serverWorldSeededActorCount\":";
+        payload += std::to_string(serverWorldSeededActorCount);
         payload += ",\"serverWorldContainerReferenceCount\":";
         payload += std::to_string(serverWorldContainerReferenceCount);
         payload += ",\"serverWorldDoorReferenceCount\":";
@@ -2396,6 +2417,24 @@ namespace mwmp
         payload += jsonString(Files::pathToUnicodeString(serverContent.path));
         payload += ",\"lastError\":";
         payload += jsonString(serverContent.lastError);
+        payload += ",\"loadOrderPath\":";
+        payload += jsonString(Files::pathToUnicodeString(serverContent.loadOrderPath));
+        payload += ",\"loadOrderSource\":";
+        payload += jsonString(serverContent.loadOrderSource);
+        payload += ",\"loadOrderAttempted\":";
+        payload += jsonBool(serverContent.loadOrderAttempted);
+        payload += ",\"loadOrderLoaded\":";
+        payload += jsonBool(serverContent.loadOrderLoaded);
+        payload += ",\"loadOrderEntryCount\":";
+        payload += std::to_string(serverContent.loadOrderEntryCount);
+        payload += ",\"loadOrderAppliedCount\":";
+        payload += std::to_string(serverContent.loadOrderAppliedCount);
+        payload += ",\"loadOrderDuplicateCount\":";
+        payload += std::to_string(serverContent.loadOrderDuplicateCount);
+        payload += ",\"loadOrderMissingRegistryCount\":";
+        payload += std::to_string(serverContent.loadOrderMissingRegistryCount);
+        payload += ",\"loadOrderMissingConfigCount\":";
+        payload += std::to_string(serverContent.loadOrderMissingConfigCount);
         payload += ",\"dataFileCount\":";
         payload += std::to_string(serverContent.dataFileCount);
         payload += ",\"checksumCount\":";

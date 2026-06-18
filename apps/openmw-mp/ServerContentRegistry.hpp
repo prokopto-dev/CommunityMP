@@ -21,9 +21,18 @@ namespace mwmp
         bool loaded = false;
         std::filesystem::path path;
         std::string lastError;
+        std::filesystem::path loadOrderPath;
+        std::string loadOrderSource = "data-files-xml-order";
+        bool loadOrderAttempted = false;
+        bool loadOrderLoaded = false;
         bool enrichedFromOpenMwContentPlan = false;
         std::size_t dataFileCount = 0;
         std::size_t checksumCount = 0;
+        std::size_t loadOrderEntryCount = 0;
+        std::size_t loadOrderAppliedCount = 0;
+        std::size_t loadOrderDuplicateCount = 0;
+        std::size_t loadOrderMissingRegistryCount = 0;
+        std::size_t loadOrderMissingConfigCount = 0;
         std::size_t contentPlanFileCount = 0;
         std::size_t computedChecksumCount = 0;
         std::size_t unresolvedContentFileCount = 0;
