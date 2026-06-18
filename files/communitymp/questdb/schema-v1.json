@@ -49,6 +49,7 @@
     }
   },
   "importFlow": [
+    "python scripts/communitymp_import_content_questdb.py Content.esm --output-root server/data/questdb",
     "esmtool quest-export Content.esm Content.quest-source.jsonl",
     "python scripts/communitymp_questdb_import.py Content.quest-source.jsonl --output-dir questdb/Content"
   ]
