@@ -194,7 +194,11 @@ void ServerFunctions::SetRuleValue(const char *key, double value) noexcept
 
 void ServerFunctions::AddDataFileRequirement(const char *dataFilename, const char *checksumString) noexcept
 {
-    auto &samples = mwmp::ServerNetworking::getPtr()->getSamples();
+    mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr();
+    if (networking == nullptr || networking->usesNativeDataFileRegistry())
+        return;
+
+    auto &samples = networking->getSamples();
     
     auto it = std::find_if(samples.begin(), samples.end(), [&dataFilename](mwmp::PacketPreInit::PluginPair &item) {
         return item.first == dataFilename;
@@ -204,7 +208,11 @@ void ServerFunctions::AddDataFileRequirement(const char *dataFilename, const cha
     {
         // If this is a filename we've added before, ensure our new checksumString for it isn't empty
         if (strlen(checksumString) != 0)
-            it->second.push_back((unsigned)std::stoul(checksumString));
+        {
+            const unsigned checksum = (unsigned)std::stoul(checksumString);
+            if (std::find(it->second.begin(), it->second.end(), checksum) == it->second.end())
+                it->second.push_back(checksum);
+        }
     }
     else
     {

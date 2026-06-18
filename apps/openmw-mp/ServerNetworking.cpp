@@ -20,6 +20,7 @@
 #include <chrono>
 #include <thread>
 #include <csignal>
+#include <limits>
 #include <string_view>
 
 #include "ServerNetworking.hpp"
@@ -27,6 +28,7 @@
 #include "CommunityMpClientLuaEventHandler.hpp"
 #include "CommunityMpLuaEventSender.hpp"
 #include "PlayerQuestStateStore.hpp"
+#include "ServerContentRegistry.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerSimulation.hpp"
 #include "Cell.hpp"
@@ -88,6 +90,36 @@ namespace
             packetCategory, static_cast<unsigned int>(packet->id()),
             packetAddressToString(packet->address(), true).c_str());
         return false;
+    }
+
+    bool appendUniqueHash(mwmp::PacketPreInit::HashList& hashes, std::uint32_t checksum)
+    {
+        if (std::find(hashes.begin(), hashes.end(), checksum) != hashes.end())
+            return false;
+
+        hashes.push_back(checksum);
+        return true;
+    }
+
+    bool tryParseChecksum(std::string_view value, std::uint32_t& checksum)
+    {
+        if (isBlank(value))
+            return false;
+
+        try
+        {
+            std::size_t parsedLength = 0;
+            const unsigned long parsed = std::stoul(std::string(value), &parsedLength, 0);
+            if (parsedLength != value.size() || parsed > std::numeric_limits<std::uint32_t>::max())
+                return false;
+
+            checksum = static_cast<std::uint32_t>(parsed);
+            return true;
+        }
+        catch (const std::exception&)
+        {
+            return false;
+        }
     }
 }
 
@@ -810,6 +842,7 @@ void ServerNetworking::InitQuery(std::string queryAddr, unsigned short queryPort
 
 void ServerNetworking::postInit()
 {
+    nativeDataFileRegistryLoaded = loadDataFileRequirementsFromRegistry();
     mwmp::ServerEvents::requestDataFileList();
     mwmp::ServerEvents::serverPostInit();
 }
@@ -817,4 +850,51 @@ void ServerNetworking::postInit()
 PacketPreInit::PluginContainer &ServerNetworking::getSamples()
 {
     return samples;
+}
+
+bool ServerNetworking::usesNativeDataFileRegistry() const
+{
+    return nativeDataFileRegistryLoaded;
+}
+
+bool ServerNetworking::loadDataFileRequirementsFromRegistry()
+{
+    const mwmp::ServerContentRegistry& registry = mwmp::ServerContentRegistry::get();
+    const mwmp::ServerContentRegistryStatistics& stats = registry.statistics();
+    if (!stats.loaded || registry.dataFiles().empty())
+        return false;
+
+    samples.clear();
+    samples.reserve(registry.dataFiles().size());
+
+    for (const mwmp::ServerDataFileRequirement& requirement : registry.dataFiles())
+    {
+        if (requirement.name.empty())
+            continue;
+
+        PacketPreInit::HashList hashes;
+        for (const std::string& checksumString : requirement.checksums)
+        {
+            std::uint32_t checksum = 0;
+            if (tryParseChecksum(checksumString, checksum))
+                appendUniqueHash(hashes, checksum);
+            else
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                    "Ignoring invalid checksum %s for server data file %s from %s",
+                    checksumString.c_str(), requirement.name.c_str(), stats.path.string().c_str());
+            }
+        }
+
+        const std::uint32_t masterChecksum = hashes.empty() ? 0 : hashes.front();
+        samples.emplace_back(requirement.name, std::move(hashes));
+
+        if (mclient != nullptr)
+            mclient->PushPlugin({ requirement.name, masterChecksum });
+    }
+
+    LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+        "Loaded %zu data file requirement(s) from native C++ registry %s",
+        samples.size(), stats.path.string().c_str());
+    return !samples.empty();
 }

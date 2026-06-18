@@ -81,7 +81,9 @@ namespace  mwmp
         void postInit();
 
         PacketPreInit::PluginContainer &getSamples();
+        bool usesNativeDataFileRegistry() const;
     private:
+        bool loadDataFileRequirementsFromRegistry();
         bool preInit(ReceivedPacket* packet, PacketStream &bsIn);
         void processLoadedPlayer(Player* player);
         std::string serverPassword;
@@ -110,6 +112,7 @@ namespace  mwmp
         bool running;
         int exitCode;
         PacketPreInit::PluginContainer samples;
+        bool nativeDataFileRegistryLoaded = false;
     };
 }
 
