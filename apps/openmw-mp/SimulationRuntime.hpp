@@ -60,10 +60,14 @@ namespace mwmp
         bool canConfigureOpenMwApplication = false;
         bool canLoadOpenMwApplicationSettings = false;
         bool hasOpenMwContentPlan = false;
+        bool contentPlanMatchesServerRegistry = false;
+        bool usedServerContentFallback = false;
         bool contentRegistryLoaded = false;
         std::size_t contentFileCount = 0;
         std::size_t resolvedOpenMwDataDirCount = 0;
         std::size_t resolvedOpenMwContentFileCount = 0;
+        std::size_t missingServerContentFileCount = 0;
+        std::size_t extraOpenMwContentFileCount = 0;
         std::size_t engineArgumentCount = 0;
         std::string blockedBy;
     };

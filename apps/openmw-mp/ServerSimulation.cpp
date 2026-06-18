@@ -2195,6 +2195,10 @@ namespace mwmp
         payload += jsonBool(runtimeBootstrap.canLoadOpenMwApplicationSettings);
         payload += ",\"hasOpenMwContentPlan\":";
         payload += jsonBool(runtimeBootstrap.hasOpenMwContentPlan);
+        payload += ",\"contentPlanMatchesServerRegistry\":";
+        payload += jsonBool(runtimeBootstrap.contentPlanMatchesServerRegistry);
+        payload += ",\"usedServerContentFallback\":";
+        payload += jsonBool(runtimeBootstrap.usedServerContentFallback);
         payload += ",\"contentRegistryLoaded\":";
         payload += jsonBool(runtimeBootstrap.contentRegistryLoaded);
         payload += ",\"contentFileCount\":";
@@ -2203,6 +2207,10 @@ namespace mwmp
         payload += std::to_string(runtimeBootstrap.resolvedOpenMwDataDirCount);
         payload += ",\"resolvedOpenMwContentFileCount\":";
         payload += std::to_string(runtimeBootstrap.resolvedOpenMwContentFileCount);
+        payload += ",\"missingServerContentFileCount\":";
+        payload += std::to_string(runtimeBootstrap.missingServerContentFileCount);
+        payload += ",\"extraOpenMwContentFileCount\":";
+        payload += std::to_string(runtimeBootstrap.extraOpenMwContentFileCount);
         payload += ",\"engineArgumentCount\":";
         payload += std::to_string(runtimeBootstrap.engineArgumentCount);
         payload += ",\"blockedBy\":";

@@ -1,5 +1,8 @@
 #include "OpenMwServerSimulationHost.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -63,6 +66,48 @@ namespace
         return loadOpenMwApplicationSettings(static_cast<int>(arguments.size()), argv.data(), cfgMgr, settings, true);
     }
 
+    std::string normalizeContentName(std::string value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    }
+
+    std::set<std::string> getServerContentNames()
+    {
+        std::set<std::string> names;
+        for (const mwmp::ServerDataFileRequirement& requirement : mwmp::ServerContentRegistry::get().dataFiles())
+        {
+            if (!requirement.name.empty())
+                names.insert(normalizeContentName(requirement.name));
+        }
+        return names;
+    }
+
+    std::set<std::string> getOpenMwContentNames(const OpenMwApplicationSettings& settings)
+    {
+        std::set<std::string> names;
+        for (const std::string& contentFile : settings.contentFiles)
+        {
+            const std::string normalized = normalizeContentName(contentFile);
+            if (!normalized.empty() && normalized != "builtin.omwscripts")
+                names.insert(normalized);
+        }
+        return names;
+    }
+
+    std::size_t countMissingNames(const std::set<std::string>& expected, const std::set<std::string>& actual)
+    {
+        std::size_t missing = 0;
+        for (const std::string& name : expected)
+        {
+            if (actual.find(name) == actual.end())
+                ++missing;
+        }
+        return missing;
+    }
+
     mwmp::SimulationRuntimeBootstrap buildOpenMwBootstrap()
     {
         const mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
@@ -80,12 +125,21 @@ namespace
             Files::ConfigurationManager fallbackCfgMgr(true);
             bootstrap.canLoadOpenMwApplicationSettings
                 = loadOpenMwSettingsFromArguments(engineArguments, settings, fallbackCfgMgr);
+            bootstrap.usedServerContentFallback = bootstrap.canLoadOpenMwApplicationSettings;
         }
         bootstrap.contentRegistryLoaded = content.loaded;
         bootstrap.contentFileCount = content.dataFileCount;
         bootstrap.resolvedOpenMwDataDirCount = settings.dataDirs.size();
         bootstrap.resolvedOpenMwContentFileCount = settings.contentFiles.size();
         bootstrap.engineArgumentCount = engineArguments.size();
+        const std::set<std::string> serverContentNames = getServerContentNames();
+        const std::set<std::string> openMwContentNames = getOpenMwContentNames(settings);
+        bootstrap.missingServerContentFileCount = countMissingNames(serverContentNames, openMwContentNames);
+        bootstrap.extraOpenMwContentFileCount = countMissingNames(openMwContentNames, serverContentNames);
+        bootstrap.contentPlanMatchesServerRegistry = content.loaded
+            && !serverContentNames.empty()
+            && bootstrap.missingServerContentFileCount == 0
+            && bootstrap.extraOpenMwContentFileCount == 0;
         bootstrap.hasOpenMwContentPlan = bootstrap.canLoadOpenMwApplicationSettings
             && bootstrap.resolvedOpenMwDataDirCount != 0
             && bootstrap.resolvedOpenMwContentFileCount != 0
@@ -104,6 +158,8 @@ namespace
             bootstrap.blockedBy = "server-content-registry-unavailable";
         else if (content.dataFileCount == 0)
             bootstrap.blockedBy = "server-content-registry-empty";
+        else if (!bootstrap.contentPlanMatchesServerRegistry)
+            bootstrap.blockedBy = "openmw-content-plan-registry-mismatch";
         else
             bootstrap.blockedBy = "headless-openmw-engine-not-created";
 
