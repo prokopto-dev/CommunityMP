@@ -1398,12 +1398,16 @@ namespace mwmp
 
             if (state.visitors.empty())
             {
+                updateCellSimulationInterest(it->first, state);
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                     "Cleared C++ shadow authority of cell %s because its final visitor disconnected",
                     it->first.c_str());
                 it = mShadowCellAuthority.erase(it);
                 continue;
             }
+
+            updateCellSimulationInterest(it->first, state);
+            broadcastCellActivityEvent(it->first, state);
 
             if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
                 refreshShadowCellAuthority(it->first, state, "current authority disconnected", unassignedPacketGuid(), guid);
@@ -1430,6 +1434,9 @@ namespace mwmp
 
         if (!wasVisitor)
             state.visitors.push_back(player->guid);
+
+        updateCellSimulationInterest(cellDescription, state);
+        broadcastCellActivityEvent(cellDescription, state);
 
         if (canAuthoritativelySimulateActors())
         {
@@ -1464,15 +1471,24 @@ namespace mwmp
 
         ShadowCellAuthorityState& state = stateIt->second;
         const bool wasAuthority = state.authority == player->guid;
-        eraseGuid(state.visitors, player->guid);
+        const bool wasVisitor = eraseGuid(state.visitors, player->guid);
+
+        if (!wasVisitor)
+            return;
 
         if (state.visitors.empty())
         {
+            updateCellSimulationInterest(cellDescription, state);
+            sendCellActivityEvent(*player, cellDescription, state, false);
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                 "Cleared C++ shadow authority of cell %s because no valid visitors remain", cellDescription.c_str());
             mShadowCellAuthority.erase(stateIt);
             return;
         }
+
+        updateCellSimulationInterest(cellDescription, state);
+        sendCellActivityEvent(*player, cellDescription, state, false);
+        broadcastCellActivityEvent(cellDescription, state);
 
         if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
             refreshShadowCellAuthority(cellDescription, state, "current authority left", unassignedPacketGuid(), player->guid);
@@ -1732,6 +1748,80 @@ namespace mwmp
             Player* visitor = Players::getPlayer(visitorGuid);
             if (visitor != nullptr)
                 sendShadowCellAuthorityEvent(*visitor, cellDescription, state);
+        }
+    }
+
+    bool ServerSimulation::updateCellSimulationInterest(const std::string& cellDescription,
+        const ShadowCellAuthorityState& state) const
+    {
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        if (liveCell == nullptr)
+            return false;
+
+        const bool enabled = canAuthoritativelySimulateActors() && !state.visitors.empty();
+        if (liveCell->hasSimulationInterest() != enabled)
+        {
+            liveCell->setSimulationInterest(enabled);
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "C++ %s server simulation interest for cell %s with %zu active visitor(s)",
+                enabled ? "enabled" : "disabled", cellDescription.c_str(), state.visitors.size());
+        }
+
+        return liveCell->hasSimulationInterest();
+    }
+
+    void ServerSimulation::sendCellActivityEvent(Player& player, const std::string& cellDescription,
+        const ShadowCellAuthorityState& state, bool localPlayerLoaded) const
+    {
+        if (!player.isHandshaked() || player.getLoadState() != Player::POSTLOADED)
+            return;
+
+        const Cell* serverCell = findLoadedServerCellByDescription(cellDescription);
+        const std::string cellKey = serverCell != nullptr ? getLuaCellKey(serverCell->getCellData()) : "";
+        const std::string serverCellKey = serverCell != nullptr ? getCellSimulationKey(serverCell->getCellData()) : "";
+        const bool simulationInterest = serverCell != nullptr && serverCell->hasSimulationInterest();
+
+        std::string payload;
+        payload.reserve(260 + cellDescription.size() + cellKey.size() + serverCellKey.size());
+        payload += "{\"schema\":";
+        payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
+        payload += ",\"kind\":\"cell_activity\",\"cellDescription\":";
+        payload += jsonString(cellDescription);
+        payload += ",\"cellKey\":";
+        payload += jsonString(cellKey);
+        payload += ",\"serverCellKey\":";
+        payload += jsonString(serverCellKey);
+        payload += ",\"visitorCount\":";
+        payload += std::to_string(state.visitors.size());
+        payload += ",\"localPlayerLoaded\":";
+        payload += jsonBool(localPlayerLoaded);
+        payload += ",\"simulationInterest\":";
+        payload += jsonBool(simulationInterest);
+        payload += ",\"serverActorAuthority\":";
+        payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += ",\"runtimeRequested\":";
+        payload += jsonString(runtime().requestedName());
+        payload += ",\"runtimeActive\":";
+        payload += jsonString(runtime().activeName());
+        payload += "}";
+
+        if (!CommunityMpLuaEventSender::sendToPlayer(
+                player, "communitymp.server", "cell_activity", std::move(payload)))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Failed to send C++ cell activity event for cell %s to %s",
+                cellDescription.c_str(), player.npc.mName.c_str());
+        }
+    }
+
+    void ServerSimulation::broadcastCellActivityEvent(
+        const std::string& cellDescription, const ShadowCellAuthorityState& state) const
+    {
+        for (PacketGuid visitorGuid : state.visitors)
+        {
+            Player* visitor = Players::getPlayer(visitorGuid);
+            if (visitor != nullptr)
+                sendCellActivityEvent(*visitor, cellDescription, state, true);
         }
     }
 

@@ -1298,6 +1298,7 @@ namespace
             assert(hasCall("SetAuthority:Caldera:2"))
             assert(hasCall("LoadActorAuthority:Caldera:2"))
             assert(hasCall("SetAuthority:Caldera:1") == false)
+            assert(hasCall("SetCellSimulationInterest:Caldera:false") == false)
         )lua");
     }
 

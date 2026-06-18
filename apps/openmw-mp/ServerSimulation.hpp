@@ -124,6 +124,12 @@ namespace mwmp
             const ShadowCellAuthorityState& state) const;
         void broadcastShadowCellAuthorityEvent(
             const std::string& cellDescription, const ShadowCellAuthorityState& state) const;
+        bool updateCellSimulationInterest(const std::string& cellDescription,
+            const ShadowCellAuthorityState& state) const;
+        void sendCellActivityEvent(Player& player, const std::string& cellDescription,
+            const ShadowCellAuthorityState& state, bool localPlayerLoaded) const;
+        void broadcastCellActivityEvent(const std::string& cellDescription,
+            const ShadowCellAuthorityState& state) const;
         void tickActors(float deltaSeconds);
     };
 }

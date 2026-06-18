@@ -11,6 +11,8 @@ local allServerEventHandlers = {}
 local serverEventHandlersByName = {}
 local cellAuthorityByDescription = {}
 local cellAuthorityByKey = {}
+local cellActivityByDescription = {}
+local cellActivityByKey = {}
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -159,9 +161,42 @@ local function storeCellAuthority(state)
     end
 end
 
+local function storeCellActivity(state)
+    if type(state) ~= 'table' then
+        return
+    end
+
+    local copy = shallowCopy(state)
+    local cellDescription = copy.cellDescription
+    if type(cellDescription) == 'string' and cellDescription ~= '' then
+        cellActivityByDescription[cellDescription] = copy
+    end
+
+    local cellKeyValue = copy.cellKey
+    if type(cellKeyValue) == 'string' and cellKeyValue ~= '' then
+        cellActivityByKey[cellKeyValue] = copy
+    end
+
+    local serverCellKey = copy.serverCellKey
+    if type(serverCellKey) == 'string' and serverCellKey ~= '' then
+        cellActivityByKey[serverCellKey] = copy
+    end
+end
+
 local function getCellAuthority(cellOrDescription)
     for _, alias in ipairs(authorityLookupAliases(cellOrDescription)) do
         local state = cellAuthorityByDescription[alias] or cellAuthorityByKey[alias]
+        if state ~= nil then
+            return shallowCopy(state)
+        end
+    end
+
+    return nil
+end
+
+local function getCellActivity(cellOrDescription)
+    for _, alias in ipairs(authorityLookupAliases(cellOrDescription)) do
+        local state = cellActivityByDescription[alias] or cellActivityByKey[alias]
         if state ~= nil then
             return shallowCopy(state)
         end
@@ -224,6 +259,8 @@ local function dispatchServerEvent(event)
 
     if event.serverEventName == 'cell_authority' and type(event.decodedPayload) == 'table' then
         storeCellAuthority(event.decodedPayload)
+    elseif event.serverEventName == 'cell_activity' and type(event.decodedPayload) == 'table' then
+        storeCellActivity(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -251,6 +288,16 @@ return {
         getServerEventStats = statsSnapshot,
         getCellAuthority = getCellAuthority,
         getCellAuthorityForCell = getCellAuthority,
+        getCellActivity = getCellActivity,
+        getCellActivityForCell = getCellActivity,
+        isCellActive = function(cellOrDescription)
+            local state = getCellActivity(cellOrDescription)
+            return state ~= nil and tonumber(state.visitorCount or 0) > 0
+        end,
+        hasCellSimulationInterest = function(cellOrDescription)
+            local state = getCellActivity(cellOrDescription)
+            return state ~= nil and state.simulationInterest == true
+        end,
         isLocalCellAuthority = function(cellOrDescription)
             local state = getCellAuthority(cellOrDescription)
             return state ~= nil and state.isAuthority == true

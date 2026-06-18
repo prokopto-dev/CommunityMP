@@ -1145,12 +1145,9 @@ logicHandler.LoadCellForPlayer = function(pid, cellDescription, visitorOptions)
     local authPid = cell:GetAuthority()
 
     if config.serverAuthoritativeActors == true then
-        tes3mp.SetCellSimulationInterest(cellDescription, true)
         cell.authority = nil
         return
     end
-
-    tes3mp.SetCellSimulationInterest(cellDescription, false)
 
     if not previousAuthorityWasCurrentVisitor then
         if cell.isResetting == false then
