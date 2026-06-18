@@ -3,10 +3,18 @@
 #include <components/esm/esmcommon.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/loaddial.hpp>
+#include <components/bsa/ba2dx10file.hpp>
+#include <components/bsa/ba2gnrlfile.hpp>
+#include <components/bsa/bsafile.hpp>
+#include <components/bsa/compressedbsafile.hpp>
 #include <components/files/collections.hpp>
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/toutf8/toutf8.hpp>
+#include <components/vfs/manager.hpp>
+#include <components/vfs/pathutil.hpp>
+#include <components/vfs/recursivedirectoryiterator.hpp>
+#include <components/vfs/registerarchives.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -27,6 +35,9 @@ namespace
     constexpr const char* dataDirRowSchema = "communitymp.worlddb.data-dir.v1";
     constexpr const char* loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr const char* contentFileRowSchema = "communitymp.worlddb.content-file.v1";
+    constexpr const char* assetProviderRowSchema = "communitymp.worlddb.asset-provider.v1";
+    constexpr const char* archiveFileRowSchema = "communitymp.worlddb.archive-file.v1";
+    constexpr const char* resolvedAssetRowSchema = "communitymp.worlddb.resolved-asset.v1";
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* questSourceRowSchema = "communitymp.quest.source.v1";
     constexpr const char* questDatabaseRowSchema = "communitymp.questdb.v1";
@@ -235,6 +246,32 @@ namespace
         return value;
     }
 
+    std::string_view bsaVersionLabel(Bsa::BsaVersion version)
+    {
+        switch (version)
+        {
+            case Bsa::BsaVersion::Unknown:
+                return "unknown";
+            case Bsa::BsaVersion::Uncompressed:
+                return "bsa-uncompressed";
+            case Bsa::BsaVersion::Compressed:
+                return "bsa-compressed";
+            case Bsa::BsaVersion::BA2GNRL:
+                return "ba2-general";
+            case Bsa::BsaVersion::BA2DX10:
+                return "ba2-dx10";
+        }
+
+        return "unknown";
+    }
+
+    std::string utf8ArchiveName(std::string_view name, const ToUTF8::StatelessUtf8Encoder& encoder)
+    {
+        std::string buffer;
+        const std::string_view utf8 = encoder.getUtf8(name, ToUTF8::BufferAllocationPolicy::UseGrowFactor, buffer);
+        return std::string(utf8);
+    }
+
     std::string makeQuestPackageId(const std::string& contentFile)
     {
         std::filesystem::path path(contentFile);
@@ -419,7 +456,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"record_index.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -468,6 +505,20 @@ namespace
         result += ",\n  ";
         appendJsonNumberField(result, "generatedQuestDatabaseImportErrorCount",
             stats.generatedQuestDatabaseImportErrorCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "archiveCount", stats.archiveCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "resolvedArchiveCount", stats.resolvedArchiveCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "unresolvedArchiveCount", stats.unresolvedArchiveCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "archiveFileCount", stats.archiveFileCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "assetProviderCount", stats.assetProviderCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "resolvedAssetCount", stats.resolvedAssetCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "assetImportErrorCount", stats.assetImportErrorCount);
         result += "\n}\n";
         return result;
     }
@@ -591,6 +642,258 @@ namespace
             result += ",\"checksums\":";
             appendJsonStringArray(result, checksums);
             result += "}\n";
+        }
+
+        return result;
+    }
+
+    std::vector<std::string> existingArchives(
+        const Files::Collections& collections, const std::vector<std::string>& archives)
+    {
+        std::vector<std::string> result;
+        result.reserve(archives.size());
+        for (const std::string& archive : archives)
+        {
+            if (!archive.empty() && collections.doesExist(archive))
+                result.push_back(archive);
+        }
+        return result;
+    }
+
+    std::string buildAssetProvidersJsonl(const std::vector<std::filesystem::path>& dataDirs,
+        const std::vector<std::string>& archives, mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        Files::Collections collections(dataDirs);
+        std::string result;
+        result.reserve((dataDirs.size() + archives.size()) * 260);
+
+        std::size_t providerIndex = 0;
+        for (std::size_t archiveIndex = 0; archiveIndex < archives.size(); ++archiveIndex)
+        {
+            const std::string& archive = archives[archiveIndex];
+            if (archive.empty())
+                continue;
+
+            ++stats.archiveCount;
+            std::filesystem::path resolvedPath;
+            bool resolved = false;
+            Bsa::BsaVersion version = Bsa::BsaVersion::Unknown;
+            try
+            {
+                resolvedPath = collections.getPath(archive);
+                resolved = true;
+                version = Bsa::BSAFile::detectVersion(resolvedPath);
+                ++stats.resolvedArchiveCount;
+            }
+            catch (const std::exception& e)
+            {
+                ++stats.unresolvedArchiveCount;
+                if (stats.lastError.empty())
+                    stats.lastError = e.what();
+            }
+
+            ++stats.assetProviderCount;
+            result.push_back('{');
+            appendJsonStringField(result, "schema", assetProviderRowSchema);
+            result.push_back(',');
+            appendJsonNumberField(result, "providerIndex", providerIndex++);
+            result.push_back(',');
+            appendJsonNumberField(result, "priorityOrder", archiveIndex);
+            result.push_back(',');
+            appendJsonStringField(result, "providerType", "bsa");
+            result.push_back(',');
+            appendJsonStringField(result, "name", archive);
+            result.push_back(',');
+            appendJsonStringField(result, "resolvedPath", resolved ? pathToLogString(resolvedPath) : "");
+            result.push_back(',');
+            appendJsonBoolField(result, "resolved", resolved);
+            result.push_back(',');
+            appendJsonStringField(result, "archiveVersion", bsaVersionLabel(version));
+            result.push_back(',');
+            appendJsonNumberField(result, "size", resolved ? fileSizeOrNegative(resolvedPath) : -1);
+            result.push_back(',');
+            appendJsonNumberField(result, "lastWriteTime", resolved ? fileTimeOrZero(resolvedPath) : 0);
+            result += "}\n";
+        }
+
+        std::set<std::filesystem::path> seenDataDirs;
+        for (std::size_t dataDirIndex = 0; dataDirIndex < dataDirs.size(); ++dataDirIndex)
+        {
+            const std::filesystem::path& dataDir = dataDirs[dataDirIndex];
+            if (!seenDataDirs.insert(dataDir).second)
+                continue;
+
+            ++stats.assetProviderCount;
+            result.push_back('{');
+            appendJsonStringField(result, "schema", assetProviderRowSchema);
+            result.push_back(',');
+            appendJsonNumberField(result, "providerIndex", providerIndex++);
+            result.push_back(',');
+            appendJsonNumberField(result, "priorityOrder", archives.size() + dataDirIndex);
+            result.push_back(',');
+            appendJsonStringField(result, "providerType", "loose-data-dir");
+            result.push_back(',');
+            appendJsonStringField(result, "name", pathToLogString(dataDir));
+            result.push_back(',');
+            appendJsonStringField(result, "resolvedPath", pathToLogString(dataDir));
+            result.push_back(',');
+            appendJsonBoolField(result, "resolved", true);
+            result.push_back(',');
+            appendJsonStringField(result, "archiveVersion", "");
+            result.push_back(',');
+            appendJsonNumberField(result, "size", -1);
+            result.push_back(',');
+            appendJsonNumberField(result, "lastWriteTime", fileTimeOrZero(dataDir));
+            result += "}\n";
+        }
+
+        return result;
+    }
+
+    template <class BSAFileType>
+    void appendArchiveFileRowsForType(std::string& result, const std::size_t archiveIndex,
+        const std::string& archiveName, const std::filesystem::path& archivePath, Bsa::BsaVersion version,
+        const ToUTF8::StatelessUtf8Encoder& encoder, mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        BSAFileType file;
+        file.open(archivePath);
+        std::size_t fileIndex = 0;
+        for (const Bsa::BSAFile::FileStruct& entry : file.getList())
+        {
+            const std::string originalName = utf8ArchiveName(entry.name(), encoder);
+            result.push_back('{');
+            appendJsonStringField(result, "schema", archiveFileRowSchema);
+            result.push_back(',');
+            appendJsonNumberField(result, "archiveIndex", archiveIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "fileIndex", fileIndex++);
+            result.push_back(',');
+            appendJsonStringField(result, "archiveName", archiveName);
+            result.push_back(',');
+            appendJsonStringField(result, "archivePath", pathToLogString(archivePath));
+            result.push_back(',');
+            appendJsonStringField(result, "archiveVersion", bsaVersionLabel(version));
+            result.push_back(',');
+            appendJsonStringField(result, "path", VFS::Path::normalizeFilename(originalName));
+            result.push_back(',');
+            appendJsonStringField(result, "originalPath", originalName);
+            result.push_back(',');
+            appendJsonStringField(result, "extension", fileExtensionLower(originalName));
+            result.push_back(',');
+            appendJsonNumberField(result, "size", entry.mFileSize);
+            result.push_back(',');
+            appendJsonNumberField(result, "offset", entry.mOffset);
+            result.push_back(',');
+            appendJsonNumberField(result, "hashLow", entry.mHash.mLow);
+            result.push_back(',');
+            appendJsonNumberField(result, "hashHigh", entry.mHash.mHigh);
+            result += "}\n";
+            ++stats.archiveFileCount;
+        }
+    }
+
+    void appendArchiveFileRows(std::string& result, const std::size_t archiveIndex,
+        const std::string& archiveName, const std::filesystem::path& archivePath,
+        const ToUTF8::StatelessUtf8Encoder& encoder, mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        const Bsa::BsaVersion version = Bsa::BSAFile::detectVersion(archivePath);
+        switch (version)
+        {
+            case Bsa::BsaVersion::Uncompressed:
+                appendArchiveFileRowsForType<Bsa::BSAFile>(
+                    result, archiveIndex, archiveName, archivePath, version, encoder, stats);
+                return;
+            case Bsa::BsaVersion::Compressed:
+                appendArchiveFileRowsForType<Bsa::CompressedBSAFile>(
+                    result, archiveIndex, archiveName, archivePath, version, encoder, stats);
+                return;
+            case Bsa::BsaVersion::BA2GNRL:
+                appendArchiveFileRowsForType<Bsa::BA2GNRLFile>(
+                    result, archiveIndex, archiveName, archivePath, version, encoder, stats);
+                return;
+            case Bsa::BsaVersion::BA2DX10:
+                appendArchiveFileRowsForType<Bsa::BA2DX10File>(
+                    result, archiveIndex, archiveName, archivePath, version, encoder, stats);
+                return;
+            case Bsa::BsaVersion::Unknown:
+                throw std::runtime_error("unknown archive type " + pathToLogString(archivePath));
+        }
+    }
+
+    std::string buildArchiveFilesJsonl(const std::vector<std::filesystem::path>& dataDirs,
+        const std::vector<std::string>& archives, const std::string& encoding,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        Files::Collections collections(dataDirs);
+        ToUTF8::Utf8Encoder encoder(ToUTF8::calculateEncoding(encoding));
+        std::string result;
+        result.reserve(archives.size() * 4096);
+
+        for (std::size_t archiveIndex = 0; archiveIndex < archives.size(); ++archiveIndex)
+        {
+            const std::string& archive = archives[archiveIndex];
+            if (archive.empty())
+                continue;
+
+            try
+            {
+                appendArchiveFileRows(result, archiveIndex, archive, collections.getPath(archive),
+                    encoder.getStatelessEncoder(), stats);
+            }
+            catch (const std::exception& e)
+            {
+                ++stats.assetImportErrorCount;
+                if (stats.lastError.empty())
+                    stats.lastError = e.what();
+            }
+        }
+
+        return result;
+    }
+
+    std::string buildResolvedAssetsJsonl(const std::vector<std::filesystem::path>& dataDirs,
+        const std::vector<std::string>& archives, const std::string& encoding,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        Files::Collections collections(dataDirs);
+        ToUTF8::Utf8Encoder encoder(ToUTF8::calculateEncoding(encoding));
+        std::string result;
+        result.reserve((dataDirs.size() + archives.size()) * 4096);
+
+        try
+        {
+            VFS::Manager vfs;
+            VFS::registerArchives(
+                &vfs, collections, existingArchives(collections, archives), true, &encoder.getStatelessEncoder());
+
+            std::size_t assetIndex = 0;
+            for (const VFS::Path::Normalized& asset : vfs.getRecursiveDirectoryIterator())
+            {
+                const std::string_view normalizedPath = asset.view();
+                result.push_back('{');
+                appendJsonStringField(result, "schema", resolvedAssetRowSchema);
+                result.push_back(',');
+                appendJsonNumberField(result, "assetIndex", assetIndex++);
+                result.push_back(',');
+                appendJsonStringField(result, "path", normalizedPath);
+                result.push_back(',');
+                appendJsonStringField(result, "extension", fileExtensionLower(std::string(normalizedPath)));
+                result.push_back(',');
+                appendJsonStringField(result, "provider", vfs.getArchive(asset));
+                result.push_back(',');
+                appendJsonStringField(result, "stem", vfs.getStem(asset));
+                result.push_back(',');
+                appendJsonNumberField(result, "lastWriteTime", static_cast<long long>(
+                    vfs.getLastModified(asset).time_since_epoch().count()));
+                result += "}\n";
+                ++stats.resolvedAssetCount;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            ++stats.assetImportErrorCount;
+            if (stats.lastError.empty())
+                stats.lastError = e.what();
         }
 
         return result;
@@ -1931,7 +2234,8 @@ namespace mwmp
     }
 
     void ServerContentDatabase::updateFromOpenMwContentPlan(const std::vector<std::filesystem::path>& dataDirs,
-        const std::vector<std::string>& contentFiles, const std::string& encoding,
+        const std::vector<std::string>& contentFiles, const std::vector<std::string>& archives,
+        const std::string& encoding,
         const std::vector<ServerDataFileRequirement>& dataFileRequirements)
     {
         std::lock_guard lock(mMutex);
@@ -1942,7 +2246,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 5;
+        mStats.tableCount = 8;
 
         try
         {
@@ -1951,6 +2255,9 @@ namespace mwmp
             const std::string loadOrderJsonl = buildLoadOrderJsonl(contentFiles, newStats);
             const std::string contentFilesJsonl
                 = buildContentFilesJsonl(dataDirs, contentFiles, dataFileRequirements, newStats);
+            const std::string assetProvidersJsonl = buildAssetProvidersJsonl(dataDirs, archives, newStats);
+            const std::string archiveFilesJsonl = buildArchiveFilesJsonl(dataDirs, archives, encoding, newStats);
+            const std::string resolvedAssetsJsonl = buildResolvedAssetsJsonl(dataDirs, archives, encoding, newStats);
             const std::string recordIndexJsonl = buildRecordIndexJsonl(dataDirs, contentFiles, newStats);
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb
@@ -1961,6 +2268,9 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "data_dirs.jsonl", dataDirsJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "load_order.jsonl", loadOrderJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "content_files.jsonl", contentFilesJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "asset_providers.jsonl", assetProvidersJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "archive_files.jsonl", archiveFilesJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "resolved_assets.jsonl", resolvedAssetsJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "quest_sources.jsonl", questSourcesJsonl) || changed;
             changed = writeIfChanged(newStats.manifestPath, manifestJson) || changed;

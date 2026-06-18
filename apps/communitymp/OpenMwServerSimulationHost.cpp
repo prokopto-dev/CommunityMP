@@ -134,7 +134,7 @@ namespace
         {
             mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
             mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
-                settings.dataDirs, settings.contentFiles, settings.encoding,
+                settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
                 mwmp::ServerContentRegistry::get().dataFiles());
         }
 
@@ -162,7 +162,7 @@ namespace
                 selectedEngineArguments = engineArguments;
                 mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
                 mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
-                    settings.dataDirs, settings.contentFiles, settings.encoding,
+                    settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
                     mwmp::ServerContentRegistry::get().dataFiles());
                 content = mwmp::ServerContentRegistry::get().statistics();
             }

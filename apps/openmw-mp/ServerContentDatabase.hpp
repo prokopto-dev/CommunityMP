@@ -46,6 +46,13 @@ namespace mwmp
         std::size_t generatedQuestEffectCount = 0;
         std::size_t generatedLegacyEffectCount = 0;
         std::size_t generatedQuestDatabaseImportErrorCount = 0;
+        std::size_t archiveCount = 0;
+        std::size_t resolvedArchiveCount = 0;
+        std::size_t unresolvedArchiveCount = 0;
+        std::size_t archiveFileCount = 0;
+        std::size_t assetProviderCount = 0;
+        std::size_t resolvedAssetCount = 0;
+        std::size_t assetImportErrorCount = 0;
         std::size_t tableCount = 0;
     };
 
@@ -56,6 +63,7 @@ namespace mwmp
 
         void updateFromOpenMwContentPlan(const std::vector<std::filesystem::path>& dataDirs,
             const std::vector<std::string>& contentFiles,
+            const std::vector<std::string>& archives,
             const std::string& encoding,
             const std::vector<ServerDataFileRequirement>& dataFileRequirements);
 
