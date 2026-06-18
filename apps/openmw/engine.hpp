@@ -53,6 +53,11 @@ namespace Files
     struct ConfigurationManager;
 }
 
+namespace ESM
+{
+    struct Cell;
+}
+
 namespace osgViewer
 {
     class ScreenCaptureHandler;
@@ -192,6 +197,7 @@ namespace OMW
         int mGlMaxTextureImageUnits;
         bool mServerSimulationMode = false;
         bool mServerSimulationPrepared = false;
+        std::string mServerSimulationFocusCellDescription;
 
         // not implemented
         Engine(const Engine&);
@@ -249,6 +255,9 @@ namespace OMW
 
         /// Advance one server-owned OpenMW simulation frame.
         bool tickServerSimulation(float deltaSeconds);
+
+        /// Move the server-owned OpenMW simulation scene to the requested cell.
+        bool focusServerSimulationCell(const ESM::Cell& cell);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;

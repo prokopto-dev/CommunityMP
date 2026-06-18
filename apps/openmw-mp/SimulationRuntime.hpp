@@ -7,6 +7,11 @@
 #include <string_view>
 #include <vector>
 
+namespace ESM
+{
+    struct Cell;
+}
+
 namespace mwmp
 {
     class BaseActorList;
@@ -100,6 +105,7 @@ namespace mwmp
         virtual bool canOwnActorAuthority() const;
 
         virtual void tick(float deltaSeconds);
+        virtual void setSimulationCells(const std::vector<ESM::Cell>& cells);
         virtual bool collectActorSnapshots(std::vector<BaseActorList>& actorLists);
         virtual bool dispatchServerEvent(
             std::string_view eventName, const SimulationRuntimeEventArguments& arguments);

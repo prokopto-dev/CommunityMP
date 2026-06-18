@@ -61,6 +61,7 @@
 #endif
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
+#include <components/esm/util.hpp>
 
 #include "mwinput/inputmanagerimp.hpp"
 
@@ -1114,6 +1115,45 @@ bool OMW::Engine::tickServerSimulation(float deltaSeconds)
         timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + dt);
     }
 
+    return true;
+}
+
+bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell)
+{
+    if (!mServerSimulationPrepared || mWorld == nullptr || mStateManager == nullptr || mStateManager->hasQuitRequest())
+        return false;
+
+    const std::string cellDescription = cell.getDescription();
+    if (cellDescription.empty())
+        return false;
+
+    if (mServerSimulationFocusCellDescription == cellDescription)
+        return true;
+
+    ESM::Position position{};
+    try
+    {
+        if (cell.isExterior())
+        {
+            const ESM::ExteriorCellLocation cellLocation(
+                cell.mData.mX, cell.mData.mY, ESM::Cell::sDefaultWorldspaceId);
+            const osg::Vec2f cellCenter = ESM::indexToPosition(cellLocation, true);
+            position.pos[0] = cellCenter.x();
+            position.pos[1] = cellCenter.y();
+            position.pos[2] = 0.f;
+            mWorld->changeToCell(ESM::RefId::esm3ExteriorCell(cell.mData.mX, cell.mData.mY), position, true, false);
+        }
+        else
+            mWorld->changeToInteriorCell(cell.mName, position, true, false);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Warning) << "Failed to focus server OpenMW simulation cell " << cellDescription << ": " << e.what();
+        return false;
+    }
+
+    mServerSimulationFocusCellDescription = cellDescription;
+    Log(Debug::Info) << "Focused server OpenMW simulation cell " << cellDescription;
     return true;
 }
 

@@ -1542,6 +1542,7 @@ namespace mwmp
         const float deltaSeconds = clampDeltaSeconds(std::chrono::duration<float>(now - mLastTick).count());
         mLastTick = now;
 
+        updateRuntimeSimulationCells();
         mRuntime->tick(deltaSeconds);
         std::vector<BaseActorList> runtimeActorSnapshots;
         const bool exportedRuntimeActorSnapshots = mRuntime->collectActorSnapshots(runtimeActorSnapshots);
@@ -2018,6 +2019,25 @@ namespace mwmp
         }
 
         return liveCell->hasSimulationInterest();
+    }
+
+    void ServerSimulation::updateRuntimeSimulationCells()
+    {
+        if (mRuntime == nullptr || !canAuthoritativelySimulateActors())
+            return;
+
+        CellController* cellController = CellController::get();
+        if (cellController == nullptr)
+            return;
+
+        std::vector<ESM::Cell> simulationCells;
+        for (Cell* cell : cellController->getCells())
+        {
+            if (cell != nullptr && cell->hasSimulationInterest())
+                simulationCells.push_back(cell->getCellData());
+        }
+
+        mRuntime->setSimulationCells(simulationCells);
     }
 
     void ServerSimulation::applyRuntimeActorSnapshots(

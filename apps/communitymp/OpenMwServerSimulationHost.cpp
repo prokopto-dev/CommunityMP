@@ -12,6 +12,7 @@
 
 #include <components/debug/debugging.hpp>
 #include <components/debug/debuglog.hpp>
+#include <components/esm3/loadcell.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/misc/osgpluginchecker.hpp>
 #include <components/platform/platform.hpp>
@@ -228,10 +229,20 @@ namespace
         {
         }
 
+        void setSimulationCells(const std::vector<ESM::Cell>& cells) override
+        {
+            mSimulationCells = cells;
+            if (mNextSimulationCell >= mSimulationCells.size())
+                mNextSimulationCell = 0;
+        }
+
         void tick(float deltaSeconds) override
         {
             if (mEngine != nullptr)
+            {
+                focusNextSimulationCell();
                 static_cast<void>(mEngine->tickServerSimulation(deltaSeconds));
+            }
         }
 
         bool collectActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) override
@@ -244,8 +255,23 @@ namespace
         }
 
     private:
+        void focusNextSimulationCell()
+        {
+            if (mEngine == nullptr || mSimulationCells.empty())
+                return;
+
+            if (mNextSimulationCell >= mSimulationCells.size())
+                mNextSimulationCell = 0;
+
+            const ESM::Cell& cell = mSimulationCells[mNextSimulationCell];
+            mNextSimulationCell = (mNextSimulationCell + 1) % mSimulationCells.size();
+            static_cast<void>(mEngine->focusServerSimulationCell(cell));
+        }
+
         std::unique_ptr<Files::ConfigurationManager> mCfgMgr;
         std::unique_ptr<OMW::Engine> mEngine;
+        std::vector<ESM::Cell> mSimulationCells;
+        std::size_t mNextSimulationCell = 0;
     };
 
     std::unique_ptr<OMW::Engine> prepareOpenMwServerEngine(
