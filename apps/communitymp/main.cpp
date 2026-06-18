@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include "OpenMwServerSimulationHost.hpp"
+
 #include "../openmw/OpenMWApplication.hpp"
 #include "../openmw-mp/ServerApplication.hpp"
 #include "../openmw-mp/SimulationRuntime.hpp"
@@ -508,20 +510,9 @@ namespace
         std::vector<char*> mArgv;
     };
 
-    class UnifiedOpenMwSimulationRuntime final : public mwmp::SimulationRuntime
-    {
-    public:
-        UnifiedOpenMwSimulationRuntime()
-            : mwmp::SimulationRuntime(mwmp::SimulationRuntimeKind::OpenMwHeadless,
-                mwmp::SimulationRuntimeKind::PacketMirror, mwmp::SimulationRuntimeCapabilities{},
-                mwmp::SimulationRuntimeTopology{ true, true, false, false, false })
-        {
-        }
-    };
-
     std::unique_ptr<mwmp::SimulationRuntime> createUnifiedOpenMwSimulationRuntime()
     {
-        return std::make_unique<UnifiedOpenMwSimulationRuntime>();
+        return communitymp::createOpenMwServerSimulationRuntime();
     }
 
     class ScopedSimulationRuntimeFactory

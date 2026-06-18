@@ -1,6 +1,7 @@
 #ifndef OPENMW_MP_SIMULATIONRUNTIME_HPP
 #define OPENMW_MP_SIMULATIONRUNTIME_HPP
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -54,6 +55,16 @@ namespace mwmp
         bool rendererClientProtocol = false;
     };
 
+    struct SimulationRuntimeBootstrap
+    {
+        bool canConfigureOpenMwApplication = false;
+        bool hasOpenMwContentPlan = false;
+        bool contentRegistryLoaded = false;
+        std::size_t contentFileCount = 0;
+        std::size_t engineArgumentCount = 0;
+        std::string blockedBy;
+    };
+
     class SimulationRuntime
     {
     public:
@@ -63,12 +74,16 @@ namespace mwmp
             SimulationRuntimeCapabilities capabilities);
         SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
             SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology);
+        SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+            SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology,
+            SimulationRuntimeBootstrap bootstrap);
         virtual ~SimulationRuntime() = default;
 
         virtual SimulationRuntimeKind requestedKind() const;
         virtual SimulationRuntimeKind activeKind() const;
         virtual const SimulationRuntimeCapabilities& capabilities() const;
         virtual const SimulationRuntimeTopology& topology() const;
+        virtual const SimulationRuntimeBootstrap& bootstrap() const;
 
         virtual bool hasOpenMwWorld() const;
         virtual bool hasHeadlessOpenMwEngine() const;
@@ -87,6 +102,7 @@ namespace mwmp
         SimulationRuntimeKind mActiveKind;
         SimulationRuntimeCapabilities mCapabilities;
         SimulationRuntimeTopology mTopology;
+        SimulationRuntimeBootstrap mBootstrap;
     };
 
     using SimulationRuntimeFactory = std::unique_ptr<SimulationRuntime> (*)();

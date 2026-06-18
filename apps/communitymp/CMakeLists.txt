@@ -1,5 +1,7 @@
 set(COMMUNITYMP_SOURCES
     main.cpp
+    OpenMwServerSimulationHost.cpp
+    OpenMwServerSimulationHost.hpp
 )
 
 openmw_add_executable(communitymp ${COMMUNITYMP_SOURCES})

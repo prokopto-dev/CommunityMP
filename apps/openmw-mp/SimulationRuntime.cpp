@@ -167,6 +167,11 @@ namespace
         return {};
     }
 
+    mwmp::SimulationRuntimeBootstrap packetMirrorBootstrap()
+    {
+        return {};
+    }
+
     mwmp::SimulationRuntimeFactory& simulationRuntimeFactory()
     {
         static mwmp::SimulationRuntimeFactory factory = nullptr;
@@ -210,6 +215,7 @@ namespace mwmp
         , mActiveKind(SimulationRuntimeKind::PacketMirror)
         , mCapabilities(packetMirrorCapabilities())
         , mTopology(packetMirrorTopology())
+        , mBootstrap(packetMirrorBootstrap())
     {
         // The unified executable links the OpenMW client core, but dedicated
         // server mode does not yet construct a headless OMW::Engine. Until it
@@ -224,10 +230,17 @@ namespace mwmp
 
     SimulationRuntime::SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
         SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology)
+        : SimulationRuntime(requestedKind, activeKind, capabilities, topology, packetMirrorBootstrap())
+    {
+    }
+
+    SimulationRuntime::SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+        SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology, SimulationRuntimeBootstrap bootstrap)
         : mRequestedKind(requestedKind)
         , mActiveKind(activeKind)
         , mCapabilities(capabilities)
         , mTopology(topology)
+        , mBootstrap(std::move(bootstrap))
     {
     }
 
@@ -249,6 +262,11 @@ namespace mwmp
     const SimulationRuntimeTopology& SimulationRuntime::topology() const
     {
         return mTopology;
+    }
+
+    const SimulationRuntimeBootstrap& SimulationRuntime::bootstrap() const
+    {
+        return mBootstrap;
     }
 
     bool SimulationRuntime::hasOpenMwWorld() const

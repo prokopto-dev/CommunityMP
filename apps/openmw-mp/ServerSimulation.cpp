@@ -2021,6 +2021,7 @@ namespace mwmp
     {
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
         const SimulationRuntimeTopology& runtimeTopology = runtime().topology();
+        const SimulationRuntimeBootstrap& runtimeBootstrap = runtime().bootstrap();
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
         const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
         const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
@@ -2186,6 +2187,20 @@ namespace mwmp
         payload += jsonBool(runtimeTopology.runsOpenMwLua);
         payload += ",\"rendererClientProtocol\":";
         payload += jsonBool(runtimeTopology.rendererClientProtocol);
+        payload += "}";
+        payload += ",\"openMwBootstrap\":{";
+        payload += "\"canConfigureOpenMwApplication\":";
+        payload += jsonBool(runtimeBootstrap.canConfigureOpenMwApplication);
+        payload += ",\"hasOpenMwContentPlan\":";
+        payload += jsonBool(runtimeBootstrap.hasOpenMwContentPlan);
+        payload += ",\"contentRegistryLoaded\":";
+        payload += jsonBool(runtimeBootstrap.contentRegistryLoaded);
+        payload += ",\"contentFileCount\":";
+        payload += std::to_string(runtimeBootstrap.contentFileCount);
+        payload += ",\"engineArgumentCount\":";
+        payload += std::to_string(runtimeBootstrap.engineArgumentCount);
+        payload += ",\"blockedBy\":";
+        payload += jsonString(runtimeBootstrap.blockedBy);
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";
