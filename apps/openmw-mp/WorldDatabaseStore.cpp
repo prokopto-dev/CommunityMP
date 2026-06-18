@@ -399,6 +399,21 @@ namespace mwmp
                     winner.dataSize = getSizeT(row, "dataSize");
                     winner.loadOrderRule = getString(row, "loadOrderRule");
                     winner.category = recordCategoryForType(winner.recordType);
+                    winner.actorAiAvailable = getBool(row, "actorAiAvailable");
+                    winner.actorAiPackageCount = getSizeT(row, "actorAiPackageCount");
+                    winner.actorAiAction = getUnsigned(row, "actorAiAction");
+                    winner.actorAiDistance = getUnsigned(row, "actorAiDistance");
+                    winner.actorAiDuration = getUnsigned(row, "actorAiDuration");
+                    winner.actorAiShouldRepeat = getBool(row, "actorAiShouldRepeat");
+                    winner.actorAiCoordinateX = getFloat(row, "actorAiCoordinateX");
+                    winner.actorAiCoordinateY = getFloat(row, "actorAiCoordinateY");
+                    winner.actorAiCoordinateZ = getFloat(row, "actorAiCoordinateZ");
+                    winner.actorAiTargetId = getString(row, "actorAiTargetId");
+                    winner.actorAiCellName = getString(row, "actorAiCellName");
+                    winner.actorAiHello = getUnsigned(row, "actorAiHello");
+                    winner.actorAiFight = getUnsigned(row, "actorAiFight");
+                    winner.actorAiFlee = getUnsigned(row, "actorAiFlee");
+                    winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
 
                     if (winner.deleted || winner.tombstone)
                         ++mStats.recordWinnerDeletedCount;
@@ -548,6 +563,21 @@ namespace mwmp
         ref.baseRecordCategory.clear();
         ref.baseRecordSourceFile.clear();
         ref.baseRecordLoadOrderIndex = 0;
+        ref.baseActorAiAvailable = false;
+        ref.baseActorAiPackageCount = 0;
+        ref.baseActorAiAction = 0;
+        ref.baseActorAiDistance = 0;
+        ref.baseActorAiDuration = 0;
+        ref.baseActorAiShouldRepeat = false;
+        ref.baseActorAiCoordinateX = 0.f;
+        ref.baseActorAiCoordinateY = 0.f;
+        ref.baseActorAiCoordinateZ = 0.f;
+        ref.baseActorAiTargetId.clear();
+        ref.baseActorAiCellName.clear();
+        ref.baseActorAiHello = 0;
+        ref.baseActorAiFight = 0;
+        ref.baseActorAiFlee = 0;
+        ref.baseActorAiAlarm = 0;
 
         if (ref.baseRecordKey.empty())
             return;
@@ -592,6 +622,21 @@ namespace mwmp
         ref.baseRecordCategory = selected->category;
         ref.baseRecordSourceFile = selected->sourceFile;
         ref.baseRecordLoadOrderIndex = selected->loadOrderIndex;
+        ref.baseActorAiAvailable = selected->actorAiAvailable;
+        ref.baseActorAiPackageCount = selected->actorAiPackageCount;
+        ref.baseActorAiAction = selected->actorAiAction;
+        ref.baseActorAiDistance = selected->actorAiDistance;
+        ref.baseActorAiDuration = selected->actorAiDuration;
+        ref.baseActorAiShouldRepeat = selected->actorAiShouldRepeat;
+        ref.baseActorAiCoordinateX = selected->actorAiCoordinateX;
+        ref.baseActorAiCoordinateY = selected->actorAiCoordinateY;
+        ref.baseActorAiCoordinateZ = selected->actorAiCoordinateZ;
+        ref.baseActorAiTargetId = selected->actorAiTargetId;
+        ref.baseActorAiCellName = selected->actorAiCellName;
+        ref.baseActorAiHello = selected->actorAiHello;
+        ref.baseActorAiFight = selected->actorAiFight;
+        ref.baseActorAiFlee = selected->actorAiFlee;
+        ref.baseActorAiAlarm = selected->actorAiAlarm;
     }
 
     void WorldDatabaseStore::rebuildReferenceIndexesLocked()

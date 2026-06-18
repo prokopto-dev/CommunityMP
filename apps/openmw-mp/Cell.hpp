@@ -25,6 +25,19 @@ public:
         std::string baseRecordType;
         std::string baseRecordCategory;
         std::string baseRecordSourceFile;
+        bool baseActorAiAvailable = false;
+        std::size_t baseActorAiPackageCount = 0;
+        unsigned int baseActorAiAction = 0;
+        unsigned int baseActorAiDistance = 0;
+        unsigned int baseActorAiDuration = 0;
+        bool baseActorAiShouldRepeat = false;
+        ESM::Position baseActorAiCoordinates;
+        std::string baseActorAiTargetId;
+        std::string baseActorAiCellName;
+        unsigned int baseActorAiHello = 0;
+        unsigned int baseActorAiFight = 0;
+        unsigned int baseActorAiFlee = 0;
+        unsigned int baseActorAiAlarm = 0;
         unsigned int refNum = 0;
         unsigned int mpNum = 0;
         int refNumContentFile = -1;
@@ -54,6 +67,7 @@ public:
         std::size_t itemCount = 0;
         std::size_t staticCount = 0;
         std::size_t activatorCount = 0;
+        std::size_t actorAiCount = 0;
         std::size_t unresolvedCount = 0;
         std::size_t ambiguousCount = 0;
         std::size_t deletedBaseRecordCount = 0;

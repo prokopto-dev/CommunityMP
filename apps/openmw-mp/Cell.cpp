@@ -116,6 +116,15 @@ namespace
         actor.positionSequence = 1;
         actor.movementSampleIntervalSeconds = 1.f / 60.f;
         actor.movementLatencySeconds = 0.f;
+        if (reference.baseActorAiAvailable)
+        {
+            actor.hasAiData = true;
+            actor.aiAction = reference.baseActorAiAction;
+            actor.aiDistance = reference.baseActorAiDistance;
+            actor.aiDuration = reference.baseActorAiDuration;
+            actor.aiShouldRepeat = reference.baseActorAiShouldRepeat;
+            actor.aiCoordinates = reference.baseActorAiCoordinates;
+        }
         return actor;
     }
 }
@@ -500,6 +509,20 @@ void Cell::ensureServerWorldStateBootstrapped()
         snapshot.baseRecordType = ref.baseRecordType;
         snapshot.baseRecordCategory = ref.baseRecordCategory;
         snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
+        snapshot.baseActorAiAvailable = ref.baseActorAiAvailable;
+        snapshot.baseActorAiPackageCount = ref.baseActorAiPackageCount;
+        snapshot.baseActorAiAction = ref.baseActorAiAction;
+        snapshot.baseActorAiDistance = ref.baseActorAiDistance;
+        snapshot.baseActorAiDuration = ref.baseActorAiDuration;
+        snapshot.baseActorAiShouldRepeat = ref.baseActorAiShouldRepeat;
+        snapshot.baseActorAiCoordinates = makePosition(
+            ref.baseActorAiCoordinateX, ref.baseActorAiCoordinateY, ref.baseActorAiCoordinateZ, 0.f, 0.f, 0.f);
+        snapshot.baseActorAiTargetId = ref.baseActorAiTargetId;
+        snapshot.baseActorAiCellName = ref.baseActorAiCellName;
+        snapshot.baseActorAiHello = ref.baseActorAiHello;
+        snapshot.baseActorAiFight = ref.baseActorAiFight;
+        snapshot.baseActorAiFlee = ref.baseActorAiFlee;
+        snapshot.baseActorAiAlarm = ref.baseActorAiAlarm;
         snapshot.refNum = ref.refNumIndex;
         snapshot.mpNum = 0;
         snapshot.refNumContentFile = ref.refNumContentFile;
@@ -524,6 +547,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         else if (isActorBootstrapCategory(snapshot.baseRecordCategory))
         {
             ++serverWorldBootstrapStats.actorCount;
+            if (snapshot.baseActorAiAvailable)
+                ++serverWorldBootstrapStats.actorAiCount;
             serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell));
         }
         else if (snapshot.baseRecordCategory == "container")
@@ -545,9 +570,9 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
-        serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
+        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);
 }
 

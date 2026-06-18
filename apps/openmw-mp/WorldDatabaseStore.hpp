@@ -111,6 +111,21 @@ namespace mwmp
         std::size_t dataSize = 0;
         std::string loadOrderRule;
         std::string category;
+        bool actorAiAvailable = false;
+        std::size_t actorAiPackageCount = 0;
+        unsigned int actorAiAction = 0;
+        unsigned int actorAiDistance = 0;
+        unsigned int actorAiDuration = 0;
+        bool actorAiShouldRepeat = false;
+        float actorAiCoordinateX = 0.f;
+        float actorAiCoordinateY = 0.f;
+        float actorAiCoordinateZ = 0.f;
+        std::string actorAiTargetId;
+        std::string actorAiCellName;
+        unsigned int actorAiHello = 0;
+        unsigned int actorAiFight = 0;
+        unsigned int actorAiFlee = 0;
+        unsigned int actorAiAlarm = 0;
     };
 
     struct WorldCellReferenceRecord
@@ -172,6 +187,21 @@ namespace mwmp
         std::string baseRecordCategory;
         std::string baseRecordSourceFile;
         std::size_t baseRecordLoadOrderIndex = 0;
+        bool baseActorAiAvailable = false;
+        std::size_t baseActorAiPackageCount = 0;
+        unsigned int baseActorAiAction = 0;
+        unsigned int baseActorAiDistance = 0;
+        unsigned int baseActorAiDuration = 0;
+        bool baseActorAiShouldRepeat = false;
+        float baseActorAiCoordinateX = 0.f;
+        float baseActorAiCoordinateY = 0.f;
+        float baseActorAiCoordinateZ = 0.f;
+        std::string baseActorAiTargetId;
+        std::string baseActorAiCellName;
+        unsigned int baseActorAiHello = 0;
+        unsigned int baseActorAiFight = 0;
+        unsigned int baseActorAiFlee = 0;
+        unsigned int baseActorAiAlarm = 0;
     };
 
     class WorldDatabaseStore

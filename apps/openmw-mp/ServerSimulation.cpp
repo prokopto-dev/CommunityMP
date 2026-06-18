@@ -2246,6 +2246,8 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->referenceCount : 0);
         payload += ",\"serverWorldActorReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorCount : 0);
+        payload += ",\"serverWorldActorAiReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiCount : 0);
         payload += ",\"serverWorldActorListSeeded\":";
         payload += jsonBool(serverCell != nullptr && serverCell->hasServerWorldSeededActorList());
         payload += ",\"serverWorldSeededActorCount\":";
@@ -2301,6 +2303,7 @@ namespace mwmp
         std::size_t serverWorldBootstrappedCellCount = 0;
         std::size_t serverWorldReferenceCount = 0;
         std::size_t serverWorldActorReferenceCount = 0;
+        std::size_t serverWorldActorAiReferenceCount = 0;
         std::size_t serverWorldContainerReferenceCount = 0;
         std::size_t serverWorldDoorReferenceCount = 0;
         std::size_t serverWorldItemReferenceCount = 0;
@@ -2325,6 +2328,7 @@ namespace mwmp
                 }
                 serverWorldReferenceCount += stats.referenceCount;
                 serverWorldActorReferenceCount += stats.actorCount;
+                serverWorldActorAiReferenceCount += stats.actorAiCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
                 serverWorldDoorReferenceCount += stats.doorCount;
                 serverWorldItemReferenceCount += stats.itemCount;
@@ -2366,6 +2370,8 @@ namespace mwmp
         payload += std::to_string(serverWorldReferenceCount);
         payload += ",\"serverWorldActorReferenceCount\":";
         payload += std::to_string(serverWorldActorReferenceCount);
+        payload += ",\"serverWorldActorAiReferenceCount\":";
+        payload += std::to_string(serverWorldActorAiReferenceCount);
         payload += ",\"serverWorldActorSeededCellCount\":";
         payload += std::to_string(serverWorldActorSeededCellCount);
         payload += ",\"serverWorldSeededActorCount\":";

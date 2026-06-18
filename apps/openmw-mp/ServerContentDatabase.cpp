@@ -5,8 +5,10 @@
 #include <components/esm/esmcommon.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/formatversion.hpp>
+#include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loaddial.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/esm3/readerscache.hpp>
 #include <components/bsa/ba2dx10file.hpp>
 #include <components/bsa/ba2gnrlfile.hpp>
@@ -15,6 +17,7 @@
 #include <components/files/collections.hpp>
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/algorithm.hpp>
+#include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/toutf8/toutf8.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
@@ -952,6 +955,21 @@ namespace
         std::size_t dataOffset = 0;
         std::size_t dataSize = 0;
         RecordIdentity identity;
+        bool actorAiAvailable = false;
+        std::size_t actorAiPackageCount = 0;
+        unsigned int actorAiAction = 0;
+        unsigned int actorAiDistance = 0;
+        unsigned int actorAiDuration = 0;
+        bool actorAiShouldRepeat = false;
+        float actorAiCoordinateX = 0.f;
+        float actorAiCoordinateY = 0.f;
+        float actorAiCoordinateZ = 0.f;
+        std::string actorAiTargetId;
+        std::string actorAiCellName;
+        unsigned int actorAiHello = 0;
+        unsigned int actorAiFight = 0;
+        unsigned int actorAiFlee = 0;
+        unsigned int actorAiAlarm = 0;
     };
 
     struct RecordIndexTables
@@ -1345,6 +1363,102 @@ namespace
         }
     }
 
+    unsigned int clampNonNegativeShort(const int value)
+    {
+        return static_cast<unsigned int>(std::max(0, value));
+    }
+
+    void applyAiData(IndexedRecordRow& row, const ESM::AIData& aiData)
+    {
+        row.actorAiHello = aiData.mHello;
+        row.actorAiFight = aiData.mFight;
+        row.actorAiFlee = aiData.mFlee;
+        row.actorAiAlarm = aiData.mAlarm;
+    }
+
+    void applyPrimaryAiPackage(IndexedRecordRow& row, const ESM::AIPackageList& packages)
+    {
+        row.actorAiPackageCount = packages.mList.size();
+        if (packages.mList.empty())
+            return;
+
+        const ESM::AIPackage& package = packages.mList.front();
+        switch (package.mType)
+        {
+            case ESM::AI_Wander:
+                row.actorAiAvailable = true;
+                row.actorAiAction = mwmp::BaseActorList::WANDER;
+                row.actorAiDistance = clampNonNegativeShort(package.mWander.mDistance);
+                row.actorAiDuration = clampNonNegativeShort(package.mWander.mDuration);
+                row.actorAiShouldRepeat = package.mWander.mShouldRepeat != 0;
+                break;
+
+            case ESM::AI_Travel:
+                row.actorAiAvailable = true;
+                row.actorAiAction = mwmp::BaseActorList::TRAVEL;
+                row.actorAiCoordinateX = package.mTravel.mX;
+                row.actorAiCoordinateY = package.mTravel.mY;
+                row.actorAiCoordinateZ = package.mTravel.mZ;
+                row.actorAiShouldRepeat = package.mTravel.mShouldRepeat != 0;
+                break;
+
+            case ESM::AI_Follow:
+            case ESM::AI_Escort:
+                row.actorAiAction = package.mType == ESM::AI_Follow ? mwmp::BaseActorList::FOLLOW
+                                                                     : mwmp::BaseActorList::ESCORT;
+                row.actorAiDistance = clampNonNegativeShort(package.mTarget.mDuration);
+                row.actorAiDuration = clampNonNegativeShort(package.mTarget.mDuration);
+                row.actorAiCoordinateX = package.mTarget.mX;
+                row.actorAiCoordinateY = package.mTarget.mY;
+                row.actorAiCoordinateZ = package.mTarget.mZ;
+                row.actorAiTargetId = package.mTarget.mId.toString();
+                row.actorAiCellName = package.mCellName;
+                row.actorAiShouldRepeat = package.mTarget.mShouldRepeat != 0;
+                break;
+
+            case ESM::AI_Activate:
+                row.actorAiAction = mwmp::BaseActorList::ACTIVATE;
+                row.actorAiTargetId = package.mActivate.mName.toString();
+                row.actorAiShouldRepeat = package.mActivate.mShouldRepeat != 0;
+                break;
+        }
+    }
+
+    RecordIdentity makeActorRecordIdentity(const std::string& id, const bool deletedSubrecord)
+    {
+        if (id.empty())
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        return makeRecordIdentity(id, normalizedLookupKey(id), "record-id", deletedSubrecord);
+    }
+
+    bool loadActorRecordRowData(ESM::ESMReader& esm, const ESM::NAME recordName, IndexedRecordRow& row)
+    {
+        if (recordName.toInt() == ESM::REC_NPC_)
+        {
+            ESM::NPC npc;
+            bool deletedSubrecord = false;
+            npc.load(esm, deletedSubrecord);
+            row.identity = makeActorRecordIdentity(refIdToString(npc.mId), deletedSubrecord);
+            applyAiData(row, npc.mAiData);
+            applyPrimaryAiPackage(row, npc.mAiPackage);
+            return true;
+        }
+
+        if (recordName.toInt() == ESM::REC_CREA)
+        {
+            ESM::Creature creature;
+            bool deletedSubrecord = false;
+            creature.load(esm, deletedSubrecord);
+            row.identity = makeActorRecordIdentity(refIdToString(creature.mId), deletedSubrecord);
+            applyAiData(row, creature.mAiData);
+            applyPrimaryAiPackage(row, creature.mAiPackage);
+            return true;
+        }
+
+        return false;
+    }
+
     void appendRecordKeyFields(std::string& result, const RecordIdentity& identity)
     {
         appendJsonBoolField(result, "recordKeyAvailable", identity.available);
@@ -1433,6 +1547,36 @@ namespace
         appendJsonNumberField(result, "dataSize", row.dataSize);
         result.push_back(',');
         appendJsonStringField(result, "loadOrderRule", laterContentEntryDominatesLoadOrderRule);
+        result.push_back(',');
+        appendJsonBoolField(result, "actorAiAvailable", row.actorAiAvailable);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiPackageCount", row.actorAiPackageCount);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiAction", row.actorAiAction);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiDistance", row.actorAiDistance);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiDuration", row.actorAiDuration);
+        result.push_back(',');
+        appendJsonBoolField(result, "actorAiShouldRepeat", row.actorAiShouldRepeat);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiCoordinateX", row.actorAiCoordinateX);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiCoordinateY", row.actorAiCoordinateY);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiCoordinateZ", row.actorAiCoordinateZ);
+        result.push_back(',');
+        appendJsonStringField(result, "actorAiTargetId", row.actorAiTargetId);
+        result.push_back(',');
+        appendJsonStringField(result, "actorAiCellName", row.actorAiCellName);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiHello", row.actorAiHello);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiFight", row.actorAiFight);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiFlee", row.actorAiFlee);
+        result.push_back(',');
+        appendJsonNumberField(result, "actorAiAlarm", row.actorAiAlarm);
         result += "}\n";
     }
 
@@ -1470,10 +1614,6 @@ namespace
                     std::uint32_t flags = 0;
                     esm.getRecHeader(flags);
                     const std::size_t dataOffset = esm.getFileOffset();
-                    RecordIdentity identity = extractRecordIdentity(esm, recordName, flags, currentDialogueId);
-                    esm.skipRecord();
-                    const std::size_t nextRecordOffset = esm.getFileOffset();
-                    const std::size_t dataSize = nextRecordOffset >= dataOffset ? nextRecordOffset - dataOffset : 0;
 
                     IndexedRecordRow row;
                     row.engineContentIndex = engineContentIndex;
@@ -1483,8 +1623,15 @@ namespace
                     row.flags = flags;
                     row.recordOffset = recordOffset;
                     row.dataOffset = dataOffset;
-                    row.dataSize = dataSize;
-                    row.identity = std::move(identity);
+                    if ((flags & ESM::FLAG_Ignored) != 0 || !loadActorRecordRowData(esm, recordName, row))
+                    {
+                        row.identity = extractRecordIdentity(esm, recordName, flags, currentDialogueId);
+                        esm.skipRecord();
+                    }
+                    else
+                        currentDialogueId.clear();
+                    const std::size_t nextRecordOffset = esm.getFileOffset();
+                    row.dataSize = nextRecordOffset >= dataOffset ? nextRecordOffset - dataOffset : 0;
 
                     appendRecordIndexRow(result.recordIndexJsonl, row);
                     ++stats.recordIndexCount;
