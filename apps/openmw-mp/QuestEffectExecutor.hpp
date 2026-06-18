@@ -22,6 +22,8 @@ namespace mwmp
         std::size_t inventoryEffects = 0;
         std::size_t actorEffects = 0;
         std::size_t unsupportedEffects = 0;
+        std::size_t appliedEffects = 0;
+        std::size_t skippedDuplicateEffects = 0;
         bool fullyExecutable = true;
         bool requiresInventoryTransaction = false;
         bool requiresActorAuthority = false;
@@ -39,6 +41,7 @@ namespace mwmp
         QuestEffectExecutionPlan buildPlan(std::string_view ownerId) const;
         QuestEffectExecutionPlan applyServerExecutableEffects(::Player& player, std::string_view ownerId) const;
         bool supportsServerExecutableEffects() const { return true; }
+        bool supportsEffectReplayProtection() const { return true; }
 
     private:
         QuestEffectExecutor() = default;

@@ -2093,6 +2093,8 @@ namespace mwmp
         payload += jsonBool(QuestEffectExecutor::get().supportsServerExecutableEffects());
         payload += ",\"runtimeAuthorityMetadata\":true";
         payload += ",\"effectIdempotencyKeys\":true";
+        payload += ",\"effectReplayProtection\":";
+        payload += jsonBool(QuestEffectExecutor::get().supportsEffectReplayProtection());
         payload += ",\"nativeRuntimeModel\":";
         payload += jsonString("server-owned-multiplayer-quest-v1");
         payload += ",\"unsupportedConditionsRejectAuthoritativeSelection\":true";

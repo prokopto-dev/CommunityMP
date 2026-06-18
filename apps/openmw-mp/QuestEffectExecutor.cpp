@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <map>
+#include <mutex>
+#include <set>
 #include <string>
 
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/Packets/Player/PlayerPacket.hpp>
+#include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 #include "Player.hpp"
 #include "PlayerQuestStateStore.hpp"
@@ -14,6 +18,9 @@
 
 namespace
 {
+    std::mutex sQuestEffectLedgerMutex;
+    std::map<std::string, std::set<std::string>> sAppliedEffectKeysByCharacter;
+
     std::string normalizedLookupKey(std::string_view value)
     {
         std::string result(value);
@@ -26,6 +33,33 @@ namespace
     bool isServerExecutablePolicy(std::string_view executionPolicy)
     {
         return normalizedLookupKey(executionPolicy) == "server-executable";
+    }
+
+    std::string characterLedgerKey(const Player& player)
+    {
+        const std::string loginName = player.getLoginName();
+        const std::string characterName = player.npc.mName;
+        if (!loginName.empty() || !characterName.empty())
+            return loginName + "\x1f" + characterName;
+
+        return mwmp::packetGuidToString(player.guid);
+    }
+
+    std::string effectLedgerKey(std::string_view ownerId, const mwmp::QuestEffectRecord& effect)
+    {
+        if (!effect.idempotencyKey.empty())
+            return std::string(ownerId) + "|" + effect.idempotencyKey;
+        if (!effect.effectId.empty())
+            return std::string(ownerId) + "|" + effect.effectId;
+
+        return std::string(ownerId) + "|" + effect.effectKind + "|" + effect.quest + "|" + effect.topic + "|"
+            + effect.item + "|" + std::to_string(effect.index) + "|" + std::to_string(effect.count);
+    }
+
+    bool reserveEffectApplication(const Player& player, std::string_view ownerId, const mwmp::QuestEffectRecord& effect)
+    {
+        std::lock_guard lock(sQuestEffectLedgerMutex);
+        return sAppliedEffectKeysByCharacter[characterLedgerKey(player)].insert(effectLedgerKey(ownerId, effect)).second;
     }
 
     bool requiresInventoryTransaction(const mwmp::QuestEffectRecord& effect)
@@ -193,6 +227,40 @@ namespace mwmp
         ::Player& player, std::string_view ownerId) const
     {
         QuestEffectExecutionPlan plan = buildPlan(ownerId);
+        plan.journalChanges.clear();
+        plan.topicChanges.clear();
+
+        const std::vector<QuestEffectRecord> effects = QuestDatabaseStore::get().findQuestEffectsByOwnerId(ownerId);
+        for (const QuestEffectRecord& effect : effects)
+        {
+            const std::string effectKind = normalizedLookupKey(effect.effectKind);
+            if (!isServerExecutablePolicy(effect.executionPolicy))
+                continue;
+
+            if (effectKind == "journal.set" && !effect.quest.empty())
+            {
+                if (!reserveEffectApplication(player, ownerId, effect))
+                {
+                    ++plan.skippedDuplicateEffects;
+                    continue;
+                }
+
+                ++plan.appliedEffects;
+                plan.journalChanges.push_back(makeJournalEntry(effect));
+            }
+            else if (effectKind == "topic.add" && !effect.topic.empty())
+            {
+                if (!reserveEffectApplication(player, ownerId, effect))
+                {
+                    ++plan.skippedDuplicateEffects;
+                    continue;
+                }
+
+                ++plan.appliedEffects;
+                plan.topicChanges.push_back(makeTopic(effect));
+            }
+        }
+
         sendJournalChanges(player, plan.journalChanges);
         sendTopicChanges(player, plan.topicChanges);
         return plan;
