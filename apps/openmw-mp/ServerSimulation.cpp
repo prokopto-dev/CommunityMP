@@ -2427,6 +2427,8 @@ namespace mwmp
 
         std::vector<SimulationCellFocus> simulationFocuses;
         std::set<std::string> focusedCellDescriptions;
+        std::set<std::string> deferredLoadedCellDescriptions;
+        RuntimeFocusSelectionStats focusSelectionStats;
         for (const auto& [cellDescription, state] : mShadowCellAuthority)
         {
             if (state.visitors.empty() || !state.hasCell)
@@ -2438,8 +2440,20 @@ namespace mwmp
             if (liveCell != nullptr && !liveCell->hasSimulationInterest())
                 liveCell->setSimulationInterest(true);
 
-            simulationFocuses.push_back(buildFocusForState(cellDescription, state, state.cell));
-            focusedCellDescriptions.insert(cellDescription);
+            SimulationCellFocus focus = buildFocusForState(cellDescription, state, state.cell);
+            ++focusSelectionStats.candidateCellCount;
+            if (focus.hasPosition)
+            {
+                simulationFocuses.push_back(std::move(focus));
+                focusedCellDescriptions.insert(cellDescription);
+                ++focusSelectionStats.directFocusCellCount;
+            }
+            else
+            {
+                deferredLoadedCellDescriptions.insert(cellDescription);
+                ++focusSelectionStats.deferredLoadedCellCount;
+                focusSelectionStats.lastDeferredLoadedCellDescription = cellDescription;
+            }
         }
 
         for (Cell* cell : cellController->getCells())
@@ -2447,6 +2461,8 @@ namespace mwmp
             if (cell == nullptr || !cell->hasSimulationInterest())
                 continue;
             if (focusedCellDescriptions.find(cell->getShortDescription()) != focusedCellDescriptions.end())
+                continue;
+            if (deferredLoadedCellDescriptions.find(cell->getShortDescription()) != deferredLoadedCellDescriptions.end())
                 continue;
 
             SimulationCellFocus focus;
@@ -2471,8 +2487,11 @@ namespace mwmp
             }
 
             simulationFocuses.push_back(std::move(focus));
+            ++focusSelectionStats.candidateCellCount;
+            ++focusSelectionStats.scriptFocusCellCount;
         }
 
+        mRuntimeFocusSelectionStats = std::move(focusSelectionStats);
         mRuntime->setSimulationCellFocuses(simulationFocuses);
     }
 
@@ -2733,6 +2752,7 @@ namespace mwmp
 
             if (wasUsingFallback)
             {
+                ++mRuntimeActorSnapshotStats.fallbackMovementResumeCount;
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                     "Runtime actor movement resumed for %u-%u in %s; disabling server pathgrid fallback",
                     runtimeActor.refNum, runtimeActor.mpNum, actorKey.cellKey.c_str());
@@ -2748,9 +2768,18 @@ namespace mwmp
         state.useFallbackMovement = state.stagnantSnapshotCount >= runtimeActorFallbackSnapshotThreshold;
         if (state.useFallbackMovement && !wasUsingFallback)
         {
+            ++mRuntimeActorSnapshotStats.fallbackMovementActivationCount;
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                 "Runtime actor %u-%u in %s is position-stagnant; enabling server pathgrid movement fallback",
                 runtimeActor.refNum, runtimeActor.mpNum, actorKey.cellKey.c_str());
+        }
+
+        if (state.useFallbackMovement)
+        {
+            ++mRuntimeActorSnapshotStats.fallbackMovementSuppressedSnapshotCount;
+            mRuntimeActorSnapshotStats.lastFallbackMovementCellKey = actorKey.cellKey;
+            mRuntimeActorSnapshotStats.lastFallbackMovementRefNum = runtimeActor.refNum;
+            mRuntimeActorSnapshotStats.lastFallbackMovementMpNum = runtimeActor.mpNum;
         }
 
         return state.useFallbackMovement;
@@ -3057,6 +3086,14 @@ namespace mwmp
             serverActorPathgridRouteWaypointCacheCount += routeState.waypoints.size();
         }
 
+        std::size_t runtimeActorFallbackMovementActorCount = 0;
+        for (const auto& [actorKey, movementState] : mRuntimeActorMovementStates)
+        {
+            static_cast<void>(actorKey);
+            if (movementState.useFallbackMovement)
+                ++runtimeActorFallbackMovementActorCount;
+        }
+
         std::string payload;
         payload.reserve(1100);
         payload += "{\"schema\":";
@@ -3110,6 +3147,16 @@ namespace mwmp
         payload += std::to_string(playerTrackedCellCount);
         payload += ",\"openMwRuntimeFocusCellCount\":";
         payload += std::to_string(runtimeFocusState.configuredCellCount);
+        payload += ",\"openMwRuntimeFocusCandidateCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.candidateCellCount);
+        payload += ",\"openMwRuntimeDirectFocusCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.directFocusCellCount);
+        payload += ",\"openMwRuntimeDeferredLoadedCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.deferredLoadedCellCount);
+        payload += ",\"openMwRuntimeScriptFocusCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.scriptFocusCellCount);
+        payload += ",\"openMwRuntimeLastDeferredLoadedCell\":";
+        payload += jsonString(mRuntimeFocusSelectionStats.lastDeferredLoadedCellDescription);
         payload += ",\"openMwRuntimeFocusAttemptCount\":";
         payload += std::to_string(runtimeFocusState.focusAttemptCount);
         payload += ",\"openMwRuntimeFocusSuccessCount\":";
@@ -3140,6 +3187,20 @@ namespace mwmp
         payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorAttackPackets);
         payload += ",\"openMwRuntimeRejectedClientActorCastPackets\":";
         payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorCastPackets);
+        payload += ",\"openMwRuntimeFallbackMovementActorCount\":";
+        payload += std::to_string(runtimeActorFallbackMovementActorCount);
+        payload += ",\"openMwRuntimeFallbackMovementActivationCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.fallbackMovementActivationCount);
+        payload += ",\"openMwRuntimeFallbackMovementResumeCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.fallbackMovementResumeCount);
+        payload += ",\"openMwRuntimeFallbackMovementSuppressedSnapshotCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.fallbackMovementSuppressedSnapshotCount);
+        payload += ",\"openMwRuntimeLastFallbackMovementCellKey\":";
+        payload += jsonString(mRuntimeActorSnapshotStats.lastFallbackMovementCellKey);
+        payload += ",\"openMwRuntimeLastFallbackMovementRefNum\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.lastFallbackMovementRefNum);
+        payload += ",\"openMwRuntimeLastFallbackMovementMpNum\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.lastFallbackMovementMpNum);
         payload += ",\"serverWorldBootstrappedCellCount\":";
         payload += std::to_string(serverWorldBootstrappedCellCount);
         payload += ",\"serverWorldReferenceCount\":";

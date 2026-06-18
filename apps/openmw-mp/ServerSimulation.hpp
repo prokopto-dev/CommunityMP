@@ -123,8 +123,14 @@ namespace mwmp
             std::uint64_t rejectedClientActorAiPackets = 0;
             std::uint64_t rejectedClientActorAttackPackets = 0;
             std::uint64_t rejectedClientActorCastPackets = 0;
+            std::uint64_t fallbackMovementActivationCount = 0;
+            std::uint64_t fallbackMovementResumeCount = 0;
+            std::uint64_t fallbackMovementSuppressedSnapshotCount = 0;
             std::string lastSnapshotCellDescription;
             std::size_t lastSnapshotActorCount = 0;
+            std::string lastFallbackMovementCellKey;
+            unsigned int lastFallbackMovementRefNum = 0;
+            unsigned int lastFallbackMovementMpNum = 0;
         };
 
         struct RuntimeActorMovementState
@@ -135,6 +141,15 @@ namespace mwmp
             bool useFallbackMovement = false;
         };
 
+        struct RuntimeFocusSelectionStats
+        {
+            std::size_t candidateCellCount = 0;
+            std::size_t directFocusCellCount = 0;
+            std::size_t deferredLoadedCellCount = 0;
+            std::size_t scriptFocusCellCount = 0;
+            std::string lastDeferredLoadedCellDescription;
+        };
+
         std::map<PacketGuid, PlayerMovementState> mPlayerMovementStates;
         std::map<PacketGuid, ESM::Cell> mPlayerAcceptedCells;
         std::map<ActorMovementKey, PlayerMovementState> mActorMovementStates;
@@ -143,6 +158,7 @@ namespace mwmp
         std::map<ActorMovementKey, RuntimeActorMovementState> mRuntimeActorMovementStates;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         RuntimeActorSnapshotStats mRuntimeActorSnapshotStats;
+        RuntimeFocusSelectionStats mRuntimeFocusSelectionStats;
         std::unique_ptr<SimulationRuntime> mRuntime;
         Clock::time_point mLastTick;
         float mActorTickAccumulator = 0.f;
