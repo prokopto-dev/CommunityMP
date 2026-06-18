@@ -1883,6 +1883,46 @@ namespace mwmp
             "Applied C++ client actor authority of cell %s to %s%s",
             cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
             forceBroadcast && !authorityChanged ? " for joining visitor" : "");
+
+        if (authorityChanged && liveCell->hasActorListSnapshot())
+            requestActorListSnapshotFromAuthority(cellDescription, state, *liveCell, "authority changed");
+
+        return true;
+    }
+
+    bool ServerSimulation::requestActorListSnapshotFromAuthority(const std::string& cellDescription,
+        const ShadowCellAuthorityState& state, Cell& liveCell, const char* reason) const
+    {
+        if (canAuthoritativelySimulateActors() || !mwmp::isPacketGuidAssigned(state.authority))
+            return false;
+
+        if (!isShadowCellAuthorityCandidate(state, state.authority))
+            return false;
+
+        ServerNetworking* networking = ServerNetworking::getPtr();
+        if (networking == nullptr || networking->getActorPacketController() == nullptr)
+            return false;
+
+        ActorPacket* actorPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_LIST);
+        if (actorPacket == nullptr)
+            return false;
+
+        BaseActorList requestList;
+        requestList.cell = liveCell.getCellData();
+        requestList.guid = state.authority;
+        requestList.action = BaseActorList::REQUEST;
+        requestList.baseActors.clear();
+        requestList.count = 0;
+        requestList.isValid = true;
+
+        liveCell.requestActorListFrom(state.authority);
+        actorPacket->setActorList(&requestList);
+        actorPacket->Send(state.authority);
+
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+            "Requested C++ actor list snapshot for cell %s from %s because %s",
+            cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
+            reason != nullptr ? reason : "the authority needs to refresh server state");
         return true;
     }
 

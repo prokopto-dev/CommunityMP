@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cmath>
 #include <iostream>
+#include <utility>
 #include "Player.hpp"
 #include "ServerEventDispatcher.hpp"
 
@@ -65,6 +66,7 @@ Cell::Cell(ESM::Cell cell)
     : cell(cell)
     , authorityGuid(mwmp::unassignedPacketGuid())
     , actorListRequestGuid(mwmp::unassignedPacketGuid())
+    , actorListSnapshotReceived(false)
     , simulationInterest(false)
 {
     cellActorList.count = 0;
@@ -138,6 +140,33 @@ void Cell::removePlayer(Player *player, bool cleanPlayer)
 
 void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newActorList)
 {
+    if (packetID == ID_ACTOR_LIST && newActorList->action == mwmp::BaseActorList::SET)
+    {
+        std::vector<mwmp::BaseActor> replacementActors;
+        replacementActors.reserve(newActorList->baseActors.size());
+
+        for (const mwmp::BaseActor& incomingActor : newActorList->baseActors)
+        {
+            mwmp::BaseActor actorToStore = incomingActor;
+            actorToStore.cell = cell;
+
+            if (mwmp::BaseActor* existingActor = getActor(actorToStore.refNum, actorToStore.mpNum))
+            {
+                mwmp::BaseActor mergedActor = *existingActor;
+                mergedActor.refId = actorToStore.refId;
+                mergedActor.cell = cell;
+                replacementActors.push_back(std::move(mergedActor));
+            }
+            else
+                replacementActors.push_back(std::move(actorToStore));
+        }
+
+        cellActorList.baseActors = std::move(replacementActors);
+        cellActorList.count = static_cast<unsigned int>(cellActorList.baseActors.size());
+        actorListSnapshotReceived = true;
+        return;
+    }
+
     for (const mwmp::BaseActor& incomingActor : newActorList->baseActors)
     {
         mwmp::BaseActor newActor = incomingActor;
@@ -359,6 +388,11 @@ bool Cell::consumePendingActorListRequestFrom(const mwmp::PacketGuid& guid)
 
     actorListRequestGuid = mwmp::unassignedPacketGuid();
     return true;
+}
+
+bool Cell::hasActorListSnapshot() const
+{
+    return actorListSnapshotReceived;
 }
 
 mwmp::PacketGuid *Cell::getAuthority()

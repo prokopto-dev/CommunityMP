@@ -35,6 +35,7 @@ public:
     void requestActorListFrom(const mwmp::PacketGuid& guid);
     bool hasPendingActorListRequestFrom(const mwmp::PacketGuid& guid) const;
     bool consumePendingActorListRequestFrom(const mwmp::PacketGuid& guid);
+    bool hasActorListSnapshot() const;
 
     mwmp::PacketGuid *getAuthority();
     void setAuthority(const mwmp::PacketGuid& guid);
@@ -62,6 +63,7 @@ private:
     mwmp::PacketGuid authorityGuid;
     mwmp::PacketGuid actorListRequestGuid;
     mwmp::BaseActorList cellActorList;
+    bool actorListSnapshotReceived;
     bool simulationInterest;
 };
 
