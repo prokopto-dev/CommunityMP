@@ -1,7 +1,9 @@
 #include "ServerContentDatabase.hpp"
 
+#include <components/esm/defs.hpp>
 #include <components/esm/esmcommon.hpp>
 #include <components/esm3/esmreader.hpp>
+#include <components/esm3/formatversion.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/bsa/ba2dx10file.hpp>
 #include <components/bsa/ba2gnrlfile.hpp>
@@ -39,6 +41,7 @@ namespace
     constexpr const char* archiveFileRowSchema = "communitymp.worlddb.archive-file.v1";
     constexpr const char* resolvedAssetRowSchema = "communitymp.worlddb.resolved-asset.v1";
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
+    constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr const char* questSourceRowSchema = "communitymp.quest.source.v1";
     constexpr const char* questDatabaseRowSchema = "communitymp.questdb.v1";
     constexpr const char* builtinOpenMwScripts = "builtin.omwscripts";
@@ -48,6 +51,7 @@ namespace
         = "higher-engineContentIndex-overrides-lower-engineContentIndex-for-the-same-record-key";
 
     std::string fileExtensionLower(std::string value);
+    std::string normalizedLookupKey(std::string_view value);
 
     std::filesystem::path resolveDatabaseRoot()
     {
@@ -456,7 +460,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -472,6 +476,14 @@ namespace
         appendJsonNumberField(result, "checksumCount", stats.checksumCount);
         result += ",\n  ";
         appendJsonNumberField(result, "recordIndexCount", stats.recordIndexCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "recordKeyCount", stats.recordKeyCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "recordUnkeyedCount", stats.recordUnkeyedCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "recordWinnerCount", stats.recordWinnerCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "recordWinnerDeletedCount", stats.recordWinnerDeletedCount);
         result += ",\n  ";
         appendJsonNumberField(result, "recordImportErrorCount", stats.recordImportErrorCount);
         result += ",\n  ";
@@ -899,50 +911,519 @@ namespace
         return result;
     }
 
-    void appendRecordIndexRow(std::string& result, const std::size_t engineContentIndex,
-        const std::string& contentFile, const std::size_t recordIndex, const ESM::NAME recordName,
-        const std::uint32_t flags, const std::size_t recordOffset, const std::size_t dataOffset,
-        const std::size_t dataSize)
+    struct RecordIdentity
+    {
+        bool available = false;
+        bool deletedSubrecord = false;
+        std::string recordId;
+        std::string recordKey;
+        std::string keyKind;
+    };
+
+    struct IndexedRecordRow
+    {
+        std::size_t engineContentIndex = 0;
+        std::string contentFile;
+        std::size_t recordIndex = 0;
+        ESM::NAME recordName;
+        std::uint32_t flags = 0;
+        std::size_t recordOffset = 0;
+        std::size_t dataOffset = 0;
+        std::size_t dataSize = 0;
+        RecordIdentity identity;
+    };
+
+    struct RecordIndexTables
+    {
+        std::string recordIndexJsonl;
+        std::string recordWinnersJsonl;
+    };
+
+    RecordIdentity makeRecordIdentity(std::string recordId, std::string recordKey, std::string keyKind,
+        const bool deletedSubrecord = false)
+    {
+        RecordIdentity result;
+        result.available = !recordKey.empty();
+        result.deletedSubrecord = deletedSubrecord;
+        result.recordId = std::move(recordId);
+        result.recordKey = std::move(recordKey);
+        result.keyKind = std::move(keyKind);
+        return result;
+    }
+
+    RecordIdentity makeUnkeyedRecordIdentity(const bool deletedSubrecord)
+    {
+        RecordIdentity result;
+        result.deletedSubrecord = deletedSubrecord;
+        return result;
+    }
+
+    bool isDeletedRecord(const IndexedRecordRow& row)
+    {
+        return (row.flags & ESM::FLAG_Deleted) != 0 || row.identity.deletedSubrecord;
+    }
+
+    void skipUnreadSubrecordBytes(ESM::ESMReader& esm, const std::size_t bytesRead)
+    {
+        const std::size_t size = esm.getSubSize();
+        if (size > bytesRead)
+            esm.skip(size - bytesRead);
+    }
+
+    RecordIdentity extractDialogueIdentity(ESM::ESMReader& esm, std::string& currentDialogueId,
+        const bool updatesCurrentDialogue)
+    {
+        std::string id;
+        std::string fallbackName;
+        bool deletedSubrecord = false;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::fourCC("ID__"))
+                id = refIdToString(esm.getRefId());
+            else if (subName.toInt() == ESM::SREC_NAME)
+            {
+                if (esm.getFormatVersion() <= ESM::MaxStringRefIdFormatVersion)
+                    fallbackName = esm.getHString();
+                else if (esm.getFormatVersion() <= ESM::MaxNameIsRefIdOnlyFormatVersion)
+                    fallbackName = refIdToString(esm.getRefId());
+                else
+                {
+                    const std::string displayName = esm.getHString();
+                    if (id.empty())
+                        fallbackName = displayName;
+                }
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (id.empty())
+            id = fallbackName;
+
+        if (id.empty())
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        if (updatesCurrentDialogue && !deletedSubrecord)
+            currentDialogueId = id;
+
+        return makeRecordIdentity(id, normalizedLookupKey(id), "dialogue-id", deletedSubrecord);
+    }
+
+    RecordIdentity extractInfoIdentity(ESM::ESMReader& esm, const std::string& currentDialogueId)
+    {
+        std::string id;
+        bool deletedSubrecord = false;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::fourCC("INAM"))
+                id = refIdToString(esm.getRefId());
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (id.empty())
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        if (currentDialogueId.empty())
+            return makeRecordIdentity(id, "orphan-info:" + normalizedLookupKey(id), "dialogue-info-id",
+                deletedSubrecord);
+
+        return makeRecordIdentity(currentDialogueId + "/" + id,
+            "dialogue-info:" + normalizedLookupKey(currentDialogueId) + "/" + normalizedLookupKey(id),
+            "dialogue-info-id", deletedSubrecord);
+    }
+
+    RecordIdentity extractCellIdentity(ESM::ESMReader& esm)
+    {
+        std::string name;
+        bool hasData = false;
+        bool deletedSubrecord = false;
+        std::int32_t flags = 0;
+        std::int32_t x = 0;
+        std::int32_t y = 0;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::SREC_NAME)
+                name = esm.getHString();
+            else if (subName.toInt() == ESM::fourCC("DATA"))
+            {
+                esm.getSubHeader();
+                if (esm.getSubSize() >= sizeof(flags) + sizeof(x) + sizeof(y))
+                {
+                    esm.getT(flags);
+                    esm.getT(x);
+                    esm.getT(y);
+                    skipUnreadSubrecordBytes(esm, sizeof(flags) + sizeof(x) + sizeof(y));
+                    hasData = true;
+                }
+                else
+                    esm.skip(esm.getSubSize());
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (!hasData)
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        if ((flags & 0x01) != 0)
+        {
+            if (name.empty())
+                return makeUnkeyedRecordIdentity(deletedSubrecord);
+            return makeRecordIdentity(name, "interior:" + normalizedLookupKey(name), "cell-id", deletedSubrecord);
+        }
+
+        const std::string id = "exterior:" + std::to_string(x) + "," + std::to_string(y);
+        return makeRecordIdentity(id, id, "cell-id", deletedSubrecord);
+    }
+
+    RecordIdentity extractLandIdentity(ESM::ESMReader& esm)
+    {
+        bool hasLocation = false;
+        bool deletedSubrecord = false;
+        std::int32_t x = 0;
+        std::int32_t y = 0;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::fourCC("INTV"))
+            {
+                esm.getHT(x, y);
+                hasLocation = true;
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (!hasLocation)
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        const std::string id = "exterior:" + std::to_string(x) + "," + std::to_string(y);
+        return makeRecordIdentity(id, id, "land-cell", deletedSubrecord);
+    }
+
+    RecordIdentity extractPathgridIdentity(ESM::ESMReader& esm)
+    {
+        std::string cellName;
+        bool hasData = false;
+        bool deletedSubrecord = false;
+        std::int32_t x = 0;
+        std::int32_t y = 0;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::SREC_NAME)
+                cellName = refIdToString(esm.getRefId());
+            else if (subName.toInt() == ESM::fourCC("DATA"))
+            {
+                esm.getSubHeader();
+                if (esm.getSubSize() >= sizeof(x) + sizeof(y))
+                {
+                    esm.getT(x);
+                    esm.getT(y);
+                    skipUnreadSubrecordBytes(esm, sizeof(x) + sizeof(y));
+                    hasData = true;
+                }
+                else
+                    esm.skip(esm.getSubSize());
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (!hasData)
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        if (x == 0 && y == 0 && !cellName.empty())
+            return makeRecordIdentity(cellName, "interior:" + normalizedLookupKey(cellName), "pathgrid-cell",
+                deletedSubrecord);
+
+        const std::string id = "exterior:" + std::to_string(x) + "," + std::to_string(y);
+        return makeRecordIdentity(id, id, "pathgrid-cell", deletedSubrecord);
+    }
+
+    RecordIdentity extractIndexIdentity(ESM::ESMReader& esm, const char* keyKind)
+    {
+        bool hasIndex = false;
+        bool deletedSubrecord = false;
+        std::int32_t index = 0;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::fourCC("INDX"))
+            {
+                esm.getHT(index);
+                hasIndex = true;
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (!hasIndex)
+            return makeUnkeyedRecordIdentity(deletedSubrecord);
+
+        const std::string id = "index:" + std::to_string(index);
+        return makeRecordIdentity(id, id, keyKind, deletedSubrecord);
+    }
+
+    RecordIdentity extractLandTextureIdentity(ESM::ESMReader& esm)
+    {
+        std::string id;
+        bool hasIndex = false;
+        bool deletedSubrecord = false;
+        std::int32_t index = 0;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::SREC_NAME)
+                id = refIdToString(esm.getRefId());
+            else if (subName.toInt() == ESM::fourCC("INTV"))
+            {
+                esm.getHT(index);
+                hasIndex = true;
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (!id.empty())
+            return makeRecordIdentity(id, normalizedLookupKey(id), "land-texture-id", deletedSubrecord);
+
+        if (hasIndex)
+        {
+            const std::string fallback = "index:" + std::to_string(index);
+            return makeRecordIdentity(fallback, fallback, "land-texture-index", deletedSubrecord);
+        }
+
+        return makeUnkeyedRecordIdentity(deletedSubrecord);
+    }
+
+    RecordIdentity extractGenericRecordIdentity(ESM::ESMReader& esm)
+    {
+        std::string id;
+        bool deletedSubrecord = false;
+
+        while (esm.hasMoreSubs())
+        {
+            esm.getSubName();
+            const ESM::NAME subName = esm.retSubName();
+            if (subName.toInt() == ESM::fourCC("ID__") || subName.toInt() == ESM::fourCC("INAM"))
+            {
+                const std::string candidate = refIdToString(esm.getRefId());
+                if (!candidate.empty())
+                    id = candidate;
+            }
+            else if (subName.toInt() == ESM::SREC_NAME)
+            {
+                const std::string candidate = refIdToString(esm.getRefId());
+                if (id.empty() && !candidate.empty())
+                    id = candidate;
+            }
+            else if (subName.toInt() == ESM::SREC_DELE)
+            {
+                esm.skipHSub();
+                deletedSubrecord = true;
+            }
+            else
+                esm.skipHSub();
+        }
+
+        if (!id.empty())
+            return makeRecordIdentity(id, normalizedLookupKey(id), "record-id", deletedSubrecord);
+
+        return makeUnkeyedRecordIdentity(deletedSubrecord);
+    }
+
+    RecordIdentity extractRecordIdentity(ESM::ESMReader& esm, const ESM::NAME recordName, const std::uint32_t flags,
+        std::string& currentDialogueId)
+    {
+        if ((flags & ESM::FLAG_Ignored) != 0)
+            return {};
+
+        const bool deleted = (flags & ESM::FLAG_Deleted) != 0;
+
+        switch (recordName.toInt())
+        {
+            case ESM::REC_DIAL:
+                return extractDialogueIdentity(esm, currentDialogueId, !deleted);
+            case ESM::REC_INFO:
+                return extractInfoIdentity(esm, currentDialogueId);
+            case ESM::REC_CELL:
+                currentDialogueId.clear();
+                return extractCellIdentity(esm);
+            case ESM::REC_LAND:
+                currentDialogueId.clear();
+                return extractLandIdentity(esm);
+            case ESM::REC_PGRD:
+                currentDialogueId.clear();
+                return extractPathgridIdentity(esm);
+            case ESM::REC_LTEX:
+                currentDialogueId.clear();
+                return extractLandTextureIdentity(esm);
+            case ESM::REC_MGEF:
+                currentDialogueId.clear();
+                return extractIndexIdentity(esm, "magic-effect-index");
+            case ESM::REC_SKIL:
+                currentDialogueId.clear();
+                return extractIndexIdentity(esm, "skill-index");
+            default:
+                currentDialogueId.clear();
+                return extractGenericRecordIdentity(esm);
+        }
+    }
+
+    void appendRecordKeyFields(std::string& result, const RecordIdentity& identity)
+    {
+        appendJsonBoolField(result, "recordKeyAvailable", identity.available);
+        result.push_back(',');
+        appendJsonStringField(result, "recordKey", identity.available ? std::string_view(identity.recordKey) : std::string_view{});
+        result.push_back(',');
+        appendJsonStringField(result, "recordId", identity.available ? std::string_view(identity.recordId) : std::string_view{});
+        result.push_back(',');
+        appendJsonStringField(result, "recordKeyKind", identity.available ? std::string_view(identity.keyKind) : std::string_view{});
+    }
+
+    void appendRecordIndexRow(std::string& result, const IndexedRecordRow& row)
     {
         result.push_back('{');
         appendJsonStringField(result, "schema", recordIndexRowSchema);
         result.push_back(',');
-        appendJsonNumberField(result, "loadOrderIndex", engineContentIndex);
+        appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
         result.push_back(',');
-        appendJsonNumberField(result, "engineContentIndex", engineContentIndex);
+        appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
         result.push_back(',');
-        appendJsonStringField(result, "sourceFile", contentFile);
+        appendJsonStringField(result, "sourceFile", row.contentFile);
         result.push_back(',');
-        appendJsonNumberField(result, "recordIndex", recordIndex);
+        appendJsonNumberField(result, "recordIndex", row.recordIndex);
         result.push_back(',');
-        appendJsonStringField(result, "recordType", recordName.toStringView());
+        appendJsonStringField(result, "recordType", row.recordName.toStringView());
         result.push_back(',');
-        appendJsonNumberField(result, "recordTypeInt", recordName.toInt());
+        appendJsonNumberField(result, "recordTypeInt", row.recordName.toInt());
         result.push_back(',');
-        appendJsonNumberField(result, "flags", flags);
+        appendRecordKeyFields(result, row.identity);
         result.push_back(',');
-        appendJsonBoolField(result, "deleted", (flags & ESM::FLAG_Deleted) != 0);
+        appendJsonNumberField(result, "flags", row.flags);
         result.push_back(',');
-        appendJsonBoolField(result, "ignored", (flags & ESM::FLAG_Ignored) != 0);
+        appendJsonBoolField(result, "deleted", isDeletedRecord(row));
         result.push_back(',');
-        appendJsonBoolField(result, "persistent", (flags & ESM::FLAG_Persistent) != 0);
+        appendJsonBoolField(result, "recordFlagDeleted", (row.flags & ESM::FLAG_Deleted) != 0);
         result.push_back(',');
-        appendJsonBoolField(result, "blocked", (flags & ESM::FLAG_Blocked) != 0);
+        appendJsonBoolField(result, "deleteSubrecord", row.identity.deletedSubrecord);
         result.push_back(',');
-        appendJsonNumberField(result, "recordOffset", recordOffset);
+        appendJsonBoolField(result, "ignored", (row.flags & ESM::FLAG_Ignored) != 0);
         result.push_back(',');
-        appendJsonNumberField(result, "dataOffset", dataOffset);
+        appendJsonBoolField(result, "persistent", (row.flags & ESM::FLAG_Persistent) != 0);
         result.push_back(',');
-        appendJsonNumberField(result, "dataSize", dataSize);
+        appendJsonBoolField(result, "blocked", (row.flags & ESM::FLAG_Blocked) != 0);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordOffset", row.recordOffset);
+        result.push_back(',');
+        appendJsonNumberField(result, "dataOffset", row.dataOffset);
+        result.push_back(',');
+        appendJsonNumberField(result, "dataSize", row.dataSize);
         result += "}\n";
     }
 
-    std::string buildRecordIndexJsonl(const std::vector<std::filesystem::path>& dataDirs,
+    void appendRecordWinnerRow(std::string& result, const IndexedRecordRow& row)
+    {
+        result.push_back('{');
+        appendJsonStringField(result, "schema", recordWinnerRowSchema);
+        result.push_back(',');
+        appendJsonStringField(result, "recordType", row.recordName.toStringView());
+        result.push_back(',');
+        appendJsonNumberField(result, "recordTypeInt", row.recordName.toInt());
+        result.push_back(',');
+        appendRecordKeyFields(result, row.identity);
+        result.push_back(',');
+        appendJsonStringField(result, "sourceFile", row.contentFile);
+        result.push_back(',');
+        appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "recordIndex", row.recordIndex);
+        result.push_back(',');
+        appendJsonNumberField(result, "flags", row.flags);
+        result.push_back(',');
+        appendJsonBoolField(result, "deleted", isDeletedRecord(row));
+        result.push_back(',');
+        appendJsonBoolField(result, "recordFlagDeleted", (row.flags & ESM::FLAG_Deleted) != 0);
+        result.push_back(',');
+        appendJsonBoolField(result, "deleteSubrecord", row.identity.deletedSubrecord);
+        result.push_back(',');
+        appendJsonBoolField(result, "tombstone", isDeletedRecord(row));
+        result.push_back(',');
+        appendJsonNumberField(result, "recordOffset", row.recordOffset);
+        result.push_back(',');
+        appendJsonNumberField(result, "dataOffset", row.dataOffset);
+        result.push_back(',');
+        appendJsonNumberField(result, "dataSize", row.dataSize);
+        result.push_back(',');
+        appendJsonStringField(result, "loadOrderRule", laterContentEntryDominatesLoadOrderRule);
+        result += "}\n";
+    }
+
+    RecordIndexTables buildRecordIndexTablesJsonl(const std::vector<std::filesystem::path>& dataDirs,
         const std::vector<std::string>& contentFiles, mwmp::ServerContentDatabaseStatistics& stats)
     {
         Files::Collections collections(dataDirs);
-        std::string result;
-        result.reserve(contentFiles.size() * 2048);
+        RecordIndexTables result;
+        result.recordIndexJsonl.reserve(contentFiles.size() * 2048);
+        result.recordWinnersJsonl.reserve(contentFiles.size() * 1024);
+
+        std::map<std::string, IndexedRecordRow> winningRows;
 
         for (std::size_t engineContentIndex = 0; engineContentIndex < contentFiles.size(); ++engineContentIndex)
         {
@@ -960,6 +1441,7 @@ namespace
                 esm.open(collections.getPath(contentFile));
 
                 std::size_t recordIndex = 1;
+                std::string currentDialogueId;
                 while (esm.hasMoreRecs())
                 {
                     const std::size_t recordOffset = esm.getFileOffset();
@@ -967,13 +1449,38 @@ namespace
                     std::uint32_t flags = 0;
                     esm.getRecHeader(flags);
                     const std::size_t dataOffset = esm.getFileOffset();
+                    RecordIdentity identity = extractRecordIdentity(esm, recordName, flags, currentDialogueId);
                     esm.skipRecord();
                     const std::size_t nextRecordOffset = esm.getFileOffset();
                     const std::size_t dataSize = nextRecordOffset >= dataOffset ? nextRecordOffset - dataOffset : 0;
 
-                    appendRecordIndexRow(result, engineContentIndex, contentFile, recordIndex++, recordName, flags,
-                        recordOffset, dataOffset, dataSize);
+                    IndexedRecordRow row;
+                    row.engineContentIndex = engineContentIndex;
+                    row.contentFile = contentFile;
+                    row.recordIndex = recordIndex++;
+                    row.recordName = recordName;
+                    row.flags = flags;
+                    row.recordOffset = recordOffset;
+                    row.dataOffset = dataOffset;
+                    row.dataSize = dataSize;
+                    row.identity = std::move(identity);
+
+                    appendRecordIndexRow(result.recordIndexJsonl, row);
                     ++stats.recordIndexCount;
+
+                    if (row.identity.available)
+                    {
+                        ++stats.recordKeyCount;
+                        if ((flags & ESM::FLAG_Ignored) == 0)
+                        {
+                            std::string winnerKey(row.recordName.toStringView());
+                            winnerKey.push_back('\x1f');
+                            winnerKey += row.identity.recordKey;
+                            winningRows[std::move(winnerKey)] = row;
+                        }
+                    }
+                    else
+                        ++stats.recordUnkeyedCount;
                 }
             }
             catch (const std::exception& e)
@@ -982,6 +1489,14 @@ namespace
                 if (stats.lastError.empty())
                     stats.lastError = e.what();
             }
+        }
+
+        for (const auto& [_, row] : winningRows)
+        {
+            appendRecordWinnerRow(result.recordWinnersJsonl, row);
+            ++stats.recordWinnerCount;
+            if (isDeletedRecord(row))
+                ++stats.recordWinnerDeletedCount;
         }
 
         return result;
@@ -2246,7 +2761,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 8;
+        mStats.tableCount = 9;
 
         try
         {
@@ -2258,7 +2773,7 @@ namespace mwmp
             const std::string assetProvidersJsonl = buildAssetProvidersJsonl(dataDirs, archives, newStats);
             const std::string archiveFilesJsonl = buildArchiveFilesJsonl(dataDirs, archives, encoding, newStats);
             const std::string resolvedAssetsJsonl = buildResolvedAssetsJsonl(dataDirs, archives, encoding, newStats);
-            const std::string recordIndexJsonl = buildRecordIndexJsonl(dataDirs, contentFiles, newStats);
+            const RecordIndexTables recordIndexTables = buildRecordIndexTablesJsonl(dataDirs, contentFiles, newStats);
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb
                 = buildGeneratedQuestDatabasePackage(dataDirs, contentFiles, encoding, newStats);
@@ -2271,7 +2786,8 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "asset_providers.jsonl", assetProvidersJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "archive_files.jsonl", archiveFilesJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "resolved_assets.jsonl", resolvedAssetsJsonl) || changed;
-            changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexTables.recordIndexJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "quest_sources.jsonl", questSourcesJsonl) || changed;
             changed = writeIfChanged(newStats.manifestPath, manifestJson) || changed;
             changed = writeGeneratedQuestDatabasePackage(newStats.generatedQuestDatabasePath, generatedQuestDb) || changed;

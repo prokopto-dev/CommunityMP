@@ -31,6 +31,10 @@ namespace mwmp
         std::size_t unresolvedContentFileCount = 0;
         std::size_t checksumCount = 0;
         std::size_t recordIndexCount = 0;
+        std::size_t recordKeyCount = 0;
+        std::size_t recordUnkeyedCount = 0;
+        std::size_t recordWinnerCount = 0;
+        std::size_t recordWinnerDeletedCount = 0;
         std::size_t recordImportErrorCount = 0;
         std::size_t questSourceRowCount = 0;
         std::size_t questSourcePackageCount = 0;

@@ -2398,6 +2398,14 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.checksumCount);
         payload += ",\"recordIndexCount\":";
         payload += std::to_string(serverContentDatabase.recordIndexCount);
+        payload += ",\"recordKeyCount\":";
+        payload += std::to_string(serverContentDatabase.recordKeyCount);
+        payload += ",\"recordUnkeyedCount\":";
+        payload += std::to_string(serverContentDatabase.recordUnkeyedCount);
+        payload += ",\"recordWinnerCount\":";
+        payload += std::to_string(serverContentDatabase.recordWinnerCount);
+        payload += ",\"recordWinnerDeletedCount\":";
+        payload += std::to_string(serverContentDatabase.recordWinnerDeletedCount);
         payload += ",\"recordImportErrorCount\":";
         payload += std::to_string(serverContentDatabase.recordImportErrorCount);
         payload += ",\"questSourceRowCount\":";
