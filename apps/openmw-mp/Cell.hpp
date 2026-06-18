@@ -28,6 +28,8 @@ public:
         std::string baseRecordType;
         std::string baseRecordCategory;
         std::string baseRecordSourceFile;
+        bool baseActorInventoryImported = false;
+        std::size_t baseActorInventoryItemCount = 0;
         bool baseContainerInventoryImported = false;
         std::size_t baseContainerInventoryItemCount = 0;
         bool baseActorAiAvailable = false;
@@ -74,6 +76,8 @@ public:
         std::size_t activatorCount = 0;
         std::size_t objectCount = 0;
         std::size_t actorAiCount = 0;
+        std::size_t actorInventoryCount = 0;
+        std::size_t actorInventoryItemCount = 0;
         std::size_t unresolvedCount = 0;
         std::size_t ambiguousCount = 0;
         std::size_t deletedBaseRecordCount = 0;

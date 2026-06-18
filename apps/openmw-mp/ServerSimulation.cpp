@@ -2333,6 +2333,10 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorCount : 0);
         payload += ",\"serverWorldActorAiReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiCount : 0);
+        payload += ",\"serverWorldActorInventoryReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryCount : 0);
+        payload += ",\"serverWorldActorInventoryItemCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryItemCount : 0);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->objectCount : 0);
         payload += ",\"serverWorldActorListSeeded\":";
@@ -2395,6 +2399,8 @@ namespace mwmp
         std::size_t serverWorldReferenceCount = 0;
         std::size_t serverWorldActorReferenceCount = 0;
         std::size_t serverWorldActorAiReferenceCount = 0;
+        std::size_t serverWorldActorInventoryReferenceCount = 0;
+        std::size_t serverWorldActorInventoryItemCount = 0;
         std::size_t serverWorldObjectReferenceCount = 0;
         std::size_t serverWorldContainerReferenceCount = 0;
         std::size_t serverWorldDoorReferenceCount = 0;
@@ -2428,6 +2434,8 @@ namespace mwmp
                 serverWorldReferenceCount += stats.referenceCount;
                 serverWorldActorReferenceCount += stats.actorCount;
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
+                serverWorldActorInventoryReferenceCount += stats.actorInventoryCount;
+                serverWorldActorInventoryItemCount += stats.actorInventoryItemCount;
                 serverWorldObjectReferenceCount += stats.objectCount;
                 serverWorldContainerReferenceCount += stats.containerCount;
                 serverWorldDoorReferenceCount += stats.doorCount;
@@ -2472,6 +2480,10 @@ namespace mwmp
         payload += std::to_string(serverWorldActorReferenceCount);
         payload += ",\"serverWorldActorAiReferenceCount\":";
         payload += std::to_string(serverWorldActorAiReferenceCount);
+        payload += ",\"serverWorldActorInventoryReferenceCount\":";
+        payload += std::to_string(serverWorldActorInventoryReferenceCount);
+        payload += ",\"serverWorldActorInventoryItemCount\":";
+        payload += std::to_string(serverWorldActorInventoryItemCount);
         payload += ",\"serverWorldObjectReferenceCount\":";
         payload += std::to_string(serverWorldObjectReferenceCount);
         payload += ",\"serverWorldActorSeededCellCount\":";
@@ -2622,6 +2634,10 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.recordWinnerDeletedCount);
         payload += ",\"recordImportErrorCount\":";
         payload += std::to_string(serverContentDatabase.recordImportErrorCount);
+        payload += ",\"actorInventoryRecordCount\":";
+        payload += std::to_string(serverContentDatabase.actorInventoryRecordCount);
+        payload += ",\"actorInventoryItemCount\":";
+        payload += std::to_string(serverContentDatabase.actorInventoryItemCount);
         payload += ",\"containerInventoryRecordCount\":";
         payload += std::to_string(serverContentDatabase.containerInventoryRecordCount);
         payload += ",\"containerInventoryItemCount\":";
@@ -2728,6 +2744,10 @@ namespace mwmp
         payload += std::to_string(worldDatabase.recordWinnerCount);
         payload += ",\"recordWinnerDeletedCount\":";
         payload += std::to_string(worldDatabase.recordWinnerDeletedCount);
+        payload += ",\"actorInventoryRecordCount\":";
+        payload += std::to_string(worldDatabase.actorInventoryRecordCount);
+        payload += ",\"actorInventoryItemCount\":";
+        payload += std::to_string(worldDatabase.actorInventoryItemCount);
         payload += ",\"containerInventoryRecordCount\":";
         payload += std::to_string(worldDatabase.containerInventoryRecordCount);
         payload += ",\"containerInventoryItemCount\":";

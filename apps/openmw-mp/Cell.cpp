@@ -721,6 +721,8 @@ void Cell::ensureServerWorldStateBootstrapped()
         snapshot.baseRecordType = ref.baseRecordType;
         snapshot.baseRecordCategory = ref.baseRecordCategory;
         snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
+        snapshot.baseActorInventoryImported = ref.baseActorInventoryImported;
+        snapshot.baseActorInventoryItemCount = ref.baseActorInventoryItemCount;
         snapshot.baseContainerInventoryImported = ref.baseContainerInventoryImported;
         snapshot.baseContainerInventoryItemCount = ref.baseContainerInventoryItemCount;
         snapshot.baseActorAiAvailable = ref.baseActorAiAvailable;
@@ -763,6 +765,11 @@ void Cell::ensureServerWorldStateBootstrapped()
             ++serverWorldBootstrapStats.actorCount;
             if (snapshot.baseActorAiAvailable)
                 ++serverWorldBootstrapStats.actorAiCount;
+            if (snapshot.baseActorInventoryImported)
+            {
+                ++serverWorldBootstrapStats.actorInventoryCount;
+                serverWorldBootstrapStats.actorInventoryItemCount += snapshot.baseActorInventoryItemCount;
+            }
             serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell));
         }
         else
@@ -792,9 +799,10 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
-        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.objectCount,
+        serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorInventoryCount,
+        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.objectCount,
         serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);
 }
