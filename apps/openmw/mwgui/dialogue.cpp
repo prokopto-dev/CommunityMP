@@ -33,6 +33,12 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/npcstats.hpp"
 
+#ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/Main.hpp"
+#include "../mwmp/Networking.hpp"
+#include "../mwmp/ObjectList.hpp"
+#endif
+
 #include "bookpage.hpp"
 #include "textcolours.hpp"
 
@@ -50,6 +56,22 @@ namespace MWGui
             Misc::StringUtils::replaceAll(goodbye, "___", " ");
             return goodbye;
         }
+
+#ifdef BUILD_TES3MP_CLIENT
+        void sendTes3mpDialogueChoice(const MWWorld::Ptr& actor, const std::string& topicId)
+        {
+            if (!mwmp::Main::isInitialized() || actor.isEmpty() || topicId.empty())
+                return;
+
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            if (objectList == nullptr)
+                return;
+
+            objectList->reset();
+            objectList->addObjectDialogueChoice(actor, topicId);
+            objectList->sendObjectDialogueChoice();
+        }
+#endif
     }
 
     void ResponseCallback::addResponse(std::string_view title, std::string_view text)
@@ -383,6 +405,22 @@ namespace MWGui
 
     void DialogueWindow::activateTopic(std::string_view topic)
     {
+        struct ServerDialogueChoiceGuard
+        {
+            bool& mFlag;
+
+            explicit ServerDialogueChoiceGuard(bool& flag)
+                : mFlag(flag)
+            {
+                mFlag = true;
+            }
+
+            ~ServerDialogueChoiceGuard()
+            {
+                mFlag = false;
+            }
+        } guard(mApplyingServerDialogueChoice);
+
         onTopicActivated(std::string(topic));
     }
 
@@ -781,6 +819,11 @@ namespace MWGui
     {
         if (mGoodbye)
             return;
+
+#ifdef BUILD_TES3MP_CLIENT
+        if (!mApplyingServerDialogueChoice)
+            sendTes3mpDialogueChoice(mPtr, topicId);
+#endif
 
         MWBase::Environment::get().getDialogueManager()->keywordSelected(topicId, mCallback.get());
         updateTopics();
