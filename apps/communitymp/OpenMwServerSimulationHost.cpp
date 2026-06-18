@@ -19,6 +19,7 @@
 
 #include "../openmw/OpenMWApplication.hpp"
 #include "../openmw/engine.hpp"
+#include "../openmw-mp/ServerContentDatabase.hpp"
 #include "../openmw-mp/ServerContentRegistry.hpp"
 
 namespace
@@ -130,7 +131,11 @@ namespace
         selectedEngineArguments = engineArguments;
 
         if (bootstrap.canLoadOpenMwApplicationSettings)
+        {
             mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+            mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
+                settings.dataDirs, settings.contentFiles, mwmp::ServerContentRegistry::get().dataFiles());
+        }
 
         mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
         if (bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0)
@@ -155,6 +160,8 @@ namespace
                 settings = std::move(fallbackSettings);
                 selectedEngineArguments = engineArguments;
                 mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+                mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
+                    settings.dataDirs, settings.contentFiles, mwmp::ServerContentRegistry::get().dataFiles());
                 content = mwmp::ServerContentRegistry::get().statistics();
             }
         }

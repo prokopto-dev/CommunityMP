@@ -26,6 +26,7 @@
 #include "QuestDatabaseStore.hpp"
 #include "QuestEventJournalStore.hpp"
 #include "QuestRuntimeEvaluator.hpp"
+#include "ServerContentDatabase.hpp"
 #include "ServerContentRegistry.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
@@ -2262,6 +2263,7 @@ namespace mwmp
         const SimulationRuntimeBootstrap& runtimeBootstrap = runtime().bootstrap();
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
         const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
+        const ServerContentDatabaseStatistics serverContentDatabase = ServerContentDatabase::get().statistics();
         const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
         const QuestEventJournalStatistics questEventJournal = QuestEventJournalStore::get().statistics();
         const CellController* cellController = CellController::get();
@@ -2358,6 +2360,34 @@ namespace mwmp
         appendJsonStringArray(payload, contentFiles);
         payload += ",\"contentPreviewTruncated\":";
         payload += jsonBool(ServerContentRegistry::get().dataFiles().size() > runtimeStatusContentPreviewLimit);
+        payload += "}";
+        payload += ",\"serverContentDatabase\":{";
+        payload += "\"backend\":";
+        payload += jsonString(serverContentDatabase.backend);
+        payload += ",\"attempted\":";
+        payload += jsonBool(serverContentDatabase.attempted);
+        payload += ",\"available\":";
+        payload += jsonBool(serverContentDatabase.available);
+        payload += ",\"changed\":";
+        payload += jsonBool(serverContentDatabase.changed);
+        payload += ",\"rootPath\":";
+        payload += jsonString(Files::pathToUnicodeString(serverContentDatabase.rootPath));
+        payload += ",\"manifestPath\":";
+        payload += jsonString(Files::pathToUnicodeString(serverContentDatabase.manifestPath));
+        payload += ",\"lastError\":";
+        payload += jsonString(serverContentDatabase.lastError);
+        payload += ",\"dataDirCount\":";
+        payload += std::to_string(serverContentDatabase.dataDirCount);
+        payload += ",\"contentFileCount\":";
+        payload += std::to_string(serverContentDatabase.contentFileCount);
+        payload += ",\"resolvedContentFileCount\":";
+        payload += std::to_string(serverContentDatabase.resolvedContentFileCount);
+        payload += ",\"unresolvedContentFileCount\":";
+        payload += std::to_string(serverContentDatabase.unresolvedContentFileCount);
+        payload += ",\"checksumCount\":";
+        payload += std::to_string(serverContentDatabase.checksumCount);
+        payload += ",\"tableCount\":";
+        payload += std::to_string(serverContentDatabase.tableCount);
         payload += "}";
         payload += ",\"questDatabase\":{";
         payload += "\"backend\":";
