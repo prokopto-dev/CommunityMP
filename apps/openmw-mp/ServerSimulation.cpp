@@ -1549,10 +1549,7 @@ namespace mwmp
         if (exportedRuntimeActorSnapshots)
             applyRuntimeActorSnapshots(runtimeActorSnapshots, deltaSeconds);
 
-        if (!canAuthoritativelySimulateActors())
-            return;
-
-        if (exportedRuntimeActorSnapshots)
+        if (!canAuthoritativelySimulateActors() || mRuntime->hasOpenMwWorld())
             return;
 
         mActorTickAccumulator += deltaSeconds;
@@ -1764,6 +1761,12 @@ namespace mwmp
     bool ServerSimulation::canAuthoritativelySimulateActors() const
     {
         return mRuntime != nullptr && mRuntime->canOwnActorAuthority();
+    }
+
+    bool ServerSimulation::runtimeOwnsActorCell(const Cell& serverCell) const
+    {
+        return mRuntime != nullptr && mRuntime->hasOpenMwWorld() && canAuthoritativelySimulateActors()
+            && serverCell.hasSimulationInterest();
     }
 
     bool ServerSimulation::isShadowCellAuthorityCandidate(
@@ -2499,6 +2502,9 @@ namespace mwmp
 
     bool ServerSimulation::acceptActorCasts(BaseActorList& actorList, Cell& serverCell)
     {
+        if (runtimeOwnsActorCell(serverCell))
+            return false;
+
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
 
@@ -2534,6 +2540,9 @@ namespace mwmp
 
     bool ServerSimulation::acceptActorAiSnapshot(BaseActorList& actorList, Cell& serverCell)
     {
+        if (runtimeOwnsActorCell(serverCell))
+            return false;
+
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
 
@@ -2560,6 +2569,9 @@ namespace mwmp
 
     bool ServerSimulation::acceptActorAttacks(BaseActorList& actorList, Cell& serverCell)
     {
+        if (runtimeOwnsActorCell(serverCell))
+            return false;
+
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
 
@@ -2660,6 +2672,29 @@ namespace mwmp
         const auto addPositionCorrection = [&](const BaseActor& actor) {
             acceptNewestPositionActor(correctionActors, correctionActorIndexes, actor);
         };
+
+        if (runtimeOwnsActorCell(serverCell))
+        {
+            for (const BaseActor& actor : actorList.baseActors)
+            {
+                BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);
+                if (currentActor != nullptr && currentActor->hasPositionData)
+                    addPositionCorrection(*currentActor);
+            }
+
+            if (!correctionActors.empty())
+            {
+                BaseActorList correctionList = actorList;
+                correctionList.baseActors = correctionActors;
+                correctionList.count = static_cast<unsigned int>(correctionList.baseActors.size());
+                packet.setActorList(&correctionList);
+                packet.SendWithReliability(actorList.guid, PacketReliability::ReliableOrdered);
+            }
+
+            actorList.baseActors.clear();
+            actorList.count = 0;
+            return false;
+        }
 
         for (const BaseActor& actor : actorList.baseActors)
         {

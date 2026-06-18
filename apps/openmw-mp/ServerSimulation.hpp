@@ -113,6 +113,7 @@ namespace mwmp
 
         static float clampDeltaSeconds(float seconds);
         bool canAuthoritativelySimulateActors() const;
+        bool runtimeOwnsActorCell(const Cell& serverCell) const;
         bool isShadowCellAuthorityCandidate(const ShadowCellAuthorityState& state, PacketGuid guid) const;
         PacketGuid getLowestPingShadowCellAuthority(
             const ShadowCellAuthorityState& state, PacketGuid excludedGuid = unassignedPacketGuid()) const;
