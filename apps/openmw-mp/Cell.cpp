@@ -111,10 +111,75 @@ namespace
             || category == "levelledItem" || category == "static" || category == "activator";
     }
 
+    bool equalsIgnoreCase(std::string_view left, std::string_view right)
+    {
+        if (left.size() != right.size())
+            return false;
+
+        for (std::size_t i = 0; i < left.size(); ++i)
+        {
+            if (std::tolower(static_cast<unsigned char>(left[i]))
+                != std::tolower(static_cast<unsigned char>(right[i])))
+                return false;
+        }
+
+        return true;
+    }
+
     bool hasCoordinateAiDestination(const Cell::ServerWorldReference& reference)
     {
         return reference.baseActorAiAction == mwmp::BaseActorList::TRAVEL
             || reference.baseActorAiAction == mwmp::BaseActorList::ESCORT;
+    }
+
+    bool hasActorAiTarget(const Cell::ServerWorldReference& reference)
+    {
+        return reference.baseActorAiAction == mwmp::BaseActorList::ACTIVATE
+            || reference.baseActorAiAction == mwmp::BaseActorList::COMBAT
+            || reference.baseActorAiAction == mwmp::BaseActorList::ESCORT
+            || reference.baseActorAiAction == mwmp::BaseActorList::FOLLOW;
+    }
+
+    bool targetIdMatchesReference(const mwmp::WorldCellReferenceRecord& candidate, std::string_view targetId)
+    {
+        return equalsIgnoreCase(candidate.refId, targetId) || equalsIgnoreCase(candidate.baseRecordId, targetId);
+    }
+
+    const mwmp::WorldCellReferenceRecord* findClosestActorAiTargetReference(
+        const std::vector<mwmp::WorldCellReferenceRecord>& references, const Cell::ServerWorldReference& reference)
+    {
+        if (reference.baseActorAiTargetId.empty())
+            return nullptr;
+
+        const mwmp::WorldCellReferenceRecord* best = nullptr;
+        float bestDistanceSquared = 0.f;
+        for (const mwmp::WorldCellReferenceRecord& candidate : references)
+        {
+            if (candidate.baseRecordDeleted || candidate.baseRecordAmbiguous || !candidate.baseRecordResolved)
+                continue;
+            if (!isActorBootstrapCategory(candidate.baseRecordCategory))
+                continue;
+            if (candidate.refNumIndex == reference.refNum && candidate.refId == reference.refId)
+                continue;
+            if (!targetIdMatchesReference(candidate, reference.baseActorAiTargetId))
+                continue;
+
+            const float deltaX = candidate.posX - reference.position.pos[0];
+            const float deltaY = candidate.posY - reference.position.pos[1];
+            const float deltaZ = candidate.posZ - reference.position.pos[2];
+            const float distanceSquared = deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
+            if (!std::isfinite(distanceSquared))
+                continue;
+
+            if (best == nullptr || distanceSquared < bestDistanceSquared
+                || (distanceSquared == bestDistanceSquared && candidate.refNumIndex < best->refNumIndex))
+            {
+                best = &candidate;
+                bestDistanceSquared = distanceSquared;
+            }
+        }
+
+        return best;
     }
 
     std::pair<unsigned int, unsigned int> objectKey(const mwmp::BaseObject& object)
@@ -133,7 +198,8 @@ namespace
         return nullptr;
     }
 
-    mwmp::BaseActor buildServerWorldActor(const Cell::ServerWorldReference& reference, const ESM::Cell& cell)
+    mwmp::BaseActor buildServerWorldActor(const Cell::ServerWorldReference& reference, const ESM::Cell& cell,
+        const mwmp::WorldCellReferenceRecord* aiTargetReference)
     {
         mwmp::BaseActor actor;
         actor.refId = reference.refId;
@@ -154,6 +220,14 @@ namespace
             actor.aiDuration = reference.baseActorAiDuration;
             actor.aiShouldRepeat = reference.baseActorAiShouldRepeat;
             actor.aiCoordinates = reference.baseActorAiCoordinates;
+            if (aiTargetReference != nullptr)
+            {
+                actor.hasAiTarget = true;
+                actor.aiTarget.isPlayer = false;
+                actor.aiTarget.refId = aiTargetReference->refId;
+                actor.aiTarget.refNum = aiTargetReference->refNumIndex;
+                actor.aiTarget.mpNum = 0;
+            }
         }
         if (reference.baseActorStatsDynamicImported)
         {
@@ -854,6 +928,16 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorAiPackageListCount;
                 serverWorldBootstrapStats.actorAiPackageItemCount += snapshot.baseActorAiPackageItemCount;
             }
+            const mwmp::WorldCellReferenceRecord* aiTargetReference = nullptr;
+            if (snapshot.baseActorAiAvailable && hasActorAiTarget(snapshot))
+            {
+                ++serverWorldBootstrapStats.actorAiTargetCount;
+                aiTargetReference = findClosestActorAiTargetReference(references, snapshot);
+                if (aiTargetReference != nullptr)
+                    ++serverWorldBootstrapStats.actorAiTargetResolvedCount;
+                else
+                    ++serverWorldBootstrapStats.actorAiTargetUnresolvedCount;
+            }
             if (snapshot.baseActorAiAvailable && hasCoordinateAiDestination(snapshot)
                 && serverWorldPathgridNavigator.hasPathgrid())
             {
@@ -890,7 +974,7 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorEquipmentCount;
                 serverWorldBootstrapStats.actorEquipmentItemCount += snapshot.baseActorEquipmentItemCount;
             }
-            serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell));
+            serverWorldActorList.baseActors.push_back(buildServerWorldActor(snapshot, cell, aiTargetReference));
         }
         else
         {
@@ -919,12 +1003,14 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor AI route plans, %zu reachable actor AI routes, %zu unreachable actor AI routes, %zu actor AI route waypoints, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu usable pathgrid directed edges, %zu pathgrid components, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu primary actor AI packages, %zu actor AI package lists, %zu actor AI package rows, %zu actor AI targets, %zu resolved actor AI targets, %zu unresolved actor AI targets, %zu actor AI route plans, %zu reachable actor AI routes, %zu unreachable actor AI routes, %zu actor AI route waypoints, %zu actor profiles, %zu profile NPCs, %zu profile creatures, %zu autocalc profile NPCs, %zu actor inventories, %zu actor inventory items, %zu actor spellbooks, %zu actor spells, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu pathgrid points, %zu pathgrid edges, %zu usable pathgrid directed edges, %zu pathgrid components, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorAiPackageListCount,
-        serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorAiRoutePlanCount,
-        serverWorldBootstrapStats.actorAiRouteReachableCount, serverWorldBootstrapStats.actorAiRouteUnreachableCount,
-        serverWorldBootstrapStats.actorAiRouteWaypointCount, serverWorldBootstrapStats.actorProfileCount,
+        serverWorldBootstrapStats.actorAiPackageItemCount, serverWorldBootstrapStats.actorAiTargetCount,
+        serverWorldBootstrapStats.actorAiTargetResolvedCount, serverWorldBootstrapStats.actorAiTargetUnresolvedCount,
+        serverWorldBootstrapStats.actorAiRoutePlanCount, serverWorldBootstrapStats.actorAiRouteReachableCount,
+        serverWorldBootstrapStats.actorAiRouteUnreachableCount, serverWorldBootstrapStats.actorAiRouteWaypointCount,
+        serverWorldBootstrapStats.actorProfileCount,
         serverWorldBootstrapStats.actorProfileNpcCount, serverWorldBootstrapStats.actorProfileCreatureCount,
         serverWorldBootstrapStats.actorProfileAutocalcNpcCount, serverWorldBootstrapStats.actorInventoryCount,
         serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorSpellbookCount,

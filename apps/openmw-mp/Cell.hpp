@@ -98,6 +98,9 @@ public:
         std::size_t actorProfileAutocalcNpcCount = 0;
         std::size_t actorAiPackageListCount = 0;
         std::size_t actorAiPackageItemCount = 0;
+        std::size_t actorAiTargetCount = 0;
+        std::size_t actorAiTargetResolvedCount = 0;
+        std::size_t actorAiTargetUnresolvedCount = 0;
         std::size_t actorAiRoutePlanCount = 0;
         std::size_t actorAiRouteReachableCount = 0;
         std::size_t actorAiRouteUnreachableCount = 0;

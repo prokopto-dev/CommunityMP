@@ -2467,6 +2467,12 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiPackageListCount : 0);
         payload += ",\"serverWorldActorAiPackageItemCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiPackageItemCount : 0);
+        payload += ",\"serverWorldActorAiTargetCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiTargetCount : 0);
+        payload += ",\"serverWorldActorAiTargetResolvedCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiTargetResolvedCount : 0);
+        payload += ",\"serverWorldActorAiTargetUnresolvedCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiTargetUnresolvedCount : 0);
         payload += ",\"serverWorldActorAiRoutePlanCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorAiRoutePlanCount : 0);
         payload += ",\"serverWorldActorAiRouteReachableCount\":";
@@ -2579,6 +2585,9 @@ namespace mwmp
         std::size_t serverWorldActorAiReferenceCount = 0;
         std::size_t serverWorldActorAiPackageListCount = 0;
         std::size_t serverWorldActorAiPackageItemCount = 0;
+        std::size_t serverWorldActorAiTargetCount = 0;
+        std::size_t serverWorldActorAiTargetResolvedCount = 0;
+        std::size_t serverWorldActorAiTargetUnresolvedCount = 0;
         std::size_t serverWorldActorAiRoutePlanCount = 0;
         std::size_t serverWorldActorAiRouteReachableCount = 0;
         std::size_t serverWorldActorAiRouteUnreachableCount = 0;
@@ -2638,6 +2647,9 @@ namespace mwmp
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
                 serverWorldActorAiPackageListCount += stats.actorAiPackageListCount;
                 serverWorldActorAiPackageItemCount += stats.actorAiPackageItemCount;
+                serverWorldActorAiTargetCount += stats.actorAiTargetCount;
+                serverWorldActorAiTargetResolvedCount += stats.actorAiTargetResolvedCount;
+                serverWorldActorAiTargetUnresolvedCount += stats.actorAiTargetUnresolvedCount;
                 serverWorldActorAiRoutePlanCount += stats.actorAiRoutePlanCount;
                 serverWorldActorAiRouteReachableCount += stats.actorAiRouteReachableCount;
                 serverWorldActorAiRouteUnreachableCount += stats.actorAiRouteUnreachableCount;
@@ -2729,6 +2741,12 @@ namespace mwmp
         payload += std::to_string(serverWorldActorAiPackageListCount);
         payload += ",\"serverWorldActorAiPackageItemCount\":";
         payload += std::to_string(serverWorldActorAiPackageItemCount);
+        payload += ",\"serverWorldActorAiTargetCount\":";
+        payload += std::to_string(serverWorldActorAiTargetCount);
+        payload += ",\"serverWorldActorAiTargetResolvedCount\":";
+        payload += std::to_string(serverWorldActorAiTargetResolvedCount);
+        payload += ",\"serverWorldActorAiTargetUnresolvedCount\":";
+        payload += std::to_string(serverWorldActorAiTargetUnresolvedCount);
         payload += ",\"serverWorldActorAiRoutePlanCount\":";
         payload += std::to_string(serverWorldActorAiRoutePlanCount);
         payload += ",\"serverWorldActorAiRouteReachableCount\":";
