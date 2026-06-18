@@ -1443,7 +1443,10 @@ namespace mwmp
             refreshShadowCellAuthority(cellDescription, state, "cell authority was missing or stale", preferredGuid);
         }
         else if (!wasVisitor)
+        {
+            applyShadowCellAuthorityToLiveCell(cellDescription, state, true);
             sendShadowCellAuthorityEvent(*player, cellDescription, state);
+        }
     }
 
     void ServerSimulation::noteCellUnloadedByPlayer(unsigned short playerId, std::string cellDescription)
@@ -1621,8 +1624,58 @@ namespace mwmp
 
         state.authority = newAuthority;
         if (authorityChanged)
+        {
+            applyShadowCellAuthorityToLiveCell(cellDescription, state);
             broadcastShadowCellAuthorityEvent(cellDescription, state);
+        }
         return state.authority;
+    }
+
+    bool ServerSimulation::applyShadowCellAuthorityToLiveCell(const std::string& cellDescription,
+        const ShadowCellAuthorityState& state, bool forceBroadcast) const
+    {
+        if (canAuthoritativelySimulateActors() || !mwmp::isPacketGuidAssigned(state.authority))
+            return false;
+
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        if (liveCell == nullptr)
+            return false;
+
+        if (!isShadowCellAuthorityCandidate(state, state.authority))
+            return false;
+
+        const bool authorityChanged = !liveCell->hasAuthority(state.authority);
+        if (!authorityChanged && !forceBroadcast)
+            return false;
+
+        liveCell->setAuthority(state.authority);
+
+        BaseActorList authorityList;
+        authorityList.cell = liveCell->getCellData();
+        authorityList.guid = state.authority;
+        authorityList.baseActors.clear();
+        authorityList.count = 0;
+
+        ServerNetworking* networking = ServerNetworking::getPtr();
+        if (networking == nullptr || networking->getActorPacketController() == nullptr)
+            return false;
+
+        ActorPacket* actorPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_AUTHORITY);
+        if (actorPacket == nullptr)
+            return false;
+
+        actorPacket->setActorList(&authorityList);
+
+        // Mirror the legacy Lua SendActorAuthority broadcast semantics while
+        // the authority decision itself migrates into C++.
+        actorPacket->Send(false);
+        actorPacket->Send(true);
+
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+            "Applied C++ client actor authority of cell %s to %s%s",
+            cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
+            forceBroadcast && !authorityChanged ? " for joining visitor" : "");
+        return true;
     }
 
     void ServerSimulation::sendShadowCellAuthorityEvent(Player& player, const std::string& cellDescription,
