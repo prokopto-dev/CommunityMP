@@ -26,6 +26,7 @@
 #include "MasterClient.hpp"
 #include "CommunityMpClientLuaEventHandler.hpp"
 #include "CommunityMpLuaEventSender.hpp"
+#include "PlayerQuestStateStore.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerSimulation.hpp"
 #include "Cell.hpp"
@@ -548,6 +549,7 @@ void ServerNetworking::disconnectPlayer(PacketGuid guid)
     playerPacketController->GetPacket(ID_USER_DISCONNECTED)->Send(true);
     CommunityMpClientLuaEventHandler::clearPlayer(guid);
     CommunityMpLuaEventSender::clearPlayer(guid);
+    PlayerQuestStateStore::get().clearPlayer(guid);
     Players::deletePlayer(guid);
 }
 

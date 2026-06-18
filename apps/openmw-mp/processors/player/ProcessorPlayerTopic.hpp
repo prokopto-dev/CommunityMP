@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERTOPIC_HPP
 
 #include "../../PlayerPacketDecisionEvent.hpp"
+#include "../../PlayerQuestStateStore.hpp"
 #include "../PlayerProcessor.hpp"
 
 namespace mwmp
@@ -28,6 +29,8 @@ namespace mwmp
                     .authoritativeItemCount = player.topicChanges.size(),
                     .loadSnapshot = player.topicChangesAreLoad,
                 });
+
+            PlayerQuestStateStore::get().applyTopicChanges(player);
 
             ServerEvents::playerEvent("OnPlayerTopic", player.getId());
         }

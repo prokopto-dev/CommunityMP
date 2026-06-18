@@ -16,6 +16,7 @@ local cellActivityByKey = {}
 local runtimeStatus = nil
 local latestMovementCorrection = nil
 local latestPlayerPacketDecisionByPacket = {}
+local latestQuestState = nil
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -42,6 +43,13 @@ local playerPacketDecisionStats = {
     loadSnapshots = 0,
     deltaChanges = 0,
     byPacket = {},
+}
+local questStateStats = {
+    received = 0,
+    loadSnapshots = 0,
+    deltaChanges = 0,
+    lastRevision = 0,
+    bySourcePacket = {},
 }
 
 local function shallowCopy(value)
@@ -84,6 +92,15 @@ local function copyPlayerPacketDecisionStats()
     copy.byPacket = {}
     for packetName, stats in pairs(playerPacketDecisionStats.byPacket) do
         copy.byPacket[packetName] = shallowCopy(stats)
+    end
+    return copy
+end
+
+local function copyQuestStateStats()
+    local copy = shallowCopy(questStateStats)
+    copy.bySourcePacket = {}
+    for sourcePacket, stats in pairs(questStateStats.bySourcePacket) do
+        copy.bySourcePacket[sourcePacket] = shallowCopy(stats)
     end
     return copy
 end
@@ -352,6 +369,45 @@ local function storePlayerPacketDecision(state)
     packetStats.lastReason = type(state.reason) == 'string' and state.reason or ''
 end
 
+local function storeQuestState(state)
+    if type(state) ~= 'table' then
+        return
+    end
+
+    latestQuestState = shallowCopy(state)
+    questStateStats.received = questStateStats.received + 1
+    questStateStats.lastRevision = tonumber(state.revision or questStateStats.lastRevision) or questStateStats.lastRevision
+    if state.loadSnapshot == true then
+        questStateStats.loadSnapshots = questStateStats.loadSnapshots + 1
+    else
+        questStateStats.deltaChanges = questStateStats.deltaChanges + 1
+    end
+
+    local sourcePacket = type(state.sourcePacket) == 'string' and state.sourcePacket or ''
+    if sourcePacket == '' then
+        return
+    end
+
+    local packetStats = questStateStats.bySourcePacket[sourcePacket]
+    if packetStats == nil then
+        packetStats = {
+            received = 0,
+            loadSnapshots = 0,
+            deltaChanges = 0,
+            lastRevision = 0,
+        }
+        questStateStats.bySourcePacket[sourcePacket] = packetStats
+    end
+
+    packetStats.received = packetStats.received + 1
+    packetStats.lastRevision = tonumber(state.revision or packetStats.lastRevision) or packetStats.lastRevision
+    if state.loadSnapshot == true then
+        packetStats.loadSnapshots = packetStats.loadSnapshots + 1
+    else
+        packetStats.deltaChanges = packetStats.deltaChanges + 1
+    end
+end
+
 local function getRuntimeStatus()
     if runtimeStatus == nil then
         return nil
@@ -429,6 +485,8 @@ local function dispatchServerEvent(event)
         storeMovementCorrection(event.decodedPayload)
     elseif event.serverEventName == 'player_packet_decision' and type(event.decodedPayload) == 'table' then
         storePlayerPacketDecision(event.decodedPayload)
+    elseif event.serverEventName == 'quest_state' and type(event.decodedPayload) == 'table' then
+        storeQuestState(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -470,6 +528,13 @@ return {
             return shallowCopy(state)
         end,
         getPlayerPacketDecisionStats = copyPlayerPacketDecisionStats,
+        getQuestReadState = function()
+            if latestQuestState == nil then
+                return nil
+            end
+            return shallowCopy(latestQuestState)
+        end,
+        getQuestStateStats = copyQuestStateStats,
         getRuntimeStatus = getRuntimeStatus,
         getRuntimeCapabilities = function()
             local state = getRuntimeStatus()

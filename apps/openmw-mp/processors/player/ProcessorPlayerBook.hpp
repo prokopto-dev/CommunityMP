@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERBOOK_HPP
 
 #include "../../PlayerPacketDecisionEvent.hpp"
+#include "../../PlayerQuestStateStore.hpp"
 #include "../PlayerProcessor.hpp"
 
 namespace mwmp
@@ -28,6 +29,8 @@ namespace mwmp
                     .authoritativeItemCount = player.bookChanges.size(),
                     .loadSnapshot = player.bookChangesAreLoad,
                 });
+
+            PlayerQuestStateStore::get().applyBookChanges(player);
 
             ServerEvents::playerEvent("OnPlayerBook", player.getId());
         }

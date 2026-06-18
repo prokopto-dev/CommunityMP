@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORPLAYERJOURNAL_HPP
 
 #include "../../PlayerPacketDecisionEvent.hpp"
+#include "../../PlayerQuestStateStore.hpp"
 #include "../PlayerProcessor.hpp"
 
 namespace mwmp
@@ -28,6 +29,8 @@ namespace mwmp
                     .authoritativeItemCount = player.journalChanges.size(),
                     .loadSnapshot = player.journalChangesAreLoad,
                 });
+
+            PlayerQuestStateStore::get().applyJournalChanges(player);
 
             ServerEvents::playerEvent("OnPlayerJournal", player.getId());
         }

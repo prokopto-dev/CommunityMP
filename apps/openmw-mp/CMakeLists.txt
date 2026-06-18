@@ -43,6 +43,7 @@ set(SERVER_CORE
     CommunityMpClientLuaEventHandler.cpp
     CommunityMpLuaEventSender.cpp
     PlayerPacketDecisionEvent.cpp
+    PlayerQuestStateStore.cpp
     ServerEventDispatcher.cpp
     SimulationRuntime.cpp
     ServerNetworking.cpp
@@ -82,6 +83,7 @@ set(SERVER_HEADER
         CommunityMpClientLuaEventHandler.hpp
         CommunityMpLuaEventSender.hpp
         PlayerPacketDecisionEvent.hpp
+        PlayerQuestStateStore.hpp
         ServerEventDispatcher.hpp
         SimulationRuntime.hpp
         ServerSimulation.hpp
