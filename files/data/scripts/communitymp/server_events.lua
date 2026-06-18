@@ -51,6 +51,7 @@ local questStateStats = {
     truncatedDeltas = 0,
     lastRevision = 0,
     knownQuestDefinitions = 0,
+    knownQuestSteps = 0,
     unknownJournalQuests = 0,
     questDatabaseLoaded = false,
     bySourcePacket = {},
@@ -397,6 +398,7 @@ local function storeQuestState(state)
     questStateStats.received = questStateStats.received + 1
     questStateStats.lastRevision = tonumber(state.revision or questStateStats.lastRevision) or questStateStats.lastRevision
     questStateStats.knownQuestDefinitions = tonumber(state.knownQuestDefinitionCount or 0) or 0
+    questStateStats.knownQuestSteps = tonumber(state.knownQuestStepCount or 0) or 0
     questStateStats.unknownJournalQuests = tonumber(state.unknownJournalQuestCount or 0) or 0
     questStateStats.questDatabaseLoaded = state.questDatabaseLoaded == true
     if state.loadSnapshot == true then
@@ -422,6 +424,7 @@ local function storeQuestState(state)
             truncatedDeltas = 0,
             lastRevision = 0,
             knownQuestDefinitions = 0,
+            knownQuestSteps = 0,
             unknownJournalQuests = 0,
             questDatabaseLoaded = false,
         }
@@ -431,6 +434,7 @@ local function storeQuestState(state)
     packetStats.received = packetStats.received + 1
     packetStats.lastRevision = tonumber(state.revision or packetStats.lastRevision) or packetStats.lastRevision
     packetStats.knownQuestDefinitions = tonumber(state.knownQuestDefinitionCount or 0) or 0
+    packetStats.knownQuestSteps = tonumber(state.knownQuestStepCount or 0) or 0
     packetStats.unknownJournalQuests = tonumber(state.unknownJournalQuestCount or 0) or 0
     packetStats.questDatabaseLoaded = state.questDatabaseLoaded == true
     if state.loadSnapshot == true then

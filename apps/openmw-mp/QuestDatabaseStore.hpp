@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace mwmp
 {
@@ -42,6 +43,20 @@ namespace mwmp
         bool deleted = false;
     };
 
+    struct QuestStepRecord
+    {
+        std::string stepId;
+        std::string questId;
+        std::string sourceQuestId;
+        std::string sourceInfoId;
+        std::string packageId;
+        std::string status;
+        std::string text;
+        std::string completionPolicy;
+        int index = 0;
+        bool deleted = false;
+    };
+
     class QuestDatabaseStore
     {
     public:
@@ -52,6 +67,9 @@ namespace mwmp
         QuestDatabaseStatistics statistics() const;
         std::optional<QuestDefinitionRecord> findQuestById(std::string_view questId) const;
         std::optional<QuestDefinitionRecord> findQuestBySourceQuestId(std::string_view sourceQuestId) const;
+        std::optional<QuestStepRecord> findQuestStepByQuestIdAndIndex(std::string_view questId, int index) const;
+        std::optional<QuestStepRecord> findQuestStepBySourceQuestIdAndIndex(
+            std::string_view sourceQuestId, int index) const;
 
     private:
         QuestDatabaseStore() = default;
@@ -63,6 +81,7 @@ namespace mwmp
         QuestDatabaseStatistics mStats;
         std::map<std::string, QuestDefinitionRecord> mQuestDefinitionsById;
         std::map<std::string, std::string> mQuestIdBySourceQuestId;
+        std::map<std::pair<std::string, int>, QuestStepRecord> mQuestStepsByQuestIdAndIndex;
     };
 }
 

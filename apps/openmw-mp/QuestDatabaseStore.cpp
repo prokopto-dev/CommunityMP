@@ -198,6 +198,11 @@ namespace
         return row.get<std::string>(std::string(key), "");
     }
 
+    int getInt(const boost::property_tree::ptree& row, std::string_view key, int fallback = 0)
+    {
+        return row.get<int>(std::string(key), fallback);
+    }
+
     std::string normalizedQuestLookupKey(std::string_view value)
     {
         std::string result(value);
@@ -249,6 +254,7 @@ namespace mwmp
         mStats.rootPath = root;
         mQuestDefinitionsById.clear();
         mQuestIdBySourceQuestId.clear();
+        mQuestStepsByQuestIdAndIndex.clear();
 
         try
         {
@@ -290,13 +296,29 @@ namespace mwmp
 
                 mStats.questStepCount += readJsonlTable(packageDir, "quest_steps.jsonl",
                     [&](const boost::property_tree::ptree& row) {
-                        const std::string questId = getString(row, "questId");
-                        if (questId.empty())
+                        QuestStepRecord step;
+                        step.stepId = getString(row, "stepId");
+                        step.questId = getString(row, "questId");
+                        if (step.questId.empty())
                             return;
 
-                        auto quest = mQuestDefinitionsById.find(questId);
+                        auto quest = mQuestDefinitionsById.find(step.questId);
                         if (quest != mQuestDefinitionsById.end())
+                        {
                             ++quest->second.stepCount;
+                            step.sourceQuestId = quest->second.sourceQuestId;
+                        }
+
+                        step.packageId = getString(row, "packageId");
+                        step.sourceInfoId = getString(row, "sourceInfoId");
+                        step.status = getString(row, "status");
+                        step.text = getString(row, "text");
+                        step.completionPolicy = getString(row, "completionPolicy");
+                        step.index = getInt(row, "index");
+                        step.deleted = getBool(row, "deleted");
+
+                        if (!step.stepId.empty() && !step.deleted)
+                            mQuestStepsByQuestIdAndIndex[{ step.questId, step.index }] = std::move(step);
                     });
 
                 mStats.dialogueTopicCount += readJsonlTable(packageDir, "dialogue_topics.jsonl", [](const auto&) {});
@@ -318,6 +340,7 @@ namespace mwmp
             mStats.lastError = e.what();
             mQuestDefinitionsById.clear();
             mQuestIdBySourceQuestId.clear();
+            mQuestStepsByQuestIdAndIndex.clear();
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                 "CommunityMP quest database unavailable root=%s error=%s",
                 pathToLogString(root).c_str(), mStats.lastError.c_str());
@@ -355,5 +378,33 @@ namespace mwmp
             return std::nullopt;
 
         return questIt->second;
+    }
+
+    std::optional<QuestStepRecord> QuestDatabaseStore::findQuestStepByQuestIdAndIndex(
+        std::string_view questId, int index) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mQuestStepsByQuestIdAndIndex.find({ std::string(questId), index });
+        if (it == mQuestStepsByQuestIdAndIndex.end())
+            return std::nullopt;
+
+        return it->second;
+    }
+
+    std::optional<QuestStepRecord> QuestDatabaseStore::findQuestStepBySourceQuestIdAndIndex(
+        std::string_view sourceQuestId, int index) const
+    {
+        std::lock_guard lock(mMutex);
+        auto sourceIt = mQuestIdBySourceQuestId.find(std::string(sourceQuestId));
+        if (sourceIt == mQuestIdBySourceQuestId.end())
+            sourceIt = mQuestIdBySourceQuestId.find(normalizedQuestLookupKey(sourceQuestId));
+        if (sourceIt == mQuestIdBySourceQuestId.end())
+            return std::nullopt;
+
+        const auto stepIt = mQuestStepsByQuestIdAndIndex.find({ sourceIt->second, index });
+        if (stepIt == mQuestStepsByQuestIdAndIndex.end())
+            return std::nullopt;
+
+        return stepIt->second;
     }
 }

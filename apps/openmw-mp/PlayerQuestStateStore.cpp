@@ -26,10 +26,16 @@ namespace
         std::string questScopePolicy;
         std::string questSharingPolicy;
         std::string questInstancingPolicy;
+        std::string currentQuestStepId;
+        std::string currentQuestStepStatus;
+        std::string currentQuestStepCompletionPolicy;
+        std::string currentQuestStepSourceInfoId;
         std::size_t questStepCount = 0;
+        int currentQuestStepIndex = 0;
         int highestIndex = 0;
         std::size_t entryCount = 0;
         bool knownQuestDefinition = false;
+        bool knownQuestStep = false;
         bool hasIndex = false;
         bool isFinished = false;
         bool hasFinishedState = false;
@@ -135,6 +141,22 @@ namespace
         }
     }
 
+    void applyQuestStep(JournalProgress& progress, const mwmp::QuestStepRecord& step)
+    {
+        progress.currentQuestStepId = step.stepId;
+        progress.currentQuestStepStatus = step.status;
+        progress.currentQuestStepCompletionPolicy = step.completionPolicy;
+        progress.currentQuestStepSourceInfoId = step.sourceInfoId;
+        progress.currentQuestStepIndex = step.index;
+        progress.knownQuestStep = true;
+    }
+
+    std::optional<mwmp::QuestStepRecord> findQuestStep(std::string_view sourceQuestId, int index)
+    {
+        mwmp::QuestDatabaseStore::get().ensureLoaded();
+        return mwmp::QuestDatabaseStore::get().findQuestStepBySourceQuestIdAndIndex(sourceQuestId, index);
+    }
+
     void appendQuestDefinitionFields(std::string& payload, const JournalProgress& progress)
     {
         payload += ",\"knownQuestDefinition\":";
@@ -155,11 +177,35 @@ namespace
         appendJsonString(payload, progress.questInstancingPolicy);
     }
 
+    void appendQuestStepFields(std::string& payload, const JournalProgress& progress)
+    {
+        payload += ",\"knownQuestStep\":";
+        payload += jsonBool(progress.knownQuestStep);
+        payload += ",\"questStepId\":";
+        appendJsonString(payload, progress.currentQuestStepId);
+        payload += ",\"questStepIndex\":";
+        payload += std::to_string(progress.currentQuestStepIndex);
+        payload += ",\"questStepStatus\":";
+        appendJsonString(payload, progress.currentQuestStepStatus);
+        payload += ",\"questStepCompletionPolicy\":";
+        appendJsonString(payload, progress.currentQuestStepCompletionPolicy);
+        payload += ",\"questStepSourceInfoId\":";
+        appendJsonString(payload, progress.currentQuestStepSourceInfoId);
+    }
+
     void appendQuestDefinitionFields(std::string& payload, const mwmp::JournalItem& item)
     {
         JournalProgress resolved;
         applyQuestDefinitionIfKnown(resolved, item.quest);
         appendQuestDefinitionFields(payload, resolved);
+    }
+
+    void appendQuestStepFields(std::string& payload, const mwmp::JournalItem& item)
+    {
+        JournalProgress resolved;
+        if (std::optional<mwmp::QuestStepRecord> step = findQuestStep(item.quest, item.index))
+            applyQuestStep(resolved, *step);
+        appendQuestStepFields(payload, resolved);
     }
 
     void appendJournalProgressSummary(std::string& payload, const PlayerQuestReadState& state)
@@ -187,6 +233,7 @@ namespace
             payload += ",\"hasFinishedState\":";
             payload += jsonBool(progress.hasFinishedState);
             appendQuestDefinitionFields(payload, progress);
+            appendQuestStepFields(payload, progress);
             payload += "}";
             ++index;
         }
@@ -214,6 +261,7 @@ namespace
             payload += ",\"finished\":";
             payload += jsonBool(item.isFinished);
             appendQuestDefinitionFields(payload, item);
+            appendQuestStepFields(payload, item);
             payload += "}";
         }
         payload.push_back(']');
@@ -255,11 +303,14 @@ namespace
 
         const mwmp::QuestDatabaseStatistics questDatabase = mwmp::QuestDatabaseStore::get().statistics();
         std::size_t knownQuestDefinitionCount = 0;
+        std::size_t knownQuestStepCount = 0;
         for (const auto& [sourceQuestId, progress] : state.journal)
         {
             static_cast<void>(sourceQuestId);
             if (progress.knownQuestDefinition)
                 ++knownQuestDefinitionCount;
+            if (progress.knownQuestStep)
+                ++knownQuestStepCount;
         }
 
         std::string payload;
@@ -285,6 +336,8 @@ namespace
         payload += std::to_string(knownQuestDefinitionCount);
         payload += ",\"unknownJournalQuestCount\":";
         payload += std::to_string(state.journal.size() - knownQuestDefinitionCount);
+        payload += ",\"knownQuestStepCount\":";
+        payload += std::to_string(knownQuestStepCount);
         payload += ",\"knownTopicCount\":";
         payload += std::to_string(state.topics.size());
         payload += ",\"readBookCount\":";
@@ -350,10 +403,17 @@ namespace mwmp
                 applyQuestDefinitionIfKnown(progress, item.quest);
                 if (item.type == JournalItem::ENTRY || item.type == JournalItem::INDEX)
                 {
+                    const bool advancesCurrentStep = !progress.hasIndex || item.index >= progress.highestIndex;
                     progress.highestIndex = progress.hasIndex
                         ? std::max(progress.highestIndex, item.index)
                         : item.index;
                     progress.hasIndex = true;
+
+                    if (advancesCurrentStep)
+                    {
+                        if (std::optional<QuestStepRecord> step = findQuestStep(item.quest, item.index))
+                            applyQuestStep(progress, *step);
+                    }
                 }
 
                 if (item.type == JournalItem::ENTRY)
