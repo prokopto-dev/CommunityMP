@@ -294,22 +294,36 @@ namespace
         return savesPath.parent_path() / "manifest.json";
     }
 
-    bool serverWorldManifestMatches(const std::filesystem::path& manifestPath,
+    struct ServerWorldManifest
+    {
+        bool exists = false;
+        bool matches = true;
+        std::filesystem::path savePath;
+    };
+
+    ServerWorldManifest readServerWorldManifest(const std::filesystem::path& manifestPath,
         std::string_view contentPlanFingerprint, std::string_view worldDatabaseFingerprint)
     {
+        ServerWorldManifest result;
         if (manifestPath.empty() || !std::filesystem::is_regular_file(manifestPath))
-            return true;
+            return result;
 
         const std::string manifest = readWholeFile(manifestPath);
         if (manifest.empty())
-            return true;
+            return result;
 
+        result.exists = true;
         const std::string savedContentPlanFingerprint = readFlatJsonStringField(manifest, "contentPlanFingerprint");
         const std::string savedWorldDatabaseFingerprint
             = readFlatJsonStringField(manifest, "worldDatabaseFingerprint");
+        const std::string savePath = readFlatJsonStringField(manifest, "savePath");
 
-        return (contentPlanFingerprint.empty() || savedContentPlanFingerprint == contentPlanFingerprint)
+        result.matches = (contentPlanFingerprint.empty() || savedContentPlanFingerprint == contentPlanFingerprint)
             && (worldDatabaseFingerprint.empty() || savedWorldDatabaseFingerprint == worldDatabaseFingerprint);
+        if (!savePath.empty())
+            result.savePath = Files::pathFromUnicodeString(savePath);
+
+        return result;
     }
 
     void writeServerWorldManifestIfChanged(const std::filesystem::path& manifestPath,
@@ -1301,24 +1315,38 @@ void OMW::Engine::prepareServerSimulation()
     {
         const MWState::Character* character = nullptr;
         const MWState::Slot* slot = findMostRecentSaveSlot(*mStateManager, character);
-        const bool manifestMatches = serverWorldManifestMatches(manifestPath,
+        const ServerWorldManifest manifest = readServerWorldManifest(manifestPath,
             mServerSimulationContentPlanFingerprint, mServerSimulationWorldDatabaseFingerprint);
-        if (slot != nullptr && manifestMatches)
+        if (manifest.exists && manifest.matches && !manifest.savePath.empty()
+            && std::filesystem::is_regular_file(manifest.savePath))
         {
-            Log(Debug::Info) << "Loading server OpenMW world save " << slot->mPath;
+            Log(Debug::Info) << "Loading manifest-pinned server OpenMW world save " << manifest.savePath;
+            serverWorldSavePath = manifest.savePath;
+            mStateManager->loadGame(manifest.savePath);
+        }
+        else if (manifest.exists && manifest.matches && !manifest.savePath.empty())
+            Log(Debug::Warning)
+                << "Server OpenMW world manifest save is missing; initializing a fresh world: " << manifest.savePath;
+        else if (!manifest.exists && slot != nullptr)
+        {
+            Log(Debug::Info) << "Loading legacy server OpenMW world save " << slot->mPath;
             serverWorldSavePath = slot->mPath;
             mStateManager->loadGame(character, slot->mPath);
         }
-        else if (slot != nullptr)
+        else if (manifest.exists && !manifest.matches)
             Log(Debug::Warning)
                 << "Server OpenMW world save manifest does not match current content database; initializing a fresh world";
 
         if (mStateManager->getState() != MWState::StateManager::State_Running)
         {
-            if (slot != nullptr && manifestMatches)
+            if (manifest.exists && manifest.matches && !manifest.savePath.empty()
+                && std::filesystem::is_regular_file(manifest.savePath))
                 Log(Debug::Warning) << "Server OpenMW world save did not reach running state; initializing a fresh world";
-            else if (slot == nullptr)
+            else if (!manifest.exists && slot == nullptr)
                 Log(Debug::Info) << "Initializing new server OpenMW world in " << mServerSimulationSavesPath;
+            else if (manifest.exists && manifest.matches && manifest.savePath.empty())
+                Log(Debug::Warning)
+                    << "Server OpenMW world manifest has no save path; initializing a fresh world";
 
             mStateManager->newGame(true);
 
