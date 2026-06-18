@@ -15,6 +15,7 @@ local cellActivityByDescription = {}
 local cellActivityByKey = {}
 local runtimeStatus = nil
 local latestMovementCorrection = nil
+local latestPlayerPacketDecisionByPacket = {}
 local serverEventStats = {
     received = 0,
     dispatched = 0,
@@ -32,6 +33,13 @@ local movementCorrectionStats = {
     nonFinitePositions = 0,
     implausibleMovements = 0,
     lastReason = nil,
+}
+local playerPacketDecisionStats = {
+    received = 0,
+    accepted = 0,
+    rejected = 0,
+    corrected = 0,
+    byPacket = {},
 }
 
 local function shallowCopy(value)
@@ -67,6 +75,15 @@ end
 
 local function movementCorrectionStatsSnapshot()
     return shallowCopy(movementCorrectionStats)
+end
+
+local function copyPlayerPacketDecisionStats()
+    local copy = shallowCopy(playerPacketDecisionStats)
+    copy.byPacket = {}
+    for packetName, stats in pairs(playerPacketDecisionStats.byPacket) do
+        copy.byPacket[packetName] = shallowCopy(stats)
+    end
+    return copy
 end
 
 local function updateSequenceStats(event)
@@ -274,6 +291,53 @@ local function storeMovementCorrection(state)
     end
 end
 
+local function storePlayerPacketDecision(state)
+    if type(state) ~= 'table' then
+        return
+    end
+
+    local packetName = type(state.packet) == 'string' and state.packet or ''
+    if packetName == '' then
+        return
+    end
+
+    local copy = shallowCopy(state)
+    latestPlayerPacketDecisionByPacket[packetName] = copy
+
+    playerPacketDecisionStats.received = playerPacketDecisionStats.received + 1
+    if state.accepted == true then
+        playerPacketDecisionStats.accepted = playerPacketDecisionStats.accepted + 1
+    else
+        playerPacketDecisionStats.rejected = playerPacketDecisionStats.rejected + 1
+    end
+    if state.corrected == true then
+        playerPacketDecisionStats.corrected = playerPacketDecisionStats.corrected + 1
+    end
+
+    local packetStats = playerPacketDecisionStats.byPacket[packetName]
+    if packetStats == nil then
+        packetStats = {
+            received = 0,
+            accepted = 0,
+            rejected = 0,
+            corrected = 0,
+            lastReason = nil,
+        }
+        playerPacketDecisionStats.byPacket[packetName] = packetStats
+    end
+
+    packetStats.received = packetStats.received + 1
+    if state.accepted == true then
+        packetStats.accepted = packetStats.accepted + 1
+    else
+        packetStats.rejected = packetStats.rejected + 1
+    end
+    if state.corrected == true then
+        packetStats.corrected = packetStats.corrected + 1
+    end
+    packetStats.lastReason = type(state.reason) == 'string' and state.reason or ''
+end
+
 local function getRuntimeStatus()
     if runtimeStatus == nil then
         return nil
@@ -349,6 +413,8 @@ local function dispatchServerEvent(event)
         storeRuntimeStatus(event.decodedPayload)
     elseif event.serverEventName == 'movement_correction' and type(event.decodedPayload) == 'table' then
         storeMovementCorrection(event.decodedPayload)
+    elseif event.serverEventName == 'player_packet_decision' and type(event.decodedPayload) == 'table' then
+        storePlayerPacketDecision(event.decodedPayload)
     end
 
     local stop = auxUtil.callEventHandlers(serverEventHandlersByName[event.serverEventName], event)
@@ -378,6 +444,18 @@ return {
             return copyMovementCorrection(latestMovementCorrection)
         end,
         getMovementCorrectionStats = movementCorrectionStatsSnapshot,
+        getLastPlayerPacketDecision = function(packetName)
+            if type(packetName) ~= 'string' or packetName == '' then
+                return nil
+            end
+
+            local state = latestPlayerPacketDecisionByPacket[packetName]
+            if state == nil then
+                return nil
+            end
+            return shallowCopy(state)
+        end,
+        getPlayerPacketDecisionStats = copyPlayerPacketDecisionStats,
         getRuntimeStatus = getRuntimeStatus,
         getRuntimeCapabilities = function()
             local state = getRuntimeStatus()

@@ -42,6 +42,7 @@ set(SERVER_CORE
     Player.cpp
     CommunityMpClientLuaEventHandler.cpp
     CommunityMpLuaEventSender.cpp
+    PlayerPacketDecisionEvent.cpp
     ServerEventDispatcher.cpp
     SimulationRuntime.cpp
     ServerNetworking.cpp
@@ -80,6 +81,7 @@ set(SERVER_HEADER
         ConsoleInput.hpp
         CommunityMpClientLuaEventHandler.hpp
         CommunityMpLuaEventSender.hpp
+        PlayerPacketDecisionEvent.hpp
         ServerEventDispatcher.hpp
         SimulationRuntime.hpp
         ServerSimulation.hpp
