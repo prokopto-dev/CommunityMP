@@ -106,6 +106,12 @@ namespace
         return coalescedActors;
     }
 
+    void acceptServerActorAuthorityIfNeeded(mwmp::Cell& cell, const mwmp::ActorList& actorList)
+    {
+        if (!mwmp::isPacketGuidAssigned(actorList.guid))
+            cell.setServerActorAuthority(true);
+    }
+
     bool applySequencedPosition(DedicatedActor& actor, const BaseActor& baseActor)
     {
         if (!baseActor.hasPositionData)
@@ -396,11 +402,10 @@ void Cell::updateDedicated(float dt)
 
 void Cell::readPositions(ActorList& actorList)
 {
+    acceptServerActorAuthorityIfNeeded(*this, actorList);
+
     if (hasLocalAuthority())
         return;
-
-    if (!mwmp::isPacketGuidAssigned(actorList.guid))
-        setServerActorAuthority(true);
 
     ActorList latestActorList = actorList;
     latestActorList.baseActors = coalesceNewestPositionActors(actorList.baseActors);
@@ -951,6 +956,8 @@ void Cell::initializeDedicatedActor(const MWWorld::Ptr& ptr)
 
 void Cell::initializeDedicatedActors(ActorList& actorList)
 {
+    acceptServerActorAuthorityIfNeeded(*this, actorList);
+
     for (const auto &baseActor : actorList.baseActors)
     {
         std::string mapIndex = Main::get().getCellController()->generateMapIndex(baseActor);
