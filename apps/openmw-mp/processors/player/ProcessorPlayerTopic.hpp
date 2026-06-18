@@ -1,6 +1,7 @@
 #ifndef OPENMW_PROCESSORPLAYERTOPIC_HPP
 #define OPENMW_PROCESSORPLAYERTOPIC_HPP
 
+#include "../../PlayerPacketDecisionEvent.hpp"
 #include "../PlayerProcessor.hpp"
 
 namespace mwmp
@@ -16,6 +17,17 @@ namespace mwmp
         void Do(PlayerPacket &packet, Player &player) override
         {
             DEBUG_PRINTF(strPacketID.c_str());
+
+            sendPlayerPacketDecisionEvent(player,
+                PlayerPacketDecisionEvent{
+                    .packetName = "topic",
+                    .reason = "accepted",
+                    .accepted = true,
+                    .corrected = false,
+                    .attemptedItemCount = player.topicChanges.size(),
+                    .authoritativeItemCount = player.topicChanges.size(),
+                    .loadSnapshot = player.topicChangesAreLoad,
+                });
 
             ServerEvents::playerEvent("OnPlayerTopic", player.getId());
         }

@@ -39,6 +39,8 @@ local playerPacketDecisionStats = {
     accepted = 0,
     rejected = 0,
     corrected = 0,
+    loadSnapshots = 0,
+    deltaChanges = 0,
     byPacket = {},
 }
 
@@ -313,6 +315,11 @@ local function storePlayerPacketDecision(state)
     if state.corrected == true then
         playerPacketDecisionStats.corrected = playerPacketDecisionStats.corrected + 1
     end
+    if state.loadSnapshot == true then
+        playerPacketDecisionStats.loadSnapshots = playerPacketDecisionStats.loadSnapshots + 1
+    else
+        playerPacketDecisionStats.deltaChanges = playerPacketDecisionStats.deltaChanges + 1
+    end
 
     local packetStats = playerPacketDecisionStats.byPacket[packetName]
     if packetStats == nil then
@@ -321,6 +328,8 @@ local function storePlayerPacketDecision(state)
             accepted = 0,
             rejected = 0,
             corrected = 0,
+            loadSnapshots = 0,
+            deltaChanges = 0,
             lastReason = nil,
         }
         playerPacketDecisionStats.byPacket[packetName] = packetStats
@@ -334,6 +343,11 @@ local function storePlayerPacketDecision(state)
     end
     if state.corrected == true then
         packetStats.corrected = packetStats.corrected + 1
+    end
+    if state.loadSnapshot == true then
+        packetStats.loadSnapshots = packetStats.loadSnapshots + 1
+    else
+        packetStats.deltaChanges = packetStats.deltaChanges + 1
     end
     packetStats.lastReason = type(state.reason) == 'string' and state.reason or ''
 end

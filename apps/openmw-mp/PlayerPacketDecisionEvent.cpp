@@ -99,6 +99,8 @@ namespace mwmp
         payload += std::to_string(event.authoritativeChangedSlotCount);
         payload += ",\"exchangeFullInfo\":";
         payload += jsonBool(event.exchangeFullInfo);
+        payload += ",\"loadSnapshot\":";
+        payload += jsonBool(event.loadSnapshot);
         payload += "}";
 
         if (!CommunityMpLuaEventSender::sendToPlayer(

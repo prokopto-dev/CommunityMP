@@ -25,6 +25,7 @@ namespace mwmp
         std::size_t attemptedChangedSlotCount = 0;
         std::size_t authoritativeChangedSlotCount = 0;
         bool exchangeFullInfo = false;
+        bool loadSnapshot = false;
     };
 
     void sendPlayerPacketDecisionEvent(::Player& player, const PlayerPacketDecisionEvent& event);
