@@ -162,6 +162,11 @@ namespace
         return {};
     }
 
+    mwmp::SimulationRuntimeTopology packetMirrorTopology()
+    {
+        return {};
+    }
+
     mwmp::SimulationRuntimeFactory& simulationRuntimeFactory()
     {
         static mwmp::SimulationRuntimeFactory factory = nullptr;
@@ -204,6 +209,7 @@ namespace mwmp
         : mRequestedKind(requestedKind)
         , mActiveKind(SimulationRuntimeKind::PacketMirror)
         , mCapabilities(packetMirrorCapabilities())
+        , mTopology(packetMirrorTopology())
     {
         // The unified executable links the OpenMW client core, but dedicated
         // server mode does not yet construct a headless OMW::Engine. Until it
@@ -212,9 +218,16 @@ namespace mwmp
 
     SimulationRuntime::SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
         SimulationRuntimeCapabilities capabilities)
+        : SimulationRuntime(requestedKind, activeKind, capabilities, packetMirrorTopology())
+    {
+    }
+
+    SimulationRuntime::SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+        SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology)
         : mRequestedKind(requestedKind)
         , mActiveKind(activeKind)
         , mCapabilities(capabilities)
+        , mTopology(topology)
     {
     }
 
@@ -233,14 +246,24 @@ namespace mwmp
         return mCapabilities;
     }
 
+    const SimulationRuntimeTopology& SimulationRuntime::topology() const
+    {
+        return mTopology;
+    }
+
     bool SimulationRuntime::hasOpenMwWorld() const
     {
         return mCapabilities.ownsWorldState && mCapabilities.resolvesCells;
     }
 
+    bool SimulationRuntime::hasHeadlessOpenMwEngine() const
+    {
+        return mTopology.hasHeadlessOpenMwEngine;
+    }
+
     bool SimulationRuntime::canSimulateActors() const
     {
-        return mCapabilities.runsActorAi && mCapabilities.ownsActorMovement;
+        return hasHeadlessOpenMwEngine() && mCapabilities.runsActorAi && mCapabilities.ownsActorMovement;
     }
 
     bool SimulationRuntime::canOwnActorAuthority() const

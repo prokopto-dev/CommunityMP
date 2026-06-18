@@ -512,7 +512,9 @@ namespace
     {
     public:
         UnifiedOpenMwSimulationRuntime()
-            : mwmp::SimulationRuntime(mwmp::SimulationRuntimeKind::OpenMwHeadless)
+            : mwmp::SimulationRuntime(mwmp::SimulationRuntimeKind::OpenMwHeadless,
+                mwmp::SimulationRuntimeKind::PacketMirror, mwmp::SimulationRuntimeCapabilities{},
+                mwmp::SimulationRuntimeTopology{ true, true, false, false, false })
         {
         }
     };

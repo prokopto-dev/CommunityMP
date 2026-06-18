@@ -45,6 +45,15 @@ namespace mwmp
         bool ownsActorCombat = false;
     };
 
+    struct SimulationRuntimeTopology
+    {
+        bool unifiedExecutable = false;
+        bool linksOpenMwCore = false;
+        bool hasHeadlessOpenMwEngine = false;
+        bool runsOpenMwLua = false;
+        bool rendererClientProtocol = false;
+    };
+
     class SimulationRuntime
     {
     public:
@@ -52,13 +61,17 @@ namespace mwmp
         explicit SimulationRuntime(SimulationRuntimeKind requestedKind);
         SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
             SimulationRuntimeCapabilities capabilities);
+        SimulationRuntime(SimulationRuntimeKind requestedKind, SimulationRuntimeKind activeKind,
+            SimulationRuntimeCapabilities capabilities, SimulationRuntimeTopology topology);
         virtual ~SimulationRuntime() = default;
 
         virtual SimulationRuntimeKind requestedKind() const;
         virtual SimulationRuntimeKind activeKind() const;
         virtual const SimulationRuntimeCapabilities& capabilities() const;
+        virtual const SimulationRuntimeTopology& topology() const;
 
         virtual bool hasOpenMwWorld() const;
+        virtual bool hasHeadlessOpenMwEngine() const;
         virtual bool canSimulateActors() const;
         virtual bool canOwnActorAuthority() const;
 
@@ -73,6 +86,7 @@ namespace mwmp
         SimulationRuntimeKind mRequestedKind;
         SimulationRuntimeKind mActiveKind;
         SimulationRuntimeCapabilities mCapabilities;
+        SimulationRuntimeTopology mTopology;
     };
 
     using SimulationRuntimeFactory = std::unique_ptr<SimulationRuntime> (*)();

@@ -143,6 +143,28 @@ namespace
         return value ? "true" : "false";
     }
 
+    std::string runtimeAuthorityBlockReason(const mwmp::SimulationRuntime& runtime)
+    {
+        const mwmp::SimulationRuntimeTopology& topology = runtime.topology();
+        const mwmp::SimulationRuntimeCapabilities& capabilities = runtime.capabilities();
+
+        if (runtime.canOwnActorAuthority())
+            return {};
+
+        if (!topology.hasHeadlessOpenMwEngine)
+            return "headless-openmw-engine-missing";
+        if (!capabilities.ownsWorldState || !capabilities.resolvesCells)
+            return "openmw-world-state-not-owned";
+        if (!capabilities.runsScripts)
+            return "openmw-scripts-not-running";
+        if (!capabilities.runsActorAi || !capabilities.ownsActorMovement)
+            return "openmw-actor-ai-not-owned";
+        if (!capabilities.ownsActorCombat)
+            return "openmw-actor-combat-not-owned";
+
+        return "unknown";
+    }
+
     void appendJsonFloat(std::string& result, float value)
     {
         if (std::isfinite(value))
@@ -1491,8 +1513,10 @@ namespace mwmp
         QuestEventJournalStore::get().ensureOpened();
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-            "Server simulation runtime requested=%s active=%s openmwWorld=%s actorAuthority=%s",
-            mRuntime->requestedName(), mRuntime->activeName(), mRuntime->hasOpenMwWorld() ? "yes" : "no",
+            "Server simulation runtime requested=%s active=%s openmwLinked=%s headlessEngine=%s openmwWorld=%s "
+            "actorAuthority=%s",
+            mRuntime->requestedName(), mRuntime->activeName(), mRuntime->topology().linksOpenMwCore ? "yes" : "no",
+            mRuntime->hasHeadlessOpenMwEngine() ? "yes" : "no", mRuntime->hasOpenMwWorld() ? "yes" : "no",
             mRuntime->canOwnActorAuthority() ? "yes" : "no");
     }
 
@@ -1980,6 +2004,8 @@ namespace mwmp
     void ServerSimulation::sendRuntimeStatusEvent(Player& player) const
     {
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
+        const SimulationRuntimeTopology& runtimeTopology = runtime().topology();
+        const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
         const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
         const QuestEventJournalStatistics questEventJournal = QuestEventJournalStore::get().statistics();
         const CellController* cellController = CellController::get();
@@ -2010,6 +2036,8 @@ namespace mwmp
         payload += jsonBool(runtime().canSimulateActors());
         payload += ",\"serverActorAuthority\":";
         payload += jsonBool(canAuthoritativelySimulateActors());
+        payload += ",\"serverActorAuthorityBlockedBy\":";
+        payload += jsonString(authorityBlockReason);
         payload += ",\"loadedCellCount\":";
         payload += std::to_string(loadedCellCount);
         payload += ",\"trackedCellCount\":";
@@ -2100,6 +2128,18 @@ namespace mwmp
         payload += ",\"unsupportedConditionsRejectAuthoritativeSelection\":true";
         payload += ",\"inventoryEffectsRequireTransactions\":true";
         payload += ",\"actorEffectsRequireServerAuthority\":true";
+        payload += "}";
+        payload += ",\"topology\":{";
+        payload += "\"unifiedExecutable\":";
+        payload += jsonBool(runtimeTopology.unifiedExecutable);
+        payload += ",\"linksOpenMwCore\":";
+        payload += jsonBool(runtimeTopology.linksOpenMwCore);
+        payload += ",\"hasHeadlessOpenMwEngine\":";
+        payload += jsonBool(runtimeTopology.hasHeadlessOpenMwEngine);
+        payload += ",\"runsOpenMwLua\":";
+        payload += jsonBool(runtimeTopology.runsOpenMwLua);
+        payload += ",\"rendererClientProtocol\":";
+        payload += jsonBool(runtimeTopology.rendererClientProtocol);
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";
