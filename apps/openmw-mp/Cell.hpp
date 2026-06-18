@@ -133,6 +133,7 @@ public:
     void sendToLoadedAndGuids(mwmp::ActorPacket *actorPacket, mwmp::BaseActorList *baseActorList,
         const std::vector<mwmp::PacketGuid>& targetGuids) const;
     void sendToLoaded(mwmp::ObjectPacket *objectPacket, mwmp::BaseObjectList *baseObjectList) const;
+    void sendServerActorStateSnapshotTo(Player& player) const;
     void sendServerObjectStateSnapshotTo(Player& player) const;
 
     std::string getShortDescription() const;

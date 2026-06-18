@@ -379,6 +379,7 @@ void Cell::addPlayer(Player *player)
     mwmp::ServerEvents::cellLoad(player->getId(), getShortDescription().c_str());
 
     players.push_back(player);
+    sendServerActorStateSnapshotTo(*player);
     sendServerObjectStateSnapshotTo(*player);
 }
 
@@ -1203,6 +1204,96 @@ void Cell::sendToLoaded(mwmp::ObjectPacket *objectPacket, mwmp::BaseObjectList *
 
         // Send the packet to this eligible guid
         objectPacket->Send(pl->guid);
+    }
+}
+
+void Cell::sendServerActorStateSnapshotTo(Player& player) const
+{
+    if (player.npc.mName.empty() || cellActorList.baseActors.empty())
+        return;
+
+    mwmp::BaseActorList positions;
+    mwmp::BaseActorList animFlags;
+    mwmp::BaseActorList stats;
+    mwmp::BaseActorList equipment;
+    mwmp::BaseActorList ai;
+    mwmp::BaseActorList deaths;
+
+    auto initializeList = [&](mwmp::BaseActorList& list) {
+        list.guid = mwmp::unassignedPacketGuid();
+        list.cell = cell;
+        list.action = mwmp::BaseActorList::SET;
+        list.isValid = true;
+        list.count = 0;
+    };
+
+    initializeList(positions);
+    initializeList(animFlags);
+    initializeList(stats);
+    initializeList(equipment);
+    initializeList(ai);
+    initializeList(deaths);
+
+    for (const mwmp::BaseActor& actor : cellActorList.baseActors)
+    {
+        if (actor.hasPositionData)
+            positions.baseActors.push_back(actor);
+
+        if (actor.hasAnimFlagsData)
+            animFlags.baseActors.push_back(actor);
+
+        if (actor.hasStatsDynamicData)
+            stats.baseActors.push_back(actor);
+
+        if (actor.hasEquipmentData && mwmp::hasValidActorEquipment(actor))
+            equipment.baseActors.push_back(actor);
+
+        if (actor.hasAiData)
+            ai.baseActors.push_back(actor);
+
+        if (actor.creatureStats.mDead)
+            deaths.baseActors.push_back(actor);
+    }
+
+    auto sendList = [&](auto packetID, mwmp::BaseActorList& list) -> std::size_t {
+        constexpr std::size_t maxSnapshotActorsPerPacket = 256;
+        if (list.baseActors.empty())
+            return 0;
+
+        mwmp::ActorPacket* packet = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(packetID);
+        if (packet == nullptr)
+            return 0;
+
+        std::size_t sentActors = 0;
+        for (std::size_t offset = 0; offset < list.baseActors.size(); offset += maxSnapshotActorsPerPacket)
+        {
+            mwmp::BaseActorList chunk = list;
+            const std::size_t end = std::min(offset + maxSnapshotActorsPerPacket, list.baseActors.size());
+            chunk.baseActors.assign(list.baseActors.begin() + offset, list.baseActors.begin() + end);
+            chunk.count = static_cast<unsigned int>(chunk.baseActors.size());
+
+            packet->setActorList(&chunk);
+            packet->SendWithReliability(player.guid, mwmp::PacketReliability::ReliableOrdered);
+            sentActors += chunk.baseActors.size();
+        }
+
+        return sentActors;
+    };
+
+    const std::size_t sentPositions = sendList(ID_ACTOR_POSITION, positions);
+    const std::size_t sentAnimFlags = sendList(ID_ACTOR_ANIM_FLAGS, animFlags);
+    const std::size_t sentStats = sendList(ID_ACTOR_STATS_DYNAMIC, stats);
+    const std::size_t sentEquipment = sendList(ID_ACTOR_EQUIPMENT, equipment);
+    const std::size_t sentAi = sendList(ID_ACTOR_AI, ai);
+    const std::size_t sentDeaths = sendList(ID_ACTOR_DEATH, deaths);
+
+    if (sentPositions != 0 || sentAnimFlags != 0 || sentStats != 0 || sentEquipment != 0
+        || sentAi != 0 || sentDeaths != 0)
+    {
+        LOG_APPEND(TimedLog::LOG_INFO,
+            "- Sent server actor snapshot for cell %s to %s: %zu positions, %zu anim flags, %zu stats, %zu equipment, %zu AI, %zu deaths",
+            getShortDescription().c_str(), player.npc.mName.c_str(), sentPositions, sentAnimFlags,
+            sentStats, sentEquipment, sentAi, sentDeaths);
     }
 }
 
