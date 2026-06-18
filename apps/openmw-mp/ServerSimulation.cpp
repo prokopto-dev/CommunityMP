@@ -2056,8 +2056,9 @@ namespace mwmp
 
         ActorPacket* listPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_LIST);
         ActorPacket* positionPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+        ActorPacket* animFlagsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ANIM_FLAGS);
         ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
-        if (listPacket == nullptr || positionPacket == nullptr || statsPacket == nullptr)
+        if (listPacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr || statsPacket == nullptr)
             return;
 
         const float sampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
@@ -2094,6 +2095,12 @@ namespace mwmp
             positionList.action = BaseActorList::SET;
             positionList.isValid = true;
 
+            BaseActorList animFlagsList;
+            animFlagsList.cell = runtimeList.cell;
+            animFlagsList.guid = unassignedPacketGuid();
+            animFlagsList.action = BaseActorList::SET;
+            animFlagsList.isValid = true;
+
             BaseActorList statsList;
             statsList.cell = runtimeList.cell;
             statsList.guid = unassignedPacketGuid();
@@ -2103,17 +2110,34 @@ namespace mwmp
             for (const BaseActor& runtimeActor : runtimeList.baseActors)
             {
                 BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum);
+                const std::uint32_t nextPositionSequence = cachedActor != nullptr && cachedActor->hasPositionData
+                    ? cachedActor->positionSequence + 1
+                    : 1;
 
                 if (runtimeActor.hasPositionData)
                 {
                     BaseActor positionActor = runtimeActor;
                     positionActor.hasPositionData = true;
-                    positionActor.positionSequence = cachedActor != nullptr && cachedActor->hasPositionData
-                        ? cachedActor->positionSequence + 1
-                        : 1;
+                    positionActor.positionSequence = nextPositionSequence;
                     positionActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
                     positionActor.movementLatencySeconds = 0.f;
                     positionList.baseActors.push_back(std::move(positionActor));
+                }
+
+                if (runtimeActor.hasAnimFlagsData)
+                {
+                    BaseActor animFlagsActor = runtimeActor;
+                    animFlagsActor.hasAnimFlagsData = true;
+                    animFlagsActor.animFlagsSequence = cachedActor != nullptr && cachedActor->hasAnimFlagsData
+                        ? cachedActor->animFlagsSequence + 1
+                        : 1;
+                    if (animFlagsActor.hasPositionData)
+                    {
+                        animFlagsActor.positionSequence = nextPositionSequence;
+                        animFlagsActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                        animFlagsActor.movementLatencySeconds = 0.f;
+                    }
+                    animFlagsList.baseActors.push_back(std::move(animFlagsActor));
                 }
 
                 if (runtimeActor.hasStatsDynamicData)
@@ -2133,6 +2157,14 @@ namespace mwmp
                 serverCell->readActorList(ID_ACTOR_POSITION, &positionList);
                 positionPacket->setActorList(&positionList);
                 serverCell->sendToLoaded(positionPacket, &positionList);
+            }
+
+            animFlagsList.count = static_cast<unsigned int>(animFlagsList.baseActors.size());
+            if (animFlagsList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_ANIM_FLAGS, &animFlagsList);
+                animFlagsPacket->setActorList(&animFlagsList);
+                serverCell->sendToLoaded(animFlagsPacket, &animFlagsList);
             }
 
             statsList.count = static_cast<unsigned int>(statsList.baseActors.size());
