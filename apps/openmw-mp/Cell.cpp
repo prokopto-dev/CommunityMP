@@ -149,6 +149,26 @@ namespace
             actor.aiShouldRepeat = reference.baseActorAiShouldRepeat;
             actor.aiCoordinates = reference.baseActorAiCoordinates;
         }
+        if (reference.baseActorStatsDynamicImported)
+        {
+            actor.hasStatsDynamicData = true;
+            actor.statsDynamicSequence = 1;
+            for (const mwmp::WorldActorStatsDynamicItem& item :
+                mwmp::WorldDatabaseStore::get().findActorStatsDynamicByRecordKey(reference.baseRecordKey))
+            {
+                if (item.statIndex < 0 || item.statIndex > 2)
+                    continue;
+
+                ESM::StatState<float>& stat = actor.creatureStats.mDynamic[item.statIndex];
+                stat.mBase = item.base;
+                stat.mMod = item.mod;
+                stat.mCurrent = item.current;
+                stat.mDamage = item.damage;
+                stat.mProgress = item.progress;
+            }
+
+            actor.creatureStats.mDead = actor.creatureStats.mDynamic[0].mCurrent < 1.f;
+        }
         if (reference.baseActorEquipmentImported)
         {
             actor.hasEquipmentData = true;
@@ -740,6 +760,9 @@ void Cell::ensureServerWorldStateBootstrapped()
         snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
         snapshot.baseActorInventoryImported = ref.baseActorInventoryImported;
         snapshot.baseActorInventoryItemCount = ref.baseActorInventoryItemCount;
+        snapshot.baseActorStatsDynamicImported = ref.baseActorStatsDynamicImported;
+        snapshot.baseActorStatsDynamicAutocalc = ref.baseActorStatsDynamicAutocalc;
+        snapshot.baseActorStatsDynamicItemCount = ref.baseActorStatsDynamicItemCount;
         snapshot.baseActorEquipmentImported = ref.baseActorEquipmentImported;
         snapshot.baseActorEquipmentItemCount = ref.baseActorEquipmentItemCount;
         snapshot.baseContainerInventoryImported = ref.baseContainerInventoryImported;
@@ -789,6 +812,13 @@ void Cell::ensureServerWorldStateBootstrapped()
                 ++serverWorldBootstrapStats.actorInventoryCount;
                 serverWorldBootstrapStats.actorInventoryItemCount += snapshot.baseActorInventoryItemCount;
             }
+            if (snapshot.baseActorStatsDynamicImported)
+            {
+                ++serverWorldBootstrapStats.actorStatsDynamicCount;
+                serverWorldBootstrapStats.actorStatsDynamicItemCount += snapshot.baseActorStatsDynamicItemCount;
+            }
+            if (snapshot.baseActorStatsDynamicAutocalc)
+                ++serverWorldBootstrapStats.actorStatsDynamicAutocalcCount;
             if (snapshot.baseActorEquipmentImported)
             {
                 ++serverWorldBootstrapStats.actorEquipmentCount;
@@ -823,10 +853,12 @@ void Cell::ensureServerWorldStateBootstrapped()
     serverWorldBootstrapStats.loaded = true;
 
     LOG_APPEND(TimedLog::LOG_INFO,
-        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
+        "- Bootstrapped server world cell %s from worlddb with %zu refs, %zu actors, %zu actor AI packages, %zu actor inventories, %zu actor inventory items, %zu actor stat snapshots, %zu actor stat items, %zu autocalc actor stats pending, %zu actor equipment snapshots, %zu actor equipment items, %zu objects, %zu containers, %zu doors, %zu unresolved",
         getShortDescription().c_str(), serverWorldBootstrapStats.referenceCount, serverWorldBootstrapStats.actorCount,
         serverWorldBootstrapStats.actorAiCount, serverWorldBootstrapStats.actorInventoryCount,
-        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorEquipmentCount,
+        serverWorldBootstrapStats.actorInventoryItemCount, serverWorldBootstrapStats.actorStatsDynamicCount,
+        serverWorldBootstrapStats.actorStatsDynamicItemCount, serverWorldBootstrapStats.actorStatsDynamicAutocalcCount,
+        serverWorldBootstrapStats.actorEquipmentCount,
         serverWorldBootstrapStats.actorEquipmentItemCount, serverWorldBootstrapStats.objectCount,
         serverWorldBootstrapStats.containerCount, serverWorldBootstrapStats.doorCount,
         serverWorldBootstrapStats.unresolvedCount);

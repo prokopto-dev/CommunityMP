@@ -37,6 +37,8 @@ namespace mwmp
         std::size_t recordWinnerDeletedCount = 0;
         std::size_t actorInventoryRecordCount = 0;
         std::size_t actorInventoryItemCount = 0;
+        std::size_t actorStatsDynamicRecordCount = 0;
+        std::size_t actorStatsDynamicItemCount = 0;
         std::size_t actorEquipmentRecordCount = 0;
         std::size_t actorEquipmentItemCount = 0;
         std::size_t containerInventoryRecordCount = 0;
@@ -134,6 +136,9 @@ namespace mwmp
         unsigned int actorAiAlarm = 0;
         bool actorInventoryImported = false;
         std::size_t actorInventoryItemCount = 0;
+        bool actorStatsDynamicImported = false;
+        bool actorStatsDynamicAutocalc = false;
+        std::size_t actorStatsDynamicItemCount = 0;
         bool actorEquipmentImported = false;
         std::size_t actorEquipmentItemCount = 0;
         bool containerInventoryImported = false;
@@ -155,6 +160,22 @@ namespace mwmp
 
     using WorldActorInventoryItem = WorldRecordInventoryItem;
     using WorldContainerInventoryItem = WorldRecordInventoryItem;
+
+    struct WorldActorStatsDynamicItem
+    {
+        std::string recordKey;
+        std::string recordId;
+        std::string sourceFile;
+        std::size_t loadOrderIndex = 0;
+        std::size_t engineContentIndex = 0;
+        std::size_t recordIndex = 0;
+        int statIndex = -1;
+        float base = 0.f;
+        float mod = 0.f;
+        float current = 0.f;
+        float damage = 0.f;
+        float progress = 0.f;
+    };
 
     struct WorldActorEquipmentItem
     {
@@ -232,6 +253,9 @@ namespace mwmp
         std::size_t baseRecordLoadOrderIndex = 0;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
+        bool baseActorStatsDynamicImported = false;
+        bool baseActorStatsDynamicAutocalc = false;
+        std::size_t baseActorStatsDynamicItemCount = 0;
         bool baseActorEquipmentImported = false;
         std::size_t baseActorEquipmentItemCount = 0;
         bool baseContainerInventoryImported = false;
@@ -273,6 +297,7 @@ namespace mwmp
         std::vector<WorldCellReferenceRecord> findReferencesByCellKey(
             std::string_view cellKey, bool includeDeleted = false) const;
         std::vector<WorldActorInventoryItem> findActorInventoryByRecordKey(std::string_view recordKey) const;
+        std::vector<WorldActorStatsDynamicItem> findActorStatsDynamicByRecordKey(std::string_view recordKey) const;
         std::vector<WorldActorEquipmentItem> findActorEquipmentByRecordKey(std::string_view recordKey) const;
         std::vector<WorldContainerInventoryItem> findContainerInventoryByRecordKey(std::string_view recordKey) const;
 
@@ -291,6 +316,7 @@ namespace mwmp
         std::map<std::string, WorldRecordWinner> mRecordWinnersByWinnerKey;
         std::map<std::string, std::vector<std::string>> mRecordWinnerKeysByRecordKey;
         std::map<std::string, std::vector<WorldActorInventoryItem>> mActorInventoryByRecordKey;
+        std::map<std::string, std::vector<WorldActorStatsDynamicItem>> mActorStatsDynamicByRecordKey;
         std::map<std::string, std::vector<WorldActorEquipmentItem>> mActorEquipmentByRecordKey;
         std::map<std::string, std::vector<WorldContainerInventoryItem>> mContainerInventoryByRecordKey;
         std::map<std::string, WorldCellRecord> mCellsByKey;

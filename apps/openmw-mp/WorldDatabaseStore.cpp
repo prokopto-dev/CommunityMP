@@ -22,6 +22,7 @@ namespace
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
     constexpr std::string_view actorInventoryRowSchema = "communitymp.worlddb.actor-inventory.v1";
+    constexpr std::string_view actorStatsDynamicRowSchema = "communitymp.worlddb.actor-stats-dynamic.v1";
     constexpr std::string_view actorEquipmentRowSchema = "communitymp.worlddb.actor-equipment.v1";
     constexpr std::string_view containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
     constexpr std::string_view cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
@@ -347,6 +348,7 @@ namespace mwmp
         mRecordWinnersByWinnerKey.clear();
         mRecordWinnerKeysByRecordKey.clear();
         mActorInventoryByRecordKey.clear();
+        mActorStatsDynamicByRecordKey.clear();
         mActorEquipmentByRecordKey.clear();
         mContainerInventoryByRecordKey.clear();
         mCellsByKey.clear();
@@ -423,6 +425,9 @@ namespace mwmp
                     winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
                     winner.actorInventoryImported = getBool(row, "actorInventoryImported");
                     winner.actorInventoryItemCount = getSizeT(row, "actorInventoryItemCount");
+                    winner.actorStatsDynamicImported = getBool(row, "actorStatsDynamicImported");
+                    winner.actorStatsDynamicAutocalc = getBool(row, "actorStatsDynamicAutocalc");
+                    winner.actorStatsDynamicItemCount = getSizeT(row, "actorStatsDynamicItemCount");
                     winner.actorEquipmentImported = getBool(row, "actorEquipmentImported");
                     winner.actorEquipmentItemCount = getSizeT(row, "actorEquipmentItemCount");
                     winner.containerInventoryImported = getBool(row, "containerInventoryImported");
@@ -433,6 +438,8 @@ namespace mwmp
                         ++mStats.recordWinnerDeletedCount;
                     if (!deletedWinner && winner.actorInventoryImported && !winner.recordKey.empty())
                         ++mStats.actorInventoryRecordCount;
+                    if (!deletedWinner && winner.actorStatsDynamicImported && !winner.recordKey.empty())
+                        ++mStats.actorStatsDynamicRecordCount;
                     if (!deletedWinner && winner.actorEquipmentImported && !winner.recordKey.empty())
                         ++mStats.actorEquipmentRecordCount;
                     if (!deletedWinner && winner.containerInventoryImported && !winner.recordKey.empty())
@@ -472,6 +479,36 @@ namespace mwmp
                         if (left.itemRefId != right.itemRefId)
                             return left.itemRefId < right.itemRefId;
                         return left.count < right.count;
+                    });
+            }
+
+            mStats.actorStatsDynamicItemCount = readJsonlTable(root, "actor_stats_dynamic.jsonl",
+                actorStatsDynamicRowSchema, [&](const boost::property_tree::ptree& row) {
+                    WorldActorStatsDynamicItem item;
+                    item.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    item.recordId = getString(row, "recordId");
+                    item.sourceFile = getString(row, "sourceFile");
+                    item.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    item.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    item.recordIndex = getSizeT(row, "recordIndex");
+                    item.statIndex = getInt(row, "statIndex", -1);
+                    item.base = getFloat(row, "base");
+                    item.mod = getFloat(row, "mod");
+                    item.current = getFloat(row, "current");
+                    item.damage = getFloat(row, "damage");
+                    item.progress = getFloat(row, "progress");
+
+                    if (!item.recordKey.empty() && item.statIndex >= 0 && item.statIndex < 3)
+                        mActorStatsDynamicByRecordKey[item.recordKey].push_back(std::move(item));
+                });
+            for (auto& [recordKey, items] : mActorStatsDynamicByRecordKey)
+            {
+                static_cast<void>(recordKey);
+                std::sort(items.begin(), items.end(),
+                    [](const WorldActorStatsDynamicItem& left, const WorldActorStatsDynamicItem& right) {
+                        if (left.statIndex != right.statIndex)
+                            return left.statIndex < right.statIndex;
+                        return left.recordIndex < right.recordIndex;
                     });
             }
 
@@ -635,9 +672,10 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu actorInventories=%zu actorItems=%zu actorStats=%zu actorStatItems=%zu actorEquipment=%zu actorEquipmentItems=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
                 pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
                 mStats.actorInventoryRecordCount, mStats.actorInventoryItemCount,
+                mStats.actorStatsDynamicRecordCount, mStats.actorStatsDynamicItemCount,
                 mStats.actorEquipmentRecordCount, mStats.actorEquipmentItemCount,
                 mStats.containerInventoryRecordCount, mStats.containerInventoryItemCount,
                 mStats.cellRecordCount, mStats.activeCellRecordCount, mStats.cellReferenceCount,
@@ -680,6 +718,9 @@ namespace mwmp
         ref.baseRecordLoadOrderIndex = 0;
         ref.baseActorInventoryImported = false;
         ref.baseActorInventoryItemCount = 0;
+        ref.baseActorStatsDynamicImported = false;
+        ref.baseActorStatsDynamicAutocalc = false;
+        ref.baseActorStatsDynamicItemCount = 0;
         ref.baseContainerInventoryImported = false;
         ref.baseContainerInventoryItemCount = 0;
         ref.baseActorAiAvailable = false;
@@ -748,6 +789,14 @@ namespace mwmp
             && importedActorInventoryItemCount == selected->actorInventoryItemCount;
         ref.baseActorInventoryItemCount
             = ref.baseActorInventoryImported ? importedActorInventoryItemCount : 0;
+        const auto actorStatsIt = mActorStatsDynamicByRecordKey.find(selected->recordKey);
+        const std::size_t importedActorStatsDynamicItemCount
+            = actorStatsIt != mActorStatsDynamicByRecordKey.end() ? actorStatsIt->second.size() : 0;
+        ref.baseActorStatsDynamicAutocalc = selected->actorStatsDynamicAutocalc;
+        ref.baseActorStatsDynamicImported = selected->actorStatsDynamicImported
+            && importedActorStatsDynamicItemCount == selected->actorStatsDynamicItemCount;
+        ref.baseActorStatsDynamicItemCount
+            = ref.baseActorStatsDynamicImported ? importedActorStatsDynamicItemCount : 0;
         const auto actorEquipmentIt = mActorEquipmentByRecordKey.find(selected->recordKey);
         const std::size_t importedActorEquipmentItemCount
             = actorEquipmentIt != mActorEquipmentByRecordKey.end() ? actorEquipmentIt->second.size() : 0;
@@ -983,6 +1032,17 @@ namespace mwmp
         std::lock_guard lock(mMutex);
         const auto it = mActorInventoryByRecordKey.find(normalizedLookupKey(recordKey));
         if (it == mActorInventoryByRecordKey.end())
+            return {};
+
+        return it->second;
+    }
+
+    std::vector<WorldActorStatsDynamicItem> WorldDatabaseStore::findActorStatsDynamicByRecordKey(
+        std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mActorStatsDynamicByRecordKey.find(normalizedLookupKey(recordKey));
+        if (it == mActorStatsDynamicByRecordKey.end())
             return {};
 
         return it->second;

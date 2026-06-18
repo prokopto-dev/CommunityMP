@@ -30,6 +30,9 @@ public:
         std::string baseRecordSourceFile;
         bool baseActorInventoryImported = false;
         std::size_t baseActorInventoryItemCount = 0;
+        bool baseActorStatsDynamicImported = false;
+        bool baseActorStatsDynamicAutocalc = false;
+        std::size_t baseActorStatsDynamicItemCount = 0;
         bool baseActorEquipmentImported = false;
         std::size_t baseActorEquipmentItemCount = 0;
         bool baseContainerInventoryImported = false;
@@ -80,6 +83,9 @@ public:
         std::size_t actorAiCount = 0;
         std::size_t actorInventoryCount = 0;
         std::size_t actorInventoryItemCount = 0;
+        std::size_t actorStatsDynamicCount = 0;
+        std::size_t actorStatsDynamicItemCount = 0;
+        std::size_t actorStatsDynamicAutocalcCount = 0;
         std::size_t actorEquipmentCount = 0;
         std::size_t actorEquipmentItemCount = 0;
         std::size_t unresolvedCount = 0;

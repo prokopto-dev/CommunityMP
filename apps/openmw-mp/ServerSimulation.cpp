@@ -2337,6 +2337,12 @@ namespace mwmp
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryCount : 0);
         payload += ",\"serverWorldActorInventoryItemCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorInventoryItemCount : 0);
+        payload += ",\"serverWorldActorStatsDynamicReferenceCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorStatsDynamicCount : 0);
+        payload += ",\"serverWorldActorStatsDynamicItemCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorStatsDynamicItemCount : 0);
+        payload += ",\"serverWorldActorStatsDynamicAutocalcCount\":";
+        payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorStatsDynamicAutocalcCount : 0);
         payload += ",\"serverWorldActorEquipmentReferenceCount\":";
         payload += std::to_string(serverWorldStats != nullptr ? serverWorldStats->actorEquipmentCount : 0);
         payload += ",\"serverWorldActorEquipmentItemCount\":";
@@ -2405,6 +2411,9 @@ namespace mwmp
         std::size_t serverWorldActorAiReferenceCount = 0;
         std::size_t serverWorldActorInventoryReferenceCount = 0;
         std::size_t serverWorldActorInventoryItemCount = 0;
+        std::size_t serverWorldActorStatsDynamicReferenceCount = 0;
+        std::size_t serverWorldActorStatsDynamicItemCount = 0;
+        std::size_t serverWorldActorStatsDynamicAutocalcCount = 0;
         std::size_t serverWorldActorEquipmentReferenceCount = 0;
         std::size_t serverWorldActorEquipmentItemCount = 0;
         std::size_t serverWorldObjectReferenceCount = 0;
@@ -2442,6 +2451,9 @@ namespace mwmp
                 serverWorldActorAiReferenceCount += stats.actorAiCount;
                 serverWorldActorInventoryReferenceCount += stats.actorInventoryCount;
                 serverWorldActorInventoryItemCount += stats.actorInventoryItemCount;
+                serverWorldActorStatsDynamicReferenceCount += stats.actorStatsDynamicCount;
+                serverWorldActorStatsDynamicItemCount += stats.actorStatsDynamicItemCount;
+                serverWorldActorStatsDynamicAutocalcCount += stats.actorStatsDynamicAutocalcCount;
                 serverWorldActorEquipmentReferenceCount += stats.actorEquipmentCount;
                 serverWorldActorEquipmentItemCount += stats.actorEquipmentItemCount;
                 serverWorldObjectReferenceCount += stats.objectCount;
@@ -2492,6 +2504,12 @@ namespace mwmp
         payload += std::to_string(serverWorldActorInventoryReferenceCount);
         payload += ",\"serverWorldActorInventoryItemCount\":";
         payload += std::to_string(serverWorldActorInventoryItemCount);
+        payload += ",\"serverWorldActorStatsDynamicReferenceCount\":";
+        payload += std::to_string(serverWorldActorStatsDynamicReferenceCount);
+        payload += ",\"serverWorldActorStatsDynamicItemCount\":";
+        payload += std::to_string(serverWorldActorStatsDynamicItemCount);
+        payload += ",\"serverWorldActorStatsDynamicAutocalcCount\":";
+        payload += std::to_string(serverWorldActorStatsDynamicAutocalcCount);
         payload += ",\"serverWorldActorEquipmentReferenceCount\":";
         payload += std::to_string(serverWorldActorEquipmentReferenceCount);
         payload += ",\"serverWorldActorEquipmentItemCount\":";
@@ -2650,6 +2668,10 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
         payload += std::to_string(serverContentDatabase.actorInventoryItemCount);
+        payload += ",\"actorStatsDynamicRecordCount\":";
+        payload += std::to_string(serverContentDatabase.actorStatsDynamicRecordCount);
+        payload += ",\"actorStatsDynamicItemCount\":";
+        payload += std::to_string(serverContentDatabase.actorStatsDynamicItemCount);
         payload += ",\"itemEquipmentRecordCount\":";
         payload += std::to_string(serverContentDatabase.itemEquipmentRecordCount);
         payload += ",\"actorEquipmentRecordCount\":";
@@ -2766,6 +2788,10 @@ namespace mwmp
         payload += std::to_string(worldDatabase.actorInventoryRecordCount);
         payload += ",\"actorInventoryItemCount\":";
         payload += std::to_string(worldDatabase.actorInventoryItemCount);
+        payload += ",\"actorStatsDynamicRecordCount\":";
+        payload += std::to_string(worldDatabase.actorStatsDynamicRecordCount);
+        payload += ",\"actorStatsDynamicItemCount\":";
+        payload += std::to_string(worldDatabase.actorStatsDynamicItemCount);
         payload += ",\"actorEquipmentRecordCount\":";
         payload += std::to_string(worldDatabase.actorEquipmentRecordCount);
         payload += ",\"actorEquipmentItemCount\":";
