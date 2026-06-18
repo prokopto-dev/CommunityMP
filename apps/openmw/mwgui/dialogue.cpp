@@ -34,6 +34,7 @@
 #include "../mwmechanics/npcstats.hpp"
 
 #ifdef BUILD_TES3MP_CLIENT
+#include "../mwmp/LocalPlayer.hpp"
 #include "../mwmp/Main.hpp"
 #include "../mwmp/Networking.hpp"
 #include "../mwmp/ObjectList.hpp"
@@ -70,6 +71,14 @@ namespace MWGui
             objectList->reset();
             objectList->addObjectDialogueChoice(actor, topicId);
             objectList->sendObjectDialogueChoice();
+        }
+
+        mwmp::LocalPlayer* getTes3mpLocalPlayer()
+        {
+            if (!mwmp::Main::isInitialized())
+                return nullptr;
+
+            return mwmp::Main::get().getLocalPlayer();
         }
 #endif
     }
@@ -821,8 +830,27 @@ namespace MWGui
             return;
 
 #ifdef BUILD_TES3MP_CLIENT
+        mwmp::LocalPlayer* localPlayer = getTes3mpLocalPlayer();
         if (!mApplyingServerDialogueChoice)
             sendTes3mpDialogueChoice(mPtr, topicId);
+
+        struct ServerAuthoritativeDialogueGuard
+        {
+            mwmp::LocalPlayer* mLocalPlayer = nullptr;
+
+            explicit ServerAuthoritativeDialogueGuard(mwmp::LocalPlayer* localPlayer)
+                : mLocalPlayer(localPlayer)
+            {
+                if (mLocalPlayer != nullptr)
+                    mLocalPlayer->beginServerAuthoritativeDialogueChoice();
+            }
+
+            ~ServerAuthoritativeDialogueGuard()
+            {
+                if (mLocalPlayer != nullptr)
+                    mLocalPlayer->endServerAuthoritativeDialogueChoice();
+            }
+        } guard(localPlayer);
 #endif
 
         MWBase::Environment::get().getDialogueManager()->keywordSelected(topicId, mCallback.get());

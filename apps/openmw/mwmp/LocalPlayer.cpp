@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
 #include <components/esm/attr.hpp>
 #include <components/esm/util.hpp>
@@ -570,6 +572,9 @@ bool LocalPlayer::isLoggedIn() const
 
 bool LocalPlayer::canSendJournalChanges()
 {
+    if (isSuppressingLocalDialogueQuestChanges())
+        return false;
+
     if (isLoggedIn())
         return true;
 
@@ -582,6 +587,33 @@ bool LocalPlayer::canSendJournalChanges()
 bool LocalPlayer::isApplyingServerTopicChanges() const
 {
     return mApplyingServerTopicChanges;
+}
+
+bool LocalPlayer::usesServerAuthoritativeDialogueEffects() const
+{
+    const char* value = std::getenv("COMMUNITYMP_AUTHORITATIVE_DIALOGUE_EFFECTS");
+    if (value == nullptr)
+        return false;
+
+    const std::string text(value);
+    return text == "1" || text == "true" || text == "TRUE" || text == "on" || text == "ON";
+}
+
+bool LocalPlayer::isSuppressingLocalDialogueQuestChanges() const
+{
+    return mServerAuthoritativeDialogueChoiceDepth > 0;
+}
+
+void LocalPlayer::beginServerAuthoritativeDialogueChoice()
+{
+    if (usesServerAuthoritativeDialogueEffects())
+        ++mServerAuthoritativeDialogueChoiceDepth;
+}
+
+void LocalPlayer::endServerAuthoritativeDialogueChoice()
+{
+    if (mServerAuthoritativeDialogueChoiceDepth > 0)
+        --mServerAuthoritativeDialogueChoiceDepth;
 }
 
 void LocalPlayer::updateStatsDynamic(bool forceUpdate)

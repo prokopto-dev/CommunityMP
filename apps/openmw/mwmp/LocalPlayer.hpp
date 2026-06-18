@@ -38,6 +38,10 @@ namespace mwmp
         bool isLoggedIn() const;
         bool canSendJournalChanges();
         bool isApplyingServerTopicChanges() const;
+        bool usesServerAuthoritativeDialogueEffects() const;
+        bool isSuppressingLocalDialogueQuestChanges() const;
+        void beginServerAuthoritativeDialogueChoice();
+        void endServerAuthoritativeDialogueChoice();
         void expectServerEquipmentReload();
         void completeServerEquipmentReload();
         void setCharGenBaseInfo(const ESM::NPC& npc);
@@ -152,6 +156,7 @@ namespace mwmp
         bool mApplyingServerJournalLoad = false;
         bool mApplyingServerTopicLoad = false;
         bool mApplyingServerBookLoad = false;
+        int mServerAuthoritativeDialogueChoiceDepth = 0;
         float mServerEquipmentReloadTimer = 0.f;
         bool mHasPendingCellChangePositionSequence = false;
         std::uint32_t mPendingCellChangePositionSequence = 0;
