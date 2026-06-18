@@ -2622,6 +2622,10 @@ namespace mwmp
         payload += std::to_string(serverContentDatabase.recordWinnerDeletedCount);
         payload += ",\"recordImportErrorCount\":";
         payload += std::to_string(serverContentDatabase.recordImportErrorCount);
+        payload += ",\"containerInventoryRecordCount\":";
+        payload += std::to_string(serverContentDatabase.containerInventoryRecordCount);
+        payload += ",\"containerInventoryItemCount\":";
+        payload += std::to_string(serverContentDatabase.containerInventoryItemCount);
         payload += ",\"cellRecordCount\":";
         payload += std::to_string(serverContentDatabase.cellRecordCount);
         payload += ",\"cellReferenceCount\":";
@@ -2724,6 +2728,10 @@ namespace mwmp
         payload += std::to_string(worldDatabase.recordWinnerCount);
         payload += ",\"recordWinnerDeletedCount\":";
         payload += std::to_string(worldDatabase.recordWinnerDeletedCount);
+        payload += ",\"containerInventoryRecordCount\":";
+        payload += std::to_string(worldDatabase.containerInventoryRecordCount);
+        payload += ",\"containerInventoryItemCount\":";
+        payload += std::to_string(worldDatabase.containerInventoryItemCount);
         payload += ",\"baseRecordResolvedReferenceCount\":";
         payload += std::to_string(worldDatabase.baseRecordResolvedReferenceCount);
         payload += ",\"baseRecordUnresolvedReferenceCount\":";

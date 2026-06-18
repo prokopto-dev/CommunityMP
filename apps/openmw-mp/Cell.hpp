@@ -24,9 +24,12 @@ public:
     {
         std::string refKey;
         std::string refId;
+        std::string baseRecordKey;
         std::string baseRecordType;
         std::string baseRecordCategory;
         std::string baseRecordSourceFile;
+        bool baseContainerInventoryImported = false;
+        std::size_t baseContainerInventoryItemCount = 0;
         bool baseActorAiAvailable = false;
         std::size_t baseActorAiPackageCount = 0;
         unsigned int baseActorAiAction = 0;

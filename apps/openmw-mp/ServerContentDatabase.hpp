@@ -36,6 +36,8 @@ namespace mwmp
         std::size_t recordWinnerCount = 0;
         std::size_t recordWinnerDeletedCount = 0;
         std::size_t recordImportErrorCount = 0;
+        std::size_t containerInventoryRecordCount = 0;
+        std::size_t containerInventoryItemCount = 0;
         std::size_t cellRecordCount = 0;
         std::size_t cellReferenceCount = 0;
         std::size_t cellReferenceMovedCount = 0;

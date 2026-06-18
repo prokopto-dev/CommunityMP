@@ -171,6 +171,22 @@ namespace
         object.hasContainer = reference.baseRecordCategory == "container";
         object.containerItemCount = 0;
 
+        if (reference.baseContainerInventoryImported)
+        {
+            for (const mwmp::WorldContainerInventoryItem& item :
+                mwmp::WorldDatabaseStore::get().findContainerInventoryByRecordKey(reference.baseRecordKey))
+            {
+                mwmp::ContainerItem containerItem{};
+                containerItem.refId = item.itemRefId;
+                containerItem.count = item.count;
+                containerItem.charge = -1;
+                containerItem.enchantmentCharge = -1.0;
+                containerItem.actionCount = item.count;
+                object.containerItems.push_back(std::move(containerItem));
+            }
+            object.containerItemCount = static_cast<unsigned int>(object.containerItems.size());
+        }
+
         if (!reference.destinationCell.empty())
             object.destinationCell = Utils::getCellFromDescription(reference.destinationCell);
 
@@ -700,9 +716,12 @@ void Cell::ensureServerWorldStateBootstrapped()
         ServerWorldReference snapshot;
         snapshot.refKey = ref.refKey;
         snapshot.refId = ref.refId;
+        snapshot.baseRecordKey = ref.baseRecordKey;
         snapshot.baseRecordType = ref.baseRecordType;
         snapshot.baseRecordCategory = ref.baseRecordCategory;
         snapshot.baseRecordSourceFile = ref.baseRecordSourceFile;
+        snapshot.baseContainerInventoryImported = ref.baseContainerInventoryImported;
+        snapshot.baseContainerInventoryItemCount = ref.baseContainerInventoryItemCount;
         snapshot.baseActorAiAvailable = ref.baseActorAiAvailable;
         snapshot.baseActorAiPackageCount = ref.baseActorAiPackageCount;
         snapshot.baseActorAiAction = ref.baseActorAiAction;
@@ -855,6 +874,11 @@ bool Cell::seedObjectListFromServerWorldState()
     seedList.baseObjectCount = static_cast<unsigned int>(seedList.baseObjects.size());
 
     readObjectList(ID_OBJECT_PLACE, &seedList);
+    for (const ServerWorldReference& reference : serverWorldReferences)
+    {
+        if (reference.baseRecordCategory == "container" && reference.baseContainerInventoryImported)
+            knownContainerSnapshots.insert({ reference.refNum, reference.mpNum });
+    }
     objectListSnapshotReceived = true;
     serverWorldObjectListSeeded = true;
     serverWorldSeededObjectCount = seedList.baseObjects.size();

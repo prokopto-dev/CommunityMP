@@ -20,6 +20,7 @@ namespace
     constexpr std::string_view manifestSchema = "communitymp.worlddb.v1";
     constexpr std::string_view loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr std::string_view recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
+    constexpr std::string_view containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
     constexpr std::string_view cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
     constexpr std::string_view cellReferenceWinnerRowSchema = "communitymp.worlddb.cell-reference-winner.v1";
 
@@ -342,6 +343,7 @@ namespace mwmp
         mLoadOrderByContentFile.clear();
         mRecordWinnersByWinnerKey.clear();
         mRecordWinnerKeysByRecordKey.clear();
+        mContainerInventoryByRecordKey.clear();
         mCellsByKey.clear();
         mReferencesByKey.clear();
         mReferenceKeysByEffectiveCellKey.clear();
@@ -414,9 +416,14 @@ namespace mwmp
                     winner.actorAiFight = getUnsigned(row, "actorAiFight");
                     winner.actorAiFlee = getUnsigned(row, "actorAiFlee");
                     winner.actorAiAlarm = getUnsigned(row, "actorAiAlarm");
+                    winner.containerInventoryImported = getBool(row, "containerInventoryImported");
+                    winner.containerInventoryItemCount = getSizeT(row, "containerInventoryItemCount");
 
-                    if (winner.deleted || winner.tombstone)
+                    const bool deletedWinner = winner.deleted || winner.tombstone;
+                    if (deletedWinner)
                         ++mStats.recordWinnerDeletedCount;
+                    if (!deletedWinner && winner.containerInventoryImported && !winner.recordKey.empty())
+                        ++mStats.containerInventoryRecordCount;
 
                     if (winner.recordType.empty() || winner.recordKey.empty())
                         return;
@@ -425,6 +432,35 @@ namespace mwmp
                     mRecordWinnerKeysByRecordKey[winner.recordKey].push_back(winner.winnerKey);
                     mRecordWinnersByWinnerKey[winner.winnerKey] = std::move(winner);
                 });
+
+            mStats.containerInventoryItemCount = readJsonlTable(root, "container_inventory.jsonl",
+                containerInventoryRowSchema, [&](const boost::property_tree::ptree& row) {
+                    WorldContainerInventoryItem item;
+                    item.recordKey = normalizedLookupKey(getString(row, "recordKey"));
+                    item.recordId = getString(row, "recordId");
+                    item.sourceFile = getString(row, "sourceFile");
+                    item.loadOrderIndex = getSizeT(row, "loadOrderIndex");
+                    item.engineContentIndex = getSizeT(row, "engineContentIndex");
+                    item.recordIndex = getSizeT(row, "recordIndex");
+                    item.itemOrder = getSizeT(row, "itemOrder");
+                    item.itemRefId = getString(row, "itemRefId");
+                    item.count = getInt(row, "count");
+
+                    if (!item.recordKey.empty() && !item.itemRefId.empty() && item.count > 0)
+                        mContainerInventoryByRecordKey[item.recordKey].push_back(std::move(item));
+                });
+            for (auto& [recordKey, items] : mContainerInventoryByRecordKey)
+            {
+                static_cast<void>(recordKey);
+                std::sort(items.begin(), items.end(),
+                    [](const WorldContainerInventoryItem& left, const WorldContainerInventoryItem& right) {
+                        if (left.itemOrder != right.itemOrder)
+                            return left.itemOrder < right.itemOrder;
+                        if (left.itemRefId != right.itemRefId)
+                            return left.itemRefId < right.itemRefId;
+                        return left.count < right.count;
+                    });
+            }
 
             mStats.cellRecordCount = readJsonlTable(root, "cells.jsonl", cellRecordRowSchema,
                 [&](const boost::property_tree::ptree& row) {
@@ -525,8 +561,9 @@ namespace mwmp
             mStats.loaded = mStats.manifestCount > 0;
 
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
+                "Loaded CommunityMP world database root=%s loadOrder=%zu records=%zu containerInventories=%zu containerItems=%zu cells=%zu activeCells=%zu refs=%zu activeRefs=%zu actors=%zu containers=%zu doors=%zu indexedCells=%zu",
                 pathToLogString(root).c_str(), mStats.loadOrderEntryCount, mStats.recordWinnerCount,
+                mStats.containerInventoryRecordCount, mStats.containerInventoryItemCount,
                 mStats.cellRecordCount, mStats.activeCellRecordCount, mStats.cellReferenceCount,
                 mStats.activeCellReferenceCount, mStats.actorReferenceCount, mStats.containerReferenceCount,
                 mStats.doorReferenceCount,
@@ -540,6 +577,7 @@ namespace mwmp
             mLoadOrderByContentFile.clear();
             mRecordWinnersByWinnerKey.clear();
             mRecordWinnerKeysByRecordKey.clear();
+            mContainerInventoryByRecordKey.clear();
             mCellsByKey.clear();
             mReferencesByKey.clear();
             mReferenceKeysByEffectiveCellKey.clear();
@@ -563,6 +601,8 @@ namespace mwmp
         ref.baseRecordCategory.clear();
         ref.baseRecordSourceFile.clear();
         ref.baseRecordLoadOrderIndex = 0;
+        ref.baseContainerInventoryImported = false;
+        ref.baseContainerInventoryItemCount = 0;
         ref.baseActorAiAvailable = false;
         ref.baseActorAiPackageCount = 0;
         ref.baseActorAiAction = 0;
@@ -622,6 +662,13 @@ namespace mwmp
         ref.baseRecordCategory = selected->category;
         ref.baseRecordSourceFile = selected->sourceFile;
         ref.baseRecordLoadOrderIndex = selected->loadOrderIndex;
+        const auto inventoryIt = mContainerInventoryByRecordKey.find(selected->recordKey);
+        const std::size_t importedInventoryItemCount
+            = inventoryIt != mContainerInventoryByRecordKey.end() ? inventoryIt->second.size() : 0;
+        ref.baseContainerInventoryImported = selected->containerInventoryImported
+            && importedInventoryItemCount == selected->containerInventoryItemCount;
+        ref.baseContainerInventoryItemCount
+            = ref.baseContainerInventoryImported ? importedInventoryItemCount : 0;
         ref.baseActorAiAvailable = selected->actorAiAvailable;
         ref.baseActorAiPackageCount = selected->actorAiPackageCount;
         ref.baseActorAiAction = selected->actorAiAction;
@@ -835,5 +882,16 @@ namespace mwmp
 
         std::sort(result.begin(), result.end(), referenceSortLess);
         return result;
+    }
+
+    std::vector<WorldContainerInventoryItem> WorldDatabaseStore::findContainerInventoryByRecordKey(
+        std::string_view recordKey) const
+    {
+        std::lock_guard lock(mMutex);
+        const auto it = mContainerInventoryByRecordKey.find(normalizedLookupKey(recordKey));
+        if (it == mContainerInventoryByRecordKey.end())
+            return {};
+
+        return it->second;
     }
 }

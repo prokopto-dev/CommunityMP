@@ -7,6 +7,7 @@
 #include <components/esm3/formatversion.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadcell.hpp>
+#include <components/esm3/loadcont.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/readerscache.hpp>
@@ -49,6 +50,7 @@ namespace
     constexpr const char* resolvedAssetRowSchema = "communitymp.worlddb.resolved-asset.v1";
     constexpr const char* recordIndexRowSchema = "communitymp.worlddb.record-index.v1";
     constexpr const char* recordWinnerRowSchema = "communitymp.worlddb.record-winner.v1";
+    constexpr const char* containerInventoryRowSchema = "communitymp.worlddb.container-inventory.v1";
     constexpr const char* cellRecordRowSchema = "communitymp.worlddb.cell-record.v1";
     constexpr const char* cellReferenceRowSchema = "communitymp.worlddb.cell-reference.v1";
     constexpr const char* cellReferenceWinnerRowSchema = "communitymp.worlddb.cell-reference-winner.v1";
@@ -470,7 +472,7 @@ namespace
         appendJsonStringField(result, "loadOrderSource", stats.loadOrderSource);
         result += ",\n  ";
         appendJsonStringField(result, "loadOrderRule", stats.loadOrderRule);
-        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
+        result += ",\n  \"tables\":[\"data_dirs.jsonl\",\"load_order.jsonl\",\"content_files.jsonl\",\"asset_providers.jsonl\",\"archive_files.jsonl\",\"resolved_assets.jsonl\",\"record_index.jsonl\",\"record_winners.jsonl\",\"container_inventory.jsonl\",\"cells.jsonl\",\"cell_references.jsonl\",\"cell_reference_winners.jsonl\",\"quest_sources.jsonl\"],\n  ";
         appendJsonNumberField(result, "dataDirCount", stats.dataDirCount);
         result += ",\n  ";
         appendJsonNumberField(result, "loadOrderEntryCount", stats.loadOrderEntryCount);
@@ -496,6 +498,10 @@ namespace
         appendJsonNumberField(result, "recordWinnerDeletedCount", stats.recordWinnerDeletedCount);
         result += ",\n  ";
         appendJsonNumberField(result, "recordImportErrorCount", stats.recordImportErrorCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "containerInventoryRecordCount", stats.containerInventoryRecordCount);
+        result += ",\n  ";
+        appendJsonNumberField(result, "containerInventoryItemCount", stats.containerInventoryItemCount);
         result += ",\n  ";
         appendJsonNumberField(result, "cellRecordCount", stats.cellRecordCount);
         result += ",\n  ";
@@ -944,6 +950,12 @@ namespace
         std::string keyKind;
     };
 
+    struct ImportedContainerItem
+    {
+        std::string refId;
+        int count = 0;
+    };
+
     struct IndexedRecordRow
     {
         std::size_t engineContentIndex = 0;
@@ -970,12 +982,15 @@ namespace
         unsigned int actorAiFight = 0;
         unsigned int actorAiFlee = 0;
         unsigned int actorAiAlarm = 0;
+        bool containerInventoryImported = false;
+        std::vector<ImportedContainerItem> containerInventory;
     };
 
     struct RecordIndexTables
     {
         std::string recordIndexJsonl;
         std::string recordWinnersJsonl;
+        std::string containerInventoryJsonl;
     };
 
     RecordIdentity makeRecordIdentity(std::string recordId, std::string recordKey, std::string keyKind,
@@ -1459,6 +1474,32 @@ namespace
         return false;
     }
 
+    bool loadContainerRecordRowData(ESM::ESMReader& esm, const ESM::NAME recordName, IndexedRecordRow& row)
+    {
+        if (recordName.toInt() != ESM::REC_CONT)
+            return false;
+
+        ESM::Container container;
+        bool deletedSubrecord = false;
+        container.load(esm, deletedSubrecord);
+        row.identity = makeRecordIdentity(
+            refIdToString(container.mId), normalizedLookupKey(refIdToString(container.mId)), "record-id",
+            deletedSubrecord);
+        row.containerInventoryImported = true;
+        row.containerInventory.reserve(container.mInventory.mList.size());
+        for (const ESM::ContItem& item : container.mInventory.mList)
+        {
+            if (item.mCount <= 0 || item.mItem.empty())
+                continue;
+
+            ImportedContainerItem imported;
+            imported.refId = refIdToString(item.mItem);
+            imported.count = item.mCount;
+            row.containerInventory.push_back(std::move(imported));
+        }
+        return true;
+    }
+
     void appendRecordKeyFields(std::string& result, const RecordIdentity& identity)
     {
         appendJsonBoolField(result, "recordKeyAvailable", identity.available);
@@ -1577,7 +1618,46 @@ namespace
         appendJsonNumberField(result, "actorAiFlee", row.actorAiFlee);
         result.push_back(',');
         appendJsonNumberField(result, "actorAiAlarm", row.actorAiAlarm);
+        result.push_back(',');
+        appendJsonBoolField(result, "containerInventoryImported", row.containerInventoryImported);
+        result.push_back(',');
+        appendJsonNumberField(result, "containerInventoryItemCount", row.containerInventory.size());
         result += "}\n";
+    }
+
+    void appendContainerInventoryRows(std::string& result, const IndexedRecordRow& row,
+        mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        if (!row.containerInventoryImported || isDeletedRecord(row) || !row.identity.available)
+            return;
+
+        ++stats.containerInventoryRecordCount;
+        for (std::size_t itemOrder = 0; itemOrder < row.containerInventory.size(); ++itemOrder)
+        {
+            const ImportedContainerItem& item = row.containerInventory[itemOrder];
+            result.push_back('{');
+            appendJsonStringField(result, "schema", containerInventoryRowSchema);
+            result.push_back(',');
+            appendJsonStringField(result, "recordKey", row.identity.recordKey);
+            result.push_back(',');
+            appendJsonStringField(result, "recordId", row.identity.recordId);
+            result.push_back(',');
+            appendJsonStringField(result, "sourceFile", row.contentFile);
+            result.push_back(',');
+            appendJsonNumberField(result, "loadOrderIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "engineContentIndex", row.engineContentIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "recordIndex", row.recordIndex);
+            result.push_back(',');
+            appendJsonNumberField(result, "itemOrder", itemOrder);
+            result.push_back(',');
+            appendJsonStringField(result, "itemRefId", item.refId);
+            result.push_back(',');
+            appendJsonNumberField(result, "count", item.count);
+            result += "}\n";
+            ++stats.containerInventoryItemCount;
+        }
     }
 
     RecordIndexTables buildRecordIndexTablesJsonl(const std::vector<std::filesystem::path>& dataDirs,
@@ -1623,7 +1703,9 @@ namespace
                     row.flags = flags;
                     row.recordOffset = recordOffset;
                     row.dataOffset = dataOffset;
-                    if ((flags & ESM::FLAG_Ignored) != 0 || !loadActorRecordRowData(esm, recordName, row))
+                    if ((flags & ESM::FLAG_Ignored) != 0
+                        || (!loadActorRecordRowData(esm, recordName, row)
+                            && !loadContainerRecordRowData(esm, recordName, row)))
                     {
                         row.identity = extractRecordIdentity(esm, recordName, flags, currentDialogueId);
                         esm.skipRecord();
@@ -1662,6 +1744,7 @@ namespace
         for (const auto& [_, row] : winningRows)
         {
             appendRecordWinnerRow(result.recordWinnersJsonl, row);
+            appendContainerInventoryRows(result.containerInventoryJsonl, row, stats);
             ++stats.recordWinnerCount;
             if (isDeletedRecord(row))
                 ++stats.recordWinnerDeletedCount;
@@ -3283,7 +3366,7 @@ namespace mwmp
         mStats.rootPath = resolveDatabaseRoot();
         mStats.manifestPath = mStats.rootPath / "manifest.json";
         mStats.generatedQuestDatabasePath = resolveGeneratedQuestDatabasePath();
-        mStats.tableCount = 12;
+        mStats.tableCount = 13;
 
         try
         {
@@ -3311,6 +3394,8 @@ namespace mwmp
             changed = writeIfChanged(newStats.rootPath / "resolved_assets.jsonl", resolvedAssetsJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_index.jsonl", recordIndexTables.recordIndexJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "record_winners.jsonl", recordIndexTables.recordWinnersJsonl) || changed;
+            changed = writeIfChanged(newStats.rootPath / "container_inventory.jsonl",
+                recordIndexTables.containerInventoryJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "cells.jsonl", cellWorldTables.cellsJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "cell_references.jsonl", cellWorldTables.cellReferencesJsonl) || changed;
             changed = writeIfChanged(newStats.rootPath / "cell_reference_winners.jsonl",
