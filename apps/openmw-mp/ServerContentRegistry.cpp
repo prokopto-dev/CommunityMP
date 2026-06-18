@@ -1,5 +1,11 @@
 #include "ServerContentRegistry.hpp"
 
+#include <components/files/collections.hpp>
+#include <components/misc/strings/algorithm.hpp>
+#include <components/openmw-mp/Utils.hpp>
+
+#include <algorithm>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -9,6 +15,7 @@
 namespace
 {
     constexpr const char* dataFilesRelativePath = "saves/server/config/data-files.xml";
+    constexpr const char* builtinOpenMwScripts = "builtin.omwscripts";
 
     std::string getAttribute(const boost::property_tree::ptree& node, const char* key)
     {
@@ -76,6 +83,43 @@ namespace
 
         return checksumCount;
     }
+
+    bool isBuiltinContentFile(const std::string& contentFile)
+    {
+        return Misc::StringUtils::ciEqual(contentFile, builtinOpenMwScripts);
+    }
+
+    mwmp::ServerDataFileRequirement* findRequirement(
+        std::vector<mwmp::ServerDataFileRequirement>& dataFiles, const std::string& name)
+    {
+        auto found = std::find_if(dataFiles.begin(), dataFiles.end(),
+            [&](const mwmp::ServerDataFileRequirement& requirement) {
+                return Misc::StringUtils::ciEqual(requirement.name, name);
+            });
+
+        return found != dataFiles.end() ? &*found : nullptr;
+    }
+
+    bool appendUniqueChecksum(std::vector<std::string>& checksums, std::string checksum)
+    {
+        const auto found = std::find_if(checksums.begin(), checksums.end(), [&](const std::string& existing) {
+            return Misc::StringUtils::ciEqual(existing, checksum);
+        });
+
+        if (found != checksums.end())
+            return false;
+
+        checksums.push_back(std::move(checksum));
+        return true;
+    }
+
+    std::size_t countChecksums(const std::vector<mwmp::ServerDataFileRequirement>& dataFiles)
+    {
+        std::size_t result = 0;
+        for (const mwmp::ServerDataFileRequirement& requirement : dataFiles)
+            result += requirement.checksums.size();
+        return result;
+    }
 }
 
 namespace mwmp
@@ -121,6 +165,61 @@ namespace mwmp
             mStats.checksumCount = 0;
             mStats.loaded = false;
             mStats.lastError = e.what();
+        }
+    }
+
+    void ServerContentRegistry::enrichFromOpenMwContentPlan(
+        const std::vector<std::filesystem::path>& dataDirs, const std::vector<std::string>& contentFiles)
+    {
+        if (dataDirs.empty() || contentFiles.empty())
+            return;
+
+        const bool wasLoadedFromXml = mStats.loaded;
+        mStats.enrichedFromOpenMwContentPlan = true;
+        Files::Collections collections(dataDirs);
+
+        for (const std::string& contentFile : contentFiles)
+        {
+            if (contentFile.empty() || isBuiltinContentFile(contentFile))
+                continue;
+
+            ++mStats.contentPlanFileCount;
+            ServerDataFileRequirement* requirement = findRequirement(mDataFiles, contentFile);
+            if (requirement == nullptr)
+            {
+                ServerDataFileRequirement addedRequirement;
+                addedRequirement.name = contentFile;
+                mDataFiles.push_back(std::move(addedRequirement));
+                requirement = &mDataFiles.back();
+            }
+
+            try
+            {
+                const std::filesystem::path contentPath = collections.getPath(contentFile);
+                const std::uint32_t checksum = Utils::crc32Checksum(contentPath.string());
+                if (appendUniqueChecksum(requirement->checksums, Utils::intToHexStr(checksum)))
+                    ++mStats.computedChecksumCount;
+            }
+            catch (const std::exception& e)
+            {
+                ++mStats.unresolvedContentFileCount;
+                if (mStats.lastError.empty())
+                    mStats.lastError = e.what();
+            }
+        }
+
+        mStats.dataFileCount = mDataFiles.size();
+        mStats.checksumCount = countChecksums(mDataFiles);
+        if (!mDataFiles.empty())
+        {
+            mStats.loaded = true;
+            if (wasLoadedFromXml && mStats.backend == "communitymp-server-data-files-xml")
+                mStats.backend = "communitymp-server-data-files-xml+openmw-content-plan";
+            else if (!wasLoadedFromXml)
+                mStats.backend = "openmw-content-plan";
+
+            if (!wasLoadedFromXml && mStats.unresolvedContentFileCount == 0)
+                mStats.lastError.clear();
         }
     }
 

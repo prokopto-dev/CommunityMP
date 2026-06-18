@@ -2337,6 +2337,14 @@ namespace mwmp
         payload += std::to_string(serverContent.dataFileCount);
         payload += ",\"checksumCount\":";
         payload += std::to_string(serverContent.checksumCount);
+        payload += ",\"enrichedFromOpenMwContentPlan\":";
+        payload += jsonBool(serverContent.enrichedFromOpenMwContentPlan);
+        payload += ",\"contentPlanFileCount\":";
+        payload += std::to_string(serverContent.contentPlanFileCount);
+        payload += ",\"computedChecksumCount\":";
+        payload += std::to_string(serverContent.computedChecksumCount);
+        payload += ",\"unresolvedContentFileCount\":";
+        payload += std::to_string(serverContent.unresolvedContentFileCount);
         payload += ",\"contentPreview\":";
         std::vector<std::string> contentFiles;
         contentFiles.reserve(

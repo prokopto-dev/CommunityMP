@@ -21,8 +21,12 @@ namespace mwmp
         bool loaded = false;
         std::filesystem::path path;
         std::string lastError;
+        bool enrichedFromOpenMwContentPlan = false;
         std::size_t dataFileCount = 0;
         std::size_t checksumCount = 0;
+        std::size_t contentPlanFileCount = 0;
+        std::size_t computedChecksumCount = 0;
+        std::size_t unresolvedContentFileCount = 0;
     };
 
     class ServerContentRegistry
@@ -31,6 +35,8 @@ namespace mwmp
         static ServerContentRegistry& get();
 
         void loadFromDataDirectory(const std::filesystem::path& dataDirectory);
+        void enrichFromOpenMwContentPlan(
+            const std::vector<std::filesystem::path>& dataDirs, const std::vector<std::string>& contentFiles);
 
         const std::vector<ServerDataFileRequirement>& dataFiles() const;
         const ServerContentRegistryStatistics& statistics() const;

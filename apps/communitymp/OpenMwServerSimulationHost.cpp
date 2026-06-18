@@ -119,7 +119,6 @@ namespace
 
     mwmp::SimulationRuntimeBootstrap buildOpenMwBootstrap(std::vector<std::string>& selectedEngineArguments)
     {
-        const mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
         std::vector<std::string> engineArguments = buildOpenMwConfigArguments(false);
         OpenMwApplicationSettings settings;
         Files::ConfigurationManager cfgMgr(true);
@@ -130,6 +129,10 @@ namespace
             && loadOpenMwSettingsFromArguments(engineArguments, settings, cfgMgr);
         selectedEngineArguments = engineArguments;
 
+        if (bootstrap.canLoadOpenMwApplicationSettings)
+            mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+
+        mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
         if (bootstrap.canLoadOpenMwApplicationSettings && content.loaded && content.dataFileCount != 0)
         {
             const std::set<std::string> serverContentNames = getServerContentNames();
@@ -151,6 +154,8 @@ namespace
             {
                 settings = std::move(fallbackSettings);
                 selectedEngineArguments = engineArguments;
+                mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
+                content = mwmp::ServerContentRegistry::get().statistics();
             }
         }
         bootstrap.contentRegistryLoaded = content.loaded;
