@@ -21,6 +21,7 @@ class Player;
 namespace mwmp
 {
     class ActorPacket;
+    class BaseActor;
     class BaseActorList;
     class PlayerPacket;
 
@@ -126,11 +127,20 @@ namespace mwmp
             std::size_t lastSnapshotActorCount = 0;
         };
 
+        struct RuntimeActorMovementState
+        {
+            ESM::Position lastRuntimePosition;
+            std::uint32_t stagnantSnapshotCount = 0;
+            bool hasRuntimePosition = false;
+            bool useFallbackMovement = false;
+        };
+
         std::map<PacketGuid, PlayerMovementState> mPlayerMovementStates;
         std::map<PacketGuid, ESM::Cell> mPlayerAcceptedCells;
         std::map<ActorMovementKey, PlayerMovementState> mActorMovementStates;
         std::map<ActorMovementKey, ActorWanderState> mActorWanderStates;
         std::map<ActorMovementKey, ActorPathgridRouteState> mActorPathgridRouteStates;
+        std::map<ActorMovementKey, RuntimeActorMovementState> mRuntimeActorMovementStates;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         RuntimeActorSnapshotStats mRuntimeActorSnapshotStats;
         std::unique_ptr<SimulationRuntime> mRuntime;
@@ -159,13 +169,15 @@ namespace mwmp
             const ShadowCellAuthorityState& state) const;
         void updateRuntimeSimulationCells();
         void applyRuntimeActorSnapshots(const std::vector<BaseActorList>& actorLists, float deltaSeconds);
+        bool shouldUseRuntimeFallbackMovement(const ActorMovementKey& actorKey,
+            const BaseActor& runtimeActor, const BaseActor* cachedActor);
         void sendCellActivityEvent(Player& player, const std::string& cellDescription,
             const ShadowCellAuthorityState& state, bool localPlayerLoaded) const;
         void broadcastCellActivityEvent(const std::string& cellDescription,
             const ShadowCellAuthorityState& state) const;
         void sendRuntimeStatusEvent(Player& player) const;
         void sendLuaBridgeReadyEvent(Player& player) const;
-        void tickActors(float deltaSeconds);
+        void tickActors(float deltaSeconds, bool runtimeFallbackOnly = false);
     };
 }
 

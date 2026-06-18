@@ -1424,6 +1424,7 @@ void OMW::Engine::prepareServerSimulation()
     mEnvironment.setFrameRateLimit(0.f);
 
     prepareEngine();
+    hideServerSimulationWindow();
 
     if (mStateManager->hasQuitRequest())
         return;

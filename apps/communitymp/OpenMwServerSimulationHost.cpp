@@ -123,7 +123,7 @@ namespace
         if (const char* enabled = std::getenv("COMMUNITYMP_ENABLE_HEADLESS_OPENMW"))
             return isTruthyRuntimeToggle(enabled);
 
-        return false;
+        return true;
     }
 
     std::set<std::string> getServerContentNames()

@@ -69,6 +69,8 @@ namespace
     constexpr float followerCellChangeBehindDistance = 96.f;
     constexpr float followerCellChangeRowSpacing = 48.f;
     constexpr float followerCellChangeColumnSpacing = 48.f;
+    constexpr float runtimeActorMovementEpsilonSquared = 1.f;
+    constexpr std::uint32_t runtimeActorFallbackSnapshotThreshold = 15;
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
 
@@ -1852,7 +1854,7 @@ namespace mwmp
         if (exportedRuntimeActorSnapshots)
             applyRuntimeActorSnapshots(runtimeActorSnapshots, deltaSeconds);
 
-        if (!canAuthoritativelySimulateActors() || mRuntime->hasOpenMwWorld())
+        if (!canAuthoritativelySimulateActors())
             return;
 
         mActorTickAccumulator += deltaSeconds;
@@ -1861,7 +1863,7 @@ namespace mwmp
 
         const float actorDeltaSeconds = std::min(mActorTickAccumulator, maxMovementStepSeconds);
         mActorTickAccumulator = 0.f;
-        tickActors(actorDeltaSeconds);
+        tickActors(actorDeltaSeconds, mRuntime->hasOpenMwWorld());
     }
 
     void ServerSimulation::removePlayer(PacketGuid guid)
@@ -2514,6 +2516,7 @@ namespace mwmp
             mRuntimeActorSnapshotStats.snapshotActorCount += runtimeList.baseActors.size();
             mRuntimeActorSnapshotStats.lastSnapshotCellDescription = serverCell->getShortDescription();
             mRuntimeActorSnapshotStats.lastSnapshotActorCount = runtimeList.baseActors.size();
+            const std::string runtimeCellKey = getCellSimulationKey(runtimeList.cell);
 
             const bool hadActorListSnapshot = serverCell->hasActorListSnapshot();
             std::map<ActorIdentityPair, BaseActor> cachedActorsBeforeIdentity;
@@ -2600,8 +2603,16 @@ namespace mwmp
                 const std::uint32_t nextPositionSequence = cachedActor != nullptr && cachedActor->hasPositionData
                     ? cachedActor->positionSequence + 1
                     : 1;
+                const ActorMovementKey actorKey{ runtimeCellKey, runtimeActor.refNum, runtimeActor.mpNum };
+                const bool useRuntimeFallbackMovement = shouldUseRuntimeFallbackMovement(
+                    actorKey, runtimeActor, cachedActor);
+                if (useRuntimeFallbackMovement && cachedActor != nullptr)
+                {
+                    cachedActor->direction = runtimeActor.direction;
+                    sanitizeFinitePosition(cachedActor->direction);
+                }
 
-                if (runtimeActor.hasPositionData)
+                if (runtimeActor.hasPositionData && !useRuntimeFallbackMovement)
                 {
                     BaseActor positionActor = runtimeActor;
                     positionActor.hasPositionData = true;
@@ -2620,9 +2631,14 @@ namespace mwmp
                         : 1;
                     if (animFlagsActor.hasPositionData)
                     {
-                        animFlagsActor.positionSequence = nextPositionSequence;
-                        animFlagsActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
-                        animFlagsActor.movementLatencySeconds = 0.f;
+                        if (useRuntimeFallbackMovement)
+                            animFlagsActor.hasPositionData = false;
+                        else
+                        {
+                            animFlagsActor.positionSequence = nextPositionSequence;
+                            animFlagsActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                            animFlagsActor.movementLatencySeconds = 0.f;
+                        }
                     }
                     animFlagsList.baseActors.push_back(std::move(animFlagsActor));
                 }
@@ -2682,6 +2698,62 @@ namespace mwmp
                 serverCell->sendToLoaded(equipmentPacket, &equipmentList);
             }
         }
+    }
+
+    bool ServerSimulation::shouldUseRuntimeFallbackMovement(
+        const ActorMovementKey& actorKey, const BaseActor& runtimeActor, const BaseActor* cachedActor)
+    {
+        const bool hasImportedServerMovement = cachedActor != nullptr && hasServerOwnedActorMovement(*cachedActor);
+        const bool hasRuntimeMovementIntent = hasMovementIntent(runtimeActor.direction);
+        if (!runtimeActor.hasPositionData || !isFiniteActorMovementSnapshot(runtimeActor)
+            || cachedActor == nullptr || (!hasImportedServerMovement && !hasRuntimeMovementIntent))
+        {
+            mRuntimeActorMovementStates.erase(actorKey);
+            return false;
+        }
+
+        RuntimeActorMovementState& state = mRuntimeActorMovementStates[actorKey];
+        const bool wasUsingFallback = state.useFallbackMovement;
+
+        if (!state.hasRuntimePosition)
+        {
+            state.lastRuntimePosition = runtimeActor.position;
+            state.stagnantSnapshotCount = 0;
+            state.hasRuntimePosition = true;
+            state.useFallbackMovement = false;
+            return false;
+        }
+
+        const float runtimeDeltaSquared = squaredDistance(runtimeActor.position, state.lastRuntimePosition);
+        if (std::isfinite(runtimeDeltaSquared) && runtimeDeltaSquared > runtimeActorMovementEpsilonSquared)
+        {
+            state.lastRuntimePosition = runtimeActor.position;
+            state.stagnantSnapshotCount = 0;
+            state.useFallbackMovement = false;
+
+            if (wasUsingFallback)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Runtime actor movement resumed for %u-%u in %s; disabling server pathgrid fallback",
+                    runtimeActor.refNum, runtimeActor.mpNum, actorKey.cellKey.c_str());
+            }
+
+            return false;
+        }
+
+        state.lastRuntimePosition = runtimeActor.position;
+        if (state.stagnantSnapshotCount < runtimeActorFallbackSnapshotThreshold)
+            ++state.stagnantSnapshotCount;
+
+        state.useFallbackMovement = state.stagnantSnapshotCount >= runtimeActorFallbackSnapshotThreshold;
+        if (state.useFallbackMovement && !wasUsingFallback)
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "Runtime actor %u-%u in %s is position-stagnant; enabling server pathgrid movement fallback",
+                runtimeActor.refNum, runtimeActor.mpNum, actorKey.cellKey.c_str());
+        }
+
+        return state.useFallbackMovement;
     }
 
     void ServerSimulation::sendCellActivityEvent(Player& player, const std::string& cellDescription,
@@ -4018,7 +4090,7 @@ namespace mwmp
         return true;
     }
 
-    void ServerSimulation::tickActors(float deltaSeconds)
+    void ServerSimulation::tickActors(float deltaSeconds, bool runtimeFallbackOnly)
     {
         if (!canAuthoritativelySimulateActors())
             return;
@@ -4052,6 +4124,14 @@ namespace mwmp
                     continue;
 
                 const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+                if (runtimeFallbackOnly)
+                {
+                    const auto runtimeStateIt = mRuntimeActorMovementStates.find(actorKey);
+                    if (runtimeStateIt == mRuntimeActorMovementStates.end()
+                        || !runtimeStateIt->second.useFallbackMovement)
+                        continue;
+                }
+
                 ESM::Position direction = actor.direction;
                 const bool serverOwnsActorMovement = hasServerOwnedActorMovement(actor);
                 ActorPathgridRouteState& routeState = mActorPathgridRouteStates[actorKey];
