@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -262,6 +263,11 @@ namespace
         }
 
         return nullptr;
+    }
+
+    bool cellDescriptionMatches(const ESM::Cell& cell, const std::string& cellDescription)
+    {
+        return !cellDescription.empty() && cell.getDescription() == cellDescription;
     }
 
     std::string getLuaCellKey(const ESM::Cell& cell)
@@ -1859,6 +1865,17 @@ namespace mwmp
         const bool wasVisitor = containsGuid(state.visitors, player->guid);
         const bool previousAuthorityWasCandidate = isShadowCellAuthorityCandidate(state, state.authority);
 
+        if (Cell* liveCell = findLoadedServerCellByDescription(cellDescription))
+        {
+            state.cell = liveCell->getCellData();
+            state.hasCell = true;
+        }
+        else if (cellDescriptionMatches(player->cell, cellDescription))
+        {
+            state.cell = player->cell;
+            state.hasCell = true;
+        }
+
         if (!wasVisitor)
             state.visitors.push_back(player->guid);
 
@@ -2298,11 +2315,17 @@ namespace mwmp
     bool ServerSimulation::updateCellSimulationInterest(const std::string& cellDescription,
         const ShadowCellAuthorityState& state) const
     {
+        const bool enabled = canAuthoritativelySimulateActors() && !state.visitors.empty();
         Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        if (liveCell == nullptr && enabled && state.hasCell)
+        {
+            CellController* cellController = CellController::get();
+            if (cellController != nullptr)
+                liveCell = cellController->addCell(state.cell);
+        }
         if (liveCell == nullptr)
             return false;
 
-        const bool enabled = canAuthoritativelySimulateActors() && !state.visitors.empty();
         if (liveCell->hasSimulationInterest() != enabled)
         {
             liveCell->setSimulationInterest(enabled);
@@ -2323,10 +2346,51 @@ namespace mwmp
         if (cellController == nullptr)
             return;
 
+        auto buildFocusForState = [&](const std::string& cellDescription, const ShadowCellAuthorityState& state,
+                                      const ESM::Cell& cell) {
+            SimulationCellFocus focus;
+            focus.cell = cell;
+
+            for (PacketGuid visitorGuid : state.visitors)
+            {
+                Player* visitor = Players::getPlayer(visitorGuid);
+                if (visitor == nullptr || visitor->getLoadState() == Player::KICKED)
+                    continue;
+
+                if (!visitor->hasFinitePositionPacket() || !isSameSimulationCell(visitor->cell, focus.cell))
+                    continue;
+
+                focus.position = visitor->position;
+                focus.hasPosition = true;
+                break;
+            }
+
+            static_cast<void>(cellDescription);
+            return focus;
+        };
+
         std::vector<SimulationCellFocus> simulationFocuses;
+        std::set<std::string> focusedCellDescriptions;
+        for (const auto& [cellDescription, state] : mShadowCellAuthority)
+        {
+            if (state.visitors.empty() || !state.hasCell)
+                continue;
+
+            Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+            if (liveCell == nullptr)
+                liveCell = cellController->addCell(state.cell);
+            if (liveCell != nullptr && !liveCell->hasSimulationInterest())
+                liveCell->setSimulationInterest(true);
+
+            simulationFocuses.push_back(buildFocusForState(cellDescription, state, state.cell));
+            focusedCellDescriptions.insert(cellDescription);
+        }
+
         for (Cell* cell : cellController->getCells())
         {
             if (cell == nullptr || !cell->hasSimulationInterest())
+                continue;
+            if (focusedCellDescriptions.find(cell->getShortDescription()) != focusedCellDescriptions.end())
                 continue;
 
             SimulationCellFocus focus;
@@ -2762,11 +2826,21 @@ namespace mwmp
         }
 
         std::size_t playerTrackedCellCount = 0;
+        std::size_t serverSimulationTrackedCellCount = 0;
+        std::size_t serverSimulationIdentifiedCellCount = 0;
+        std::size_t serverSimulationVisitorReferenceCount = 0;
         for (const auto& [cellDescription, state] : mShadowCellAuthority)
         {
             static_cast<void>(cellDescription);
             if (containsGuid(state.visitors, player.guid))
                 ++playerTrackedCellCount;
+            if (!state.visitors.empty())
+            {
+                ++serverSimulationTrackedCellCount;
+                if (state.hasCell)
+                    ++serverSimulationIdentifiedCellCount;
+                serverSimulationVisitorReferenceCount += state.visitors.size();
+            }
         }
 
         std::size_t serverActorPathgridRouteCacheCount = mActorPathgridRouteStates.size();
@@ -2823,6 +2897,14 @@ namespace mwmp
         payload += std::to_string(serverActorPathgridRouteWaypointCacheCount);
         payload += ",\"loadedCellCount\":";
         payload += std::to_string(loadedCellCount);
+        payload += ",\"serverSimulationTrackedCellCount\":";
+        payload += std::to_string(serverSimulationTrackedCellCount);
+        payload += ",\"serverSimulationIdentifiedCellCount\":";
+        payload += std::to_string(serverSimulationIdentifiedCellCount);
+        payload += ",\"serverSimulationVisitorReferenceCount\":";
+        payload += std::to_string(serverSimulationVisitorReferenceCount);
+        payload += ",\"playerTrackedCellCount\":";
+        payload += std::to_string(playerTrackedCellCount);
         payload += ",\"serverWorldBootstrappedCellCount\":";
         payload += std::to_string(serverWorldBootstrappedCellCount);
         payload += ",\"serverWorldReferenceCount\":";

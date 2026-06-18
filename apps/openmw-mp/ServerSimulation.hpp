@@ -109,6 +109,8 @@ namespace mwmp
         {
             std::vector<PacketGuid> visitors;
             PacketGuid authority = unassignedPacketGuid();
+            ESM::Cell cell;
+            bool hasCell = false;
         };
 
         std::map<PacketGuid, PlayerMovementState> mPlayerMovementStates;
