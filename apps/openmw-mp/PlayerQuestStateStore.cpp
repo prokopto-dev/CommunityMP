@@ -14,6 +14,7 @@
 
 #include "CommunityMpLuaEventSender.hpp"
 #include "Player.hpp"
+#include "QuestEventJournalStore.hpp"
 #include "QuestDatabaseStore.hpp"
 
 namespace
@@ -149,6 +150,50 @@ namespace
         progress.currentQuestStepSourceInfoId = step.sourceInfoId;
         progress.currentQuestStepIndex = step.index;
         progress.knownQuestStep = true;
+    }
+
+    std::optional<mwmp::QuestStepRecord> findQuestStep(std::string_view sourceQuestId, int index);
+
+    mwmp::QuestEventJournalRecord makeQuestEventJournalRecord(
+        Player& player, const mwmp::JournalItem& item, std::uint32_t revision)
+    {
+        mwmp::QuestEventJournalRecord record;
+        record.revision = revision;
+        record.playerGuid = mwmp::packetGuidToString(player.guid);
+        record.playerName = player.npc.mName;
+        record.loginName = player.getLoginName();
+        record.legacyQuestId = item.quest;
+        record.journalType = journalItemTypeName(item.type);
+        record.journalIndex = item.index;
+        record.actorRefId = item.actorRefId;
+        record.finished = item.isFinished;
+        record.hasTimestamp = item.hasTimestamp;
+        if (item.hasTimestamp)
+        {
+            record.daysPassed = item.timestamp.daysPassed;
+            record.month = item.timestamp.month;
+            record.day = item.timestamp.day;
+        }
+
+        if (std::optional<mwmp::QuestDefinitionRecord> definition
+            = mwmp::QuestDatabaseStore::get().findQuestBySourceQuestId(item.quest))
+        {
+            record.knownQuestDefinition = true;
+            record.questDefinitionId = definition->questId;
+            record.questPackageId = definition->packageId;
+            record.questTitle = definition->title;
+        }
+
+        if (std::optional<mwmp::QuestStepRecord> step = findQuestStep(item.quest, item.index))
+        {
+            record.knownQuestStep = true;
+            record.questStepId = step->stepId;
+            record.questStepStatus = step->status;
+            record.questStepCompletionPolicy = step->completionPolicy;
+            record.questStepSourceInfoId = step->sourceInfoId;
+        }
+
+        return record;
     }
 
     std::optional<mwmp::QuestStepRecord> findQuestStep(std::string_view sourceQuestId, int index)
@@ -302,6 +347,7 @@ namespace
             return;
 
         const mwmp::QuestDatabaseStatistics questDatabase = mwmp::QuestDatabaseStore::get().statistics();
+        const mwmp::QuestEventJournalStatistics eventJournal = mwmp::QuestEventJournalStore::get().statistics();
         std::size_t knownQuestDefinitionCount = 0;
         std::size_t knownQuestStepCount = 0;
         for (const auto& [sourceQuestId, progress] : state.journal)
@@ -319,7 +365,16 @@ namespace
         payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
         payload += ",\"kind\":\"quest_state\",\"sourcePacket\":";
         appendJsonString(payload, sourcePacket);
-        payload += ",\"storageBackend\":\"memory\"";
+        payload += ",\"storageBackend\":";
+        appendJsonString(payload, eventJournal.available ? "memory+jsonl" : "memory");
+        payload += ",\"eventJournalBackend\":";
+        appendJsonString(payload, eventJournal.backend);
+        payload += ",\"eventJournalAvailable\":";
+        payload += jsonBool(eventJournal.available);
+        payload += ",\"eventJournalEventCount\":";
+        payload += std::to_string(eventJournal.eventCount);
+        payload += ",\"eventJournalWriteFailures\":";
+        payload += std::to_string(eventJournal.writeFailures);
         payload += ",\"definitionBackend\":";
         appendJsonString(payload, questDatabase.backend);
         payload += ",\"questDatabaseLoaded\":";
@@ -386,18 +441,23 @@ namespace mwmp
     void PlayerQuestStateStore::applyJournalChanges(Player& player)
     {
         QuestDatabaseStore::get().ensureLoaded();
+        QuestEventJournalStore::get().ensureOpened();
 
         PlayerQuestReadState snapshot;
+        std::vector<QuestEventJournalRecord> journalEvents;
         {
             std::lock_guard lock(sQuestStateMutex);
             PlayerQuestReadState& state = sQuestReadStateByPlayer[player.guid];
             if (player.journalChangesAreLoad)
                 state.journal.clear();
 
+            const std::uint32_t nextRevision = state.revision + 1;
             for (const JournalItem& item : player.journalChanges)
             {
                 if (item.quest.empty())
                     continue;
+
+                journalEvents.push_back(makeQuestEventJournalRecord(player, item, nextRevision));
 
                 JournalProgress& progress = state.journal[item.quest];
                 applyQuestDefinitionIfKnown(progress, item.quest);
@@ -428,6 +488,9 @@ namespace mwmp
             ++state.revision;
             snapshot = state;
         }
+
+        for (const QuestEventJournalRecord& event : journalEvents)
+            static_cast<void>(QuestEventJournalStore::get().append(event));
 
         sendQuestStateSummary(player, "journal", snapshot, player.journalChanges.size(), player.journalChangesAreLoad);
     }

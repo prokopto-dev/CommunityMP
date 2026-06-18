@@ -54,6 +54,9 @@ local questStateStats = {
     knownQuestSteps = 0,
     unknownJournalQuests = 0,
     questDatabaseLoaded = false,
+    eventJournalAvailable = false,
+    eventJournalEventCount = 0,
+    eventJournalWriteFailures = 0,
     bySourcePacket = {},
 }
 
@@ -303,6 +306,9 @@ local function storeRuntimeStatus(state)
     if type(state.questDatabase) == 'table' then
         runtimeStatus.questDatabase = shallowCopy(state.questDatabase)
     end
+    if type(state.questEventJournal) == 'table' then
+        runtimeStatus.questEventJournal = shallowCopy(state.questEventJournal)
+    end
 end
 
 local function storeMovementCorrection(state)
@@ -401,6 +407,9 @@ local function storeQuestState(state)
     questStateStats.knownQuestSteps = tonumber(state.knownQuestStepCount or 0) or 0
     questStateStats.unknownJournalQuests = tonumber(state.unknownJournalQuestCount or 0) or 0
     questStateStats.questDatabaseLoaded = state.questDatabaseLoaded == true
+    questStateStats.eventJournalAvailable = state.eventJournalAvailable == true
+    questStateStats.eventJournalEventCount = tonumber(state.eventJournalEventCount or 0) or 0
+    questStateStats.eventJournalWriteFailures = tonumber(state.eventJournalWriteFailures or 0) or 0
     if state.loadSnapshot == true then
         questStateStats.loadSnapshots = questStateStats.loadSnapshots + 1
     else
@@ -427,6 +436,9 @@ local function storeQuestState(state)
             knownQuestSteps = 0,
             unknownJournalQuests = 0,
             questDatabaseLoaded = false,
+            eventJournalAvailable = false,
+            eventJournalEventCount = 0,
+            eventJournalWriteFailures = 0,
         }
         questStateStats.bySourcePacket[sourcePacket] = packetStats
     end
@@ -437,6 +449,9 @@ local function storeQuestState(state)
     packetStats.knownQuestSteps = tonumber(state.knownQuestStepCount or 0) or 0
     packetStats.unknownJournalQuests = tonumber(state.unknownJournalQuestCount or 0) or 0
     packetStats.questDatabaseLoaded = state.questDatabaseLoaded == true
+    packetStats.eventJournalAvailable = state.eventJournalAvailable == true
+    packetStats.eventJournalEventCount = tonumber(state.eventJournalEventCount or 0) or 0
+    packetStats.eventJournalWriteFailures = tonumber(state.eventJournalWriteFailures or 0) or 0
     if state.loadSnapshot == true then
         packetStats.loadSnapshots = packetStats.loadSnapshots + 1
     else
@@ -461,6 +476,9 @@ local function getRuntimeStatus()
     end
     if type(runtimeStatus.questDatabase) == 'table' then
         copy.questDatabase = shallowCopy(runtimeStatus.questDatabase)
+    end
+    if type(runtimeStatus.questEventJournal) == 'table' then
+        copy.questEventJournal = shallowCopy(runtimeStatus.questEventJournal)
     end
     return copy
 end
@@ -598,6 +616,13 @@ return {
                 return nil
             end
             return shallowCopy(state.questDatabase)
+        end,
+        getQuestEventJournalStatus = function()
+            local state = getRuntimeStatus()
+            if state == nil or type(state.questEventJournal) ~= 'table' then
+                return nil
+            end
+            return shallowCopy(state.questEventJournal)
         end,
         hasOpenMWWorld = function()
             local state = getRuntimeStatus()

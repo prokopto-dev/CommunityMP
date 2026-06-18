@@ -23,6 +23,7 @@
 #include "CommunityMpClientLuaEventHandler.hpp"
 #include "CommunityMpLuaEventSender.hpp"
 #include "QuestDatabaseStore.hpp"
+#include "QuestEventJournalStore.hpp"
 #include "ServerEventDispatcher.hpp"
 #include "ServerNetworking.hpp"
 #include "Player.hpp"
@@ -1485,6 +1486,7 @@ namespace mwmp
         , mLastTick(Clock::now())
     {
         QuestDatabaseStore::get().ensureLoaded();
+        QuestEventJournalStore::get().ensureOpened();
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Server simulation runtime requested=%s active=%s openmwWorld=%s actorAuthority=%s",
@@ -1977,6 +1979,7 @@ namespace mwmp
     {
         const SimulationRuntimeCapabilities& runtimeCapabilities = runtime().capabilities();
         const QuestDatabaseStatistics questDatabase = QuestDatabaseStore::get().statistics();
+        const QuestEventJournalStatistics questEventJournal = QuestEventJournalStore::get().statistics();
         const CellController* cellController = CellController::get();
         std::size_t loadedCellCount = 0;
         if (cellController != nullptr)
@@ -1991,7 +1994,7 @@ namespace mwmp
         }
 
         std::string payload;
-        payload.reserve(760);
+        payload.reserve(980);
         payload += "{\"schema\":";
         payload += std::to_string(mwmp::clientLuaEventSchemaVersion);
         payload += ",\"kind\":\"runtime_status\"";
@@ -2060,6 +2063,22 @@ namespace mwmp
         payload += std::to_string(questDatabase.conditionCount);
         payload += ",\"legacyEffectCount\":";
         payload += std::to_string(questDatabase.legacyEffectCount);
+        payload += "}";
+        payload += ",\"questEventJournal\":{";
+        payload += "\"backend\":";
+        payload += jsonString(questEventJournal.backend);
+        payload += ",\"attempted\":";
+        payload += jsonBool(questEventJournal.attempted);
+        payload += ",\"available\":";
+        payload += jsonBool(questEventJournal.available);
+        payload += ",\"path\":";
+        payload += jsonString(Files::pathToUnicodeString(questEventJournal.path));
+        payload += ",\"lastError\":";
+        payload += jsonString(questEventJournal.lastError);
+        payload += ",\"eventCount\":";
+        payload += std::to_string(questEventJournal.eventCount);
+        payload += ",\"writeFailures\":";
+        payload += std::to_string(questEventJournal.writeFailures);
         payload += "}";
         payload += ",\"capabilities\":{";
         payload += "\"ownsWorldState\":";
