@@ -162,7 +162,7 @@ namespace MWGui
         void addMessageBox(std::string_view text);
 
         void onFrame(float dt) override;
-        void clear() override { resetReference(); }
+        void clear() override;
 
         void updateTopics();
 
@@ -196,6 +196,8 @@ namespace MWGui
         void restock();
         void deleteLater();
         void redrawTopicsList();
+        void beginTes3mpDialogueInteraction();
+        void endTes3mpDialogueInteraction();
 
         bool mIsCompanion;
         std::list<std::string> mKeywords;
@@ -226,6 +228,7 @@ namespace MWGui
         std::unique_ptr<ResponseCallback> mCallback;
         std::unique_ptr<ResponseCallback> mGreetingCallback;
         bool mApplyingServerDialogueChoice = false;
+        bool mTes3mpDialogueInteractionActive = false;
 
         void setControllerFocus(size_t index, bool focused);
         size_t mControllerFocus = 0;

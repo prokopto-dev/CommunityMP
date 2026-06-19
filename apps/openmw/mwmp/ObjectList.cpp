@@ -1916,6 +1916,18 @@ void ObjectList::addObjectDialogueChoice(const MWWorld::Ptr& ptr, std::string di
     addBaseObject(baseObject);
 }
 
+void ObjectList::addObjectDialogueChoiceByType(
+    const MWWorld::Ptr& ptr, unsigned char dialogueChoiceType, std::string topicId)
+{
+    cell = makePacketCell(*ptr.getCell()->getCell());
+
+    mwmp::BaseObject baseObject = getBaseObjectFromPtr(ptr);
+    baseObject.dialogueChoiceType = dialogueChoiceType;
+    baseObject.topicId = std::move(topicId);
+
+    addBaseObject(baseObject);
+}
+
 void ObjectList::addObjectMiscellaneous(const MWWorld::Ptr& ptr, unsigned int goldPool, float lastGoldRestockHour, int lastGoldRestockDay)
 {
     cell = makePacketCell(*ptr.getCell()->getCell());

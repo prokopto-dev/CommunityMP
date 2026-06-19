@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <components/openmw-mp/Base/ActorStatsAuthority.hpp>
+#include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/files/conversion.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/Packets/Actor/ActorPacket.hpp>
@@ -2165,6 +2166,13 @@ namespace mwmp
     {
         mPlayerMovementStates.erase(guid);
         mPlayerAcceptedCells.erase(guid);
+        for (auto it = mActorInteractionLeases.begin(); it != mActorInteractionLeases.end();)
+        {
+            if (it->second.playerGuid == guid)
+                it = mActorInteractionLeases.erase(it);
+            else
+                ++it;
+        }
 
         for (auto it = mShadowCellAuthority.begin(); it != mShadowCellAuthority.end();)
         {
@@ -2199,6 +2207,69 @@ namespace mwmp
                 broadcastShadowCellAuthorityEvent(it->first, state);
 
             ++it;
+        }
+    }
+
+    void ServerSimulation::notePlayerDialogueChoice(Player& player, const BaseObjectList& objectList)
+    {
+        if (!mwmp::isPacketGuidAssigned(player.guid))
+            return;
+
+        CellController* cellController = CellController::get();
+        if (cellController == nullptr)
+            return;
+
+        ESM::Cell lookupCell = objectList.cell;
+        Cell* serverCell = cellController->getCell(&lookupCell);
+        if (serverCell == nullptr)
+            return;
+
+        const Clock::time_point now = Clock::now();
+        const std::string cellKey = getCellSimulationKey(objectList.cell);
+        for (const BaseObject& object : objectList.baseObjects)
+        {
+            if (object.isPlayer)
+                continue;
+
+            const ActorMovementKey actorKey{ cellKey, object.refNum, object.mpNum };
+            const bool isDialogueStart = object.dialogueChoiceType == DialogueChoiceType::DIALOGUE_START;
+            const bool isDialogueEnd = object.dialogueChoiceType == DialogueChoiceType::DIALOGUE_END;
+
+            if (isDialogueEnd)
+            {
+                const auto leaseIt = mActorInteractionLeases.find(actorKey);
+                if (leaseIt != mActorInteractionLeases.end()
+                    && (!mwmp::isPacketGuidAssigned(leaseIt->second.playerGuid)
+                        || leaseIt->second.playerGuid == player.guid))
+                    mActorInteractionLeases.erase(leaseIt);
+                continue;
+            }
+
+            BaseActor* actor = serverCell->getActor(object.refNum, object.mpNum);
+            if (actor == nullptr)
+                continue;
+
+            const bool actorAlreadyLocked = isActorInteractionLocked(actorKey, now);
+            auto existingLease = mActorInteractionLeases.find(actorKey);
+            if (actorAlreadyLocked && existingLease != mActorInteractionLeases.end()
+                && existingLease->second.playerGuid != player.guid)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Ignoring dialogue interaction from %s for busy actor %s %u-%u in %s",
+                    player.npc.mName.c_str(), object.refId.c_str(), object.refNum, object.mpNum, cellKey.c_str());
+                continue;
+            }
+
+            ActorInteractionLease& lease = mActorInteractionLeases[actorKey];
+            lease.playerGuid = player.guid;
+            lease.expiresAt = now + std::chrono::minutes(5);
+
+            if (isDialogueStart)
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Started dialogue interaction lease for %s %u-%u in %s with player %s",
+                    object.refId.c_str(), object.refNum, object.mpNum, cellKey.c_str(), player.npc.mName.c_str());
+
+            stopActorForInteraction(*serverCell, *actor, actorKey);
         }
     }
 
@@ -2267,6 +2338,14 @@ namespace mwmp
         Player* player = Players::getPlayer(playerId);
         if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid))
             return;
+
+        for (auto it = mActorInteractionLeases.begin(); it != mActorInteractionLeases.end();)
+        {
+            if (it->second.playerGuid == player->guid)
+                it = mActorInteractionLeases.erase(it);
+            else
+                ++it;
+        }
 
         auto stateIt = mShadowCellAuthority.find(cellDescription);
         if (stateIt == mShadowCellAuthority.end())
@@ -2881,6 +2960,7 @@ namespace mwmp
             || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr)
             return;
 
+        const Clock::time_point now = Clock::now();
         const float sampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
         ++mRuntimeActorSnapshotStats.snapshotBatchCount;
 
@@ -3005,6 +3085,8 @@ namespace mwmp
                     ? cachedActor->positionSequence + 1
                     : 1;
                 const ActorMovementKey actorKey{ runtimeCellKey, runtimeActor.refNum, runtimeActor.mpNum };
+                const bool actorInteractionLocked = isActorInteractionLocked(actorKey, now)
+                    && !(cachedActor != nullptr && actorHasServerCombatTarget(*cachedActor));
                 const bool useRuntimeFallbackMovement = shouldUseRuntimeFallbackMovement(
                     actorKey, runtimeActor, cachedActor);
                 const bool rawRuntimeMovementIntent = hasMeaningfulMovementIntent(runtimeActor.direction);
@@ -3034,15 +3116,34 @@ namespace mwmp
                     case RuntimeMovementDirectionAdjustment::Unchanged:
                         break;
                 }
-                if (useRuntimeFallbackMovement && cachedActor != nullptr)
+                if (actorInteractionLocked)
+                {
+                    mActorWanderStates.erase(actorKey);
+                    mActorPathgridRouteStates.erase(actorKey);
+                    mRuntimeActorMovementStates.erase(actorKey);
+                    if (cachedActor != nullptr)
+                    {
+                        visualActor = *cachedActor;
+                        visualActor.cell = runtimeList.cell;
+                        visualActor.refId = cachedActor->refId.empty() ? runtimeActor.refId : cachedActor->refId;
+                    }
+                    visualActor.direction = zeroPosition();
+                    visualActor.hasPositionData = visualActor.hasPositionData || runtimeActor.hasPositionData;
+                }
+                if (!actorInteractionLocked && useRuntimeFallbackMovement && cachedActor != nullptr)
                 {
                     cachedActor->direction = runtimeActor.direction;
                     sanitizeFinitePosition(cachedActor->direction);
                 }
 
+                const bool sendInteractionStopSnapshot = actorInteractionLocked && visualActor.hasPositionData
+                    && (cachedActor == nullptr || hasMovementIntent(cachedActor->direction)
+                        || hasMeaningfulRuntimeTransformDelta(runtimeActor, visualActor)
+                        || hasMeaningfulMovementIntent(runtimeActor.direction));
                 const bool sendRuntimePositionSnapshot = runtimeActor.hasPositionData && !useRuntimeFallbackMovement
+                    && !actorInteractionLocked
                     && shouldSendRuntimePositionSnapshot(previousActor, visualActor);
-                if (sendRuntimePositionSnapshot)
+                if (sendRuntimePositionSnapshot || sendInteractionStopSnapshot)
                 {
                     BaseActor positionActor = visualActor;
                     positionActor.hasPositionData = true;
@@ -3055,7 +3156,7 @@ namespace mwmp
                     ++mRuntimeActorSnapshotStats.redundantPositionSnapshotSuppressedCount;
 
                 const bool sendRuntimeAnimFlagsSnapshot
-                    = shouldSendRuntimeAnimFlagsSnapshot(previousActor, visualActor);
+                    = !actorInteractionLocked && shouldSendRuntimeAnimFlagsSnapshot(previousActor, visualActor);
                 if (sendRuntimeAnimFlagsSnapshot)
                 {
                     BaseActor animFlagsActor = visualActor;
@@ -3101,7 +3202,7 @@ namespace mwmp
                     equipmentList.baseActors.push_back(std::move(equipmentActor));
                 }
 
-                if (runtimeActor.hasAiData && cachedActor != nullptr
+                if (!actorInteractionLocked && runtimeActor.hasAiData && cachedActor != nullptr
                     && !(actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor)
                         && runtimeActor.aiAction != BaseActorList::COMBAT)
                     && hasValidActorAiSnapshot(*serverCell, runtimeActor))
@@ -3180,6 +3281,56 @@ namespace mwmp
             mRuntimeActorSnapshotStats.lastIntentWithoutTransformCellKey.c_str(),
             mRuntimeActorSnapshotStats.lastIntentWithoutTransformRefNum,
             mRuntimeActorSnapshotStats.lastIntentWithoutTransformMpNum);
+    }
+
+    bool ServerSimulation::isActorInteractionLocked(const ActorMovementKey& actorKey, Clock::time_point now)
+    {
+        auto leaseIt = mActorInteractionLeases.find(actorKey);
+        if (leaseIt == mActorInteractionLeases.end())
+            return false;
+
+        if (leaseIt->second.expiresAt <= now || Players::getPlayer(leaseIt->second.playerGuid) == nullptr)
+        {
+            mActorInteractionLeases.erase(leaseIt);
+            return false;
+        }
+
+        return true;
+    }
+
+    void ServerSimulation::stopActorForInteraction(Cell& cell, BaseActor& actor, const ActorMovementKey& actorKey)
+    {
+        if (!actor.hasPositionData)
+            return;
+
+        mActorWanderStates.erase(actorKey);
+        mActorPathgridRouteStates.erase(actorKey);
+        mRuntimeActorMovementStates.erase(actorKey);
+
+        if (!hasMovementIntent(actor.direction))
+            return;
+
+        actor.direction = zeroPosition();
+        actor.movementSampleIntervalSeconds = mwmp::defaultMovementSampleIntervalSeconds;
+        actor.movementLatencySeconds = 0.f;
+        ++actor.positionSequence;
+        actor.hasPositionData = true;
+
+        BaseActorList stopList;
+        stopList.cell = cell.getCellData();
+        stopList.guid = unassignedPacketGuid();
+        stopList.action = BaseActorList::SET;
+        stopList.isValid = true;
+        stopList.baseActors.push_back(actor);
+        stopList.count = static_cast<unsigned int>(stopList.baseActors.size());
+
+        ActorPacket* positionPacket = ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+        if (positionPacket == nullptr)
+            return;
+
+        cell.readActorList(ID_ACTOR_POSITION, &stopList);
+        positionPacket->setActorList(&stopList);
+        cell.sendToLoaded(positionPacket, &stopList);
     }
 
     bool ServerSimulation::shouldUseRuntimeFallbackMovement(
@@ -4632,6 +4783,14 @@ namespace mwmp
             if (currentActor == nullptr)
                 continue;
 
+            const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+            if (isActorInteractionLocked(actorKey, now))
+            {
+                if (currentActor->hasPositionData)
+                    addPositionCorrection(*currentActor);
+                continue;
+            }
+
             if (canAuthoritativelySimulateActors() && serverCell.hasSimulationInterest()
                 && hasServerOwnedActorMovement(*currentActor))
             {
@@ -4668,7 +4827,6 @@ namespace mwmp
                 BaseActor acceptedActor = actor;
                 acceptedActor.hasPositionData = true;
                 acceptNewestPositionActor(acceptedActors, acceptedActorIndexes, acceptedActor);
-                const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
                 mActorMovementStates[actorKey].lastMovementPacket = now;
                 continue;
             }
@@ -4676,7 +4834,6 @@ namespace mwmp
             BaseActor simulatedActor = actor;
             simulatedActor.hasPositionData = true;
 
-            const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
             PlayerMovementState& movementState = mActorMovementStates[actorKey];
             const bool hasMovementClock = movementState.lastMovementPacket != Clock::time_point();
             const bool needsInitialSeed = !currentActor->hasPositionData || !hasMovementClock;
@@ -4755,6 +4912,24 @@ namespace mwmp
                     continue;
 
                 const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+                if (isActorInteractionLocked(actorKey, Clock::now()))
+                {
+                    const bool wasMoving = hasMovementIntent(actor.direction);
+                    mActorWanderStates.erase(actorKey);
+                    mActorPathgridRouteStates.erase(actorKey);
+                    mRuntimeActorMovementStates.erase(actorKey);
+                    actor.direction = zeroPosition();
+                    if (wasMoving)
+                    {
+                        ++actor.positionSequence;
+                        actor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds);
+                        actor.movementLatencySeconds = 0.f;
+                        actor.hasPositionData = true;
+                        tickActorList.baseActors.push_back(actor);
+                    }
+                    continue;
+                }
+
                 if (runtimeFallbackOnly)
                 {
                     const auto runtimeStateIt = mRuntimeActorMovementStates.find(actorKey);

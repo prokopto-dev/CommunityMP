@@ -73,6 +73,21 @@ namespace MWGui
             objectList->sendObjectDialogueChoice();
         }
 
+        void sendTes3mpDialogueChoiceByType(
+            const MWWorld::Ptr& actor, unsigned char dialogueChoiceType, const std::string& topicId = {})
+        {
+            if (!mwmp::Main::isInitialized() || actor.isEmpty())
+                return;
+
+            mwmp::ObjectList* objectList = mwmp::Main::get().getNetworking()->getObjectList();
+            if (objectList == nullptr)
+                return;
+
+            objectList->reset();
+            objectList->addObjectDialogueChoiceByType(actor, dialogueChoiceType, topicId);
+            objectList->sendObjectDialogueChoice();
+        }
+
         mwmp::LocalPlayer* getTes3mpLocalPlayer()
         {
             if (!mwmp::Main::isInitialized())
@@ -457,6 +472,7 @@ namespace MWGui
         }
         else
         {
+            endTes3mpDialogueInteraction();
             resetReference();
             MWBase::Environment::get().getDialogueManager()->goodbyeSelected();
             mTopicsList->scrollToTop();
@@ -523,32 +539,77 @@ namespace MWGui
                 MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mGoodbyeButton);
         }
         else if (topic == sPersuasion)
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpDialogueChoice(mPtr, topic);
+#endif
             mPersuasionDialog.setVisible(true);
+        }
         else if (topic == sCompanionShare)
+        {
+#ifdef BUILD_TES3MP_CLIENT
+            sendTes3mpDialogueChoice(mPtr, topic);
+#endif
             MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Companion, mPtr);
+        }
         else if (!dialogueManager->checkServiceRefused(mCallback.get()))
         {
             if (topic == sBarter
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Barter))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Barter, mPtr);
+            }
             else if (topic == sSpells
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Spells))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_SpellBuying, mPtr);
+            }
             else if (topic == sTravel
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Travel))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Travel, mPtr);
+            }
             else if (topic == sSpellMakingMenuTitle
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Spellmaking))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_SpellCreation, mPtr);
+            }
             else if (topic == sEnchanting
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Enchanting))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Enchanting, mPtr);
+            }
             else if (topic == sServiceTrainingTitle
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Training))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Training, mPtr);
+            }
             else if (topic == sRepair
                 && !dialogueManager->checkServiceRefused(mCallback.get(), MWBase::DialogueManager::Repair))
+            {
+#ifdef BUILD_TES3MP_CLIENT
+                sendTes3mpDialogueChoice(mPtr, topic);
+#endif
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_MerchantRepair, mPtr);
+            }
         }
         else
             updateTopics();
@@ -563,6 +624,9 @@ namespace MWGui
         }
 
         bool sameActor = (mPtr == actor);
+        if (!sameActor)
+            endTes3mpDialogueInteraction();
+
         if (!sameActor)
         {
             // The history is not reset here
@@ -588,6 +652,8 @@ namespace MWGui
                 MWBase::Environment::get().getWindowManager()->pushGuiMode(MWGui::GM_Companion, actor);
             return;
         }
+
+        beginTes3mpDialogueInteraction();
 
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mGoodbyeButton);
 
@@ -631,10 +697,41 @@ namespace MWGui
         mDeleteLater.clear();
     }
 
+    void DialogueWindow::beginTes3mpDialogueInteraction()
+    {
+#ifdef BUILD_TES3MP_CLIENT
+        if (mTes3mpDialogueInteractionActive || mPtr.isEmpty())
+            return;
+
+        sendTes3mpDialogueChoiceByType(mPtr, mwmp::DialogueChoiceType::DIALOGUE_START);
+        mTes3mpDialogueInteractionActive = true;
+#endif
+    }
+
+    void DialogueWindow::endTes3mpDialogueInteraction()
+    {
+#ifdef BUILD_TES3MP_CLIENT
+        if (!mTes3mpDialogueInteractionActive)
+            return;
+
+        if (!mPtr.isEmpty())
+            sendTes3mpDialogueChoiceByType(mPtr, mwmp::DialogueChoiceType::DIALOGUE_END);
+
+        mTes3mpDialogueInteractionActive = false;
+#endif
+    }
+
+    void DialogueWindow::clear()
+    {
+        endTes3mpDialogueInteraction();
+        resetReference();
+    }
+
     void DialogueWindow::onClose()
     {
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Dialogue))
             return;
+        endTes3mpDialogueInteraction();
         // Reset history
         mHistoryContents.clear();
     }
@@ -870,6 +967,7 @@ namespace MWGui
 
     void DialogueWindow::onGoodbyeActivated()
     {
+        endTes3mpDialogueInteraction();
         MWBase::Environment::get().getDialogueManager()->goodbyeSelected();
         MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_Dialogue);
         resetReference();
@@ -926,6 +1024,7 @@ namespace MWGui
 
     void DialogueWindow::onReferenceUnavailable()
     {
+        endTes3mpDialogueInteraction();
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Dialogue);
     }
 

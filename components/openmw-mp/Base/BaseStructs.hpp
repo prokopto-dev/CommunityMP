@@ -56,7 +56,9 @@ namespace mwmp
             SPELLMAKING,
             ENCHANTING,
             TRAINING,
-            REPAIR
+            REPAIR,
+            DIALOGUE_START,
+            DIALOGUE_END
         };
     }
 

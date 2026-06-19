@@ -12,6 +12,7 @@
 #include <apps/openmw-mp/QuestEffectExecutor.hpp>
 #include <apps/openmw-mp/QuestRuntimeEvaluator.hpp>
 #include <apps/openmw-mp/ServerNetworking.hpp>
+#include <apps/openmw-mp/ServerSimulation.hpp>
 
 namespace mwmp
 {
@@ -27,6 +28,7 @@ namespace mwmp
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s from %s", strPacketID.c_str(), player.npc.mName.c_str());
 
+            ServerNetworking::getPtr()->getServerSimulation().notePlayerDialogueChoice(player, objectList);
             evaluateServerDialogueChoice(player, objectList);
 
             ServerEvents::objectEvent("OnObjectDialogueChoice", player.getId(), objectList.cell.getDescription().c_str());
