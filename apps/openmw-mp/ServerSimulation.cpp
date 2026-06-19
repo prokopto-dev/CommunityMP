@@ -75,6 +75,7 @@ namespace
     constexpr float runtimeActorDirectionEpsilonSquared = 0.0001f;
     constexpr std::uint32_t runtimeActorFallbackSnapshotThreshold = 15;
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
+    constexpr auto runtimeActorMovementHealthLogInterval = std::chrono::seconds(10);
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
 
     bool containsGuid(const std::vector<mwmp::PacketGuid>& guids, mwmp::PacketGuid guid)
@@ -2117,6 +2118,7 @@ namespace mwmp
         const bool exportedRuntimeActorSnapshots = mRuntime->collectActorSnapshots(runtimeActorSnapshots);
         if (exportedRuntimeActorSnapshots)
             applyRuntimeActorSnapshots(runtimeActorSnapshots, deltaSeconds);
+        logRuntimeActorMovementHealthIfNeeded(now);
 
         if (!canAuthoritativelySimulateActors())
             return;
@@ -3105,6 +3107,34 @@ namespace mwmp
                 serverCell->sendToLoaded(aiPacket, &aiList);
             }
         }
+    }
+
+    void ServerSimulation::logRuntimeActorMovementHealthIfNeeded(Clock::time_point now)
+    {
+        const std::uint64_t currentIntentWithoutTransform
+            = mRuntimeActorSnapshotStats.rawMovementIntentWithoutTransformCount;
+        if (currentIntentWithoutTransform == mLastLoggedRawMovementIntentWithoutTransformCount)
+            return;
+
+        if (mLastRuntimeActorMovementHealthLog != Clock::time_point()
+            && now - mLastRuntimeActorMovementHealthLog < runtimeActorMovementHealthLogInterval)
+            return;
+
+        const std::uint64_t newIntentWithoutTransform
+            = currentIntentWithoutTransform - mLastLoggedRawMovementIntentWithoutTransformCount;
+        mLastLoggedRawMovementIntentWithoutTransformCount = currentIntentWithoutTransform;
+        mLastRuntimeActorMovementHealthLog = now;
+
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+            "OpenMW runtime actor movement health: %llu new intent-without-transform sample(s), cumulative=%llu, "
+            "rawIntent=%llu, transformDelta=%llu, lastActor=%s %u-%u",
+            static_cast<unsigned long long>(newIntentWithoutTransform),
+            static_cast<unsigned long long>(currentIntentWithoutTransform),
+            static_cast<unsigned long long>(mRuntimeActorSnapshotStats.rawMovementIntentSnapshotCount),
+            static_cast<unsigned long long>(mRuntimeActorSnapshotStats.transformDeltaSnapshotCount),
+            mRuntimeActorSnapshotStats.lastIntentWithoutTransformCellKey.c_str(),
+            mRuntimeActorSnapshotStats.lastIntentWithoutTransformRefNum,
+            mRuntimeActorSnapshotStats.lastIntentWithoutTransformMpNum);
     }
 
     bool ServerSimulation::shouldUseRuntimeFallbackMovement(

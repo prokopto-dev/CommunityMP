@@ -184,6 +184,8 @@ namespace mwmp
         RuntimeFocusSelectionStats mRuntimeFocusSelectionStats;
         std::unique_ptr<SimulationRuntime> mRuntime;
         Clock::time_point mLastTick;
+        Clock::time_point mLastRuntimeActorMovementHealthLog;
+        std::uint64_t mLastLoggedRawMovementIntentWithoutTransformCount = 0;
         float mActorTickAccumulator = 0.f;
 
         static float clampDeltaSeconds(float seconds);
@@ -210,6 +212,7 @@ namespace mwmp
         void reconcileCurrentPlayerSimulationCells(RuntimeFocusSelectionStats& focusSelectionStats);
         void updateRuntimeSimulationCells();
         void applyRuntimeActorSnapshots(const std::vector<BaseActorList>& actorLists, float deltaSeconds);
+        void logRuntimeActorMovementHealthIfNeeded(Clock::time_point now);
         bool shouldUseRuntimeFallbackMovement(const ActorMovementKey& actorKey,
             const BaseActor& runtimeActor, const BaseActor* cachedActor);
         void sendCellActivityEvent(Player& player, const std::string& cellDescription,
