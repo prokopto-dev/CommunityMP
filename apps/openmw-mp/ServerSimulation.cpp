@@ -66,6 +66,9 @@ namespace
     constexpr auto serverActorMeleeInterval = std::chrono::milliseconds(1500);
     constexpr auto serverPlayerMeleeFullWindup = std::chrono::milliseconds(900);
     constexpr float serverPlayerMeleeMinimumStrength = 0.1f;
+    constexpr float serverFallbackMinHandToHandMult = 0.1f;
+    constexpr float serverFallbackMaxHandToHandMult = 0.5f;
+    constexpr float serverFallbackHandToHandHealthMult = 0.1f;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
@@ -1388,6 +1391,53 @@ namespace
         return std::clamp(attackStrength, serverPlayerMeleeMinimumStrength, 1.f);
     }
 
+    float getModifiedStatValue(const ESM::StatState<float>& stat)
+    {
+        const float modified = stat.mBase + stat.mMod - stat.mDamage;
+        if (!std::isfinite(modified))
+            return 0.f;
+
+        return std::max(0.f, modified);
+    }
+
+    float getServerPlayerHandToHandSkill(const Player& attacker)
+    {
+        static const int handToHandIndex = ESM::Skill::refIdToIndex(ESM::Skill::HandToHand);
+        if (handToHandIndex < 0 || handToHandIndex >= ESM::Skill::Length)
+            return 0.f;
+
+        return getModifiedStatValue(attacker.npcStats.mSkills[handToHandIndex]);
+    }
+
+    bool isUnarmedMeleeAttack(const mwmp::Attack& attack)
+    {
+        return attack.type == mwmp::Attack::MELEE && attack.rangedWeaponId.empty();
+    }
+
+    bool shouldUseServerFallbackUnarmedDamage(const mwmp::Attack& attack)
+    {
+        return attack.type == mwmp::Attack::MELEE && !attack.pressed && attack.isHit && attack.success
+            && !attack.block && isUnarmedMeleeAttack(attack);
+    }
+
+    float getServerFallbackPlayerUnarmedDamage(
+        const Player& attacker, bool targetTakesHealthDamage, float attackStrength)
+    {
+        const float handToHand = getServerPlayerHandToHandSkill(attacker);
+        if (handToHand <= healthDeadEpsilon)
+            return 0.f;
+
+        const float resolvedStrength = sanitizePlayerReleaseMeleeAttackStrength(attackStrength);
+        const float strikeMultiplier = serverFallbackMinHandToHandMult
+            + ((serverFallbackMaxHandToHandMult - serverFallbackMinHandToHandMult) * resolvedStrength);
+        float damage = handToHand * strikeMultiplier;
+
+        if (targetTakesHealthDamage)
+            damage *= serverFallbackHandToHandHealthMult;
+
+        return std::clamp(damage, 0.f, maxServerAttackDamage);
+    }
+
     bool hasValidCastShape(const mwmp::Cast& cast)
     {
         if (cast.type != mwmp::Cast::REGULAR && cast.type != mwmp::Cast::ITEM)
@@ -1419,11 +1469,6 @@ namespace
     float getServerAttackDamage(const mwmp::Attack& attack)
     {
         return std::clamp(attack.damage, 0.f, maxServerAttackDamage);
-    }
-
-    bool isUnarmedMeleeAttack(const mwmp::Attack& attack)
-    {
-        return attack.type == mwmp::Attack::MELEE && attack.rangedWeaponId.empty();
     }
 
     bool shouldApplyUnarmedHealthDamage(bool isKnockedDown, float fatigue)
@@ -2503,6 +2548,38 @@ namespace
         return false;
     }
 
+    mwmp::Attack makeServerResolvedPlayerAttack(
+        const Player& attacker, const mwmp::Attack& attack, const ESM::CreatureStats& targetStats,
+        float meleeAttackStrength)
+    {
+        mwmp::Attack resolvedAttack = attack;
+        if (!shouldUseServerFallbackUnarmedDamage(resolvedAttack))
+            return resolvedAttack;
+
+        resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+        const bool targetTakesHealthDamage = shouldApplyAttackHealthDamage(resolvedAttack, targetStats);
+        resolvedAttack.damage = getServerFallbackPlayerUnarmedDamage(
+            attacker, targetTakesHealthDamage, resolvedAttack.attackStrength);
+        return resolvedAttack;
+    }
+
+    mwmp::Attack makeServerResolvedPlayerAttack(
+        const Player& attacker, const mwmp::Attack& attack, mwmp::BaseActor& target, float meleeAttackStrength)
+    {
+        mwmp::Attack resolvedAttack = attack;
+        if (!shouldUseServerFallbackUnarmedDamage(resolvedAttack))
+            return resolvedAttack;
+
+        if (!ensureActorDynamicStatsForDamage(target))
+            return resolvedAttack;
+
+        resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+        const bool targetTakesHealthDamage = shouldApplyAttackHealthDamage(resolvedAttack, target.creatureStats);
+        resolvedAttack.damage = getServerFallbackPlayerUnarmedDamage(
+            attacker, targetTakesHealthDamage, resolvedAttack.attackStrength);
+        return resolvedAttack;
+    }
+
     bool applyHealthDamageToActor(mwmp::BaseActor& target, float damage)
     {
         if (!ensureActorDynamicStatsForDamage(target))
@@ -2538,6 +2615,9 @@ namespace
 
     bool applyAttackDamageToActor(mwmp::BaseActor& target, const mwmp::Attack& attack)
     {
+        if (!ensureActorDynamicStatsForDamage(target))
+            return false;
+
         const float damage = getServerAttackDamage(attack);
         if (shouldApplyAttackHealthDamage(attack, target.creatureStats))
             return applyHealthDamageToActor(target, damage);
@@ -6264,12 +6344,22 @@ namespace mwmp
                     return;
             }
 
-            if (!canApplyServerAttackDamage(attack))
+            Attack resolvedAttack = target != nullptr
+                ? makeServerResolvedPlayerAttack(attacker, attack, target->creatureStats, serverMeleeAttackStrength)
+                : attack;
+            attacker.attack = resolvedAttack;
+
+            if (!canApplyServerAttackDamage(resolvedAttack))
                 return;
 
             bool becameDead = false;
-            if (target != nullptr && applyAttackDamageToPlayer(*target, attack, becameDead))
+            if (target != nullptr && applyAttackDamageToPlayer(*target, resolvedAttack, becameDead))
             {
+                if (shouldUseServerFallbackUnarmedDamage(resolvedAttack) && target->creatureStats.mKnockdown)
+                {
+                    resolvedAttack.knockdown = true;
+                    attacker.attack = resolvedAttack;
+                }
                 broadcastPlayerStats(*target);
                 notifyPlayerStatsDynamic(*target);
                 if (becameDead)
@@ -6325,11 +6415,21 @@ namespace mwmp
         if (nativeRuntimeHandledAttack)
             return;
 
-        if (!canApplyServerAttackDamage(attack))
+        Attack resolvedAttack = makeServerResolvedPlayerAttack(
+            attacker, attack, *targetActor, serverMeleeAttackStrength);
+        attacker.attack = resolvedAttack;
+
+        if (!canApplyServerAttackDamage(resolvedAttack))
             return;
 
-        if (applyAttackDamageToActor(*targetActor, attack))
+        if (applyAttackDamageToActor(*targetActor, resolvedAttack))
         {
+            if (shouldUseServerFallbackUnarmedDamage(resolvedAttack)
+                && targetActor->creatureStats.mDynamic[2].mCurrent <= healthDeadEpsilon)
+            {
+                resolvedAttack.knockdown = true;
+                attacker.attack = resolvedAttack;
+            }
             broadcastActorStats(*targetCell, *targetActor);
             notifyActorStatsDynamic(attacker, *targetCell);
         }
