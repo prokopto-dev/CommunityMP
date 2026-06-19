@@ -20929,6 +20929,7 @@ namespace
             config.deathPenaltyJailDays = 0
             config.bountyDeathPenalty = false
             config.bountyResetOnDeath = false
+            config.deathConfiscatesGoldAndStolenGoods = false
 
             contentFixer = {
                 UnequipDeadlyItems = function(pid)
@@ -20992,6 +20993,7 @@ namespace
             config.deathPenaltyJailDays = 5
             config.bountyDeathPenalty = true
             config.bountyResetOnDeath = true
+            config.deathConfiscatesGoldAndStolenGoods = false
 
             contentFixer = {
                 UnequipDeadlyItems = function(pid)
@@ -21059,6 +21061,105 @@ namespace
         )lua");
     }
 
+    TEST(Tes3mpServerLuaCompatibilityTest, PlayerBaseResurrectConfiscatesDeathGoldAndRequestsEvidenceRecovery)
+    {
+        LuaStatePtr lua = createServerLuaState();
+        loadLegacyPlayerBase(lua.get());
+
+        runLua(lua.get(), R"lua(
+            local calls = {}
+
+            config.respawnAtImperialShrine = false
+            config.respawnAtTribunalTemple = false
+            config.defaultRespawn = nil
+            config.deathPenaltyJailDays = 0
+            config.bountyDeathPenalty = false
+            config.bountyResetOnDeath = false
+            config.deathConfiscatesGoldAndStolenGoods = true
+
+            contentFixer = {
+                UnequipDeadlyItems = function(pid)
+                    table.insert(calls, "UnequipDeadlyItems:" .. pid)
+                end
+            }
+            logicHandler = {
+                GetChatName = function(pid)
+                    assert(pid == 13)
+                    return "EvidenceAccount"
+                end
+            }
+            packetBuilder = {
+                AddPlayerInventoryItemChange = function(pid, item)
+                    assert(pid == 13)
+                    table.insert(calls, "AddPlayerInventoryItemChange:" .. pid .. ":" ..
+                        item.refId .. ":" .. item.count)
+                end
+            }
+
+            tes3mp.Resurrect = function(pid, resurrectType)
+                table.insert(calls, "Resurrect:" .. pid .. ":" .. resurrectType)
+            end
+            tes3mp.ClearInventoryChanges = function(pid)
+                table.insert(calls, "ClearInventoryChanges:" .. pid)
+            end
+            tes3mp.SetInventoryChangesAction = function(pid, action)
+                table.insert(calls, "SetInventoryChangesAction:" .. pid .. ":" .. action)
+            end
+            tes3mp.SendInventoryChanges = function(pid)
+                table.insert(calls, "SendInventoryChanges:" .. pid)
+            end
+            tes3mp.Jail = function(pid, jailTime, ignoreJailTeleport, ignoreJailSkillIncreases, jailProgressText, releaseText)
+                table.insert(calls, "Jail:" .. pid .. ":" .. jailTime .. ":" ..
+                    tostring(ignoreJailTeleport) .. ":" .. tostring(ignoreJailSkillIncreases) .. ":" ..
+                    jailProgressText .. ":" .. releaseText)
+            end
+            tes3mp.SendMessage = function(pid, message, broadcast)
+                table.insert(calls, "SendMessage:" .. pid .. ":" .. tostring(broadcast) .. ":" .. message)
+            end
+            tes3mp.LogMessage = function(level, message)
+                table.insert(calls, "LogMessage:" .. tostring(level) .. ":" .. message)
+            end
+
+            local player = BasePlayer(13, "EvidenceAccount")
+            player.data = {
+                inventory = {
+                    { refId = "Gold_001", count = 87, charge = -1, enchantmentCharge = -1, soul = "" },
+                    { refId = "iron dagger", count = 1, charge = -1, enchantmentCharge = -1, soul = "" },
+                    { refId = "gold_001", count = 13, charge = -1, enchantmentCharge = -1, soul = "" }
+                },
+                stats = {
+                    healthBase = 20,
+                    healthCurrent = 0,
+                    fatigueBase = 30,
+                    fatigueCurrent = 0
+                },
+                death = {
+                    isDead = true,
+                    timestamp = 1234
+                },
+                shapeshift = {}
+            }
+            player.SaveToDrive = function(self)
+                table.insert(calls, "SaveToDrive")
+            end
+
+            player:Resurrect()
+
+            assert(#player.data.inventory == 1)
+            assert(player.data.inventory[1].refId == "iron dagger")
+            assert(player.data.inventory[1].count == 1)
+
+            assert(table.concat(calls, "|") ==
+                "UnequipDeadlyItems:13|Resurrect:13:" .. enumerations.resurrect.REGULAR ..
+                "|ClearInventoryChanges:13|SetInventoryChangesAction:13:" ..
+                enumerations.inventory.REMOVE .. "|AddPlayerInventoryItemChange:13:Gold_001:100|" ..
+                "SendInventoryChanges:13|LogMessage:" .. enumerations.log.INFO ..
+                ":Confiscated 100 gold from EvidenceAccount during death recovery|" ..
+                "SaveToDrive|Jail:13:0:true:true:Recovering:|" ..
+                "SendMessage:13:false:You have been revived.\n")
+        )lua");
+    }
+
     TEST(Tes3mpServerLuaCompatibilityTest, PlayerBaseResurrectPersistsConfiguredRespawnLocation)
     {
         LuaStatePtr lua = createServerLuaState();
@@ -21077,6 +21178,7 @@ namespace
             config.deathPenaltyJailDays = 0
             config.bountyDeathPenalty = false
             config.bountyResetOnDeath = false
+            config.deathConfiscatesGoldAndStolenGoods = false
 
             contentFixer = {
                 UnequipDeadlyItems = function(pid)
