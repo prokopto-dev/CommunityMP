@@ -1291,6 +1291,15 @@ namespace
             && mwmp::isFiniteDynamicStat(stats.mDynamic[2]);
     }
 
+    bool hasMeaningfulDynamicStatChange(
+        const ESM::StatState<float>& left, const ESM::StatState<float>& right)
+    {
+        constexpr float statEpsilon = 0.001f;
+        return std::abs(left.mBase - right.mBase) > statEpsilon
+            || std::abs(left.mCurrent - right.mCurrent) > statEpsilon
+            || std::abs(left.mMod - right.mMod) > statEpsilon;
+    }
+
     mwmp::SimpleCreatureStats makeSimpleCreatureStats(const ESM::CreatureStats& stats)
     {
         mwmp::SimpleCreatureStats result;
@@ -4251,25 +4260,19 @@ namespace mwmp
                     const bool wasDead = cachedActor != nullptr
                         && (cachedActor->creatureStats.mDead
                             || cachedActor->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon);
-                    if (cachedActor != nullptr && cachedActor->hasStatsDynamicData
-                        && mwmp::hasFiniteActorDynamicStats(*cachedActor)
-                        && mwmp::hasFiniteActorDynamicStats(statsActor))
-                    {
-                        for (int statIndex = 0; statIndex < 3; ++statIndex)
-                        {
-                            ESM::StatState<float>& incomingStat = statsActor.creatureStats.mDynamic[statIndex];
-                            const ESM::StatState<float>& cachedStat = cachedActor->creatureStats.mDynamic[statIndex];
-                            incomingStat.mCurrent = std::min(incomingStat.mCurrent, cachedStat.mCurrent);
-                        }
 
-                        if (cachedActor->creatureStats.mDead
-                            || cachedActor->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon)
-                        {
-                            statsActor.creatureStats.mDead = true;
-                            statsActor.creatureStats.mDeathAnimationFinished
-                                = cachedActor->creatureStats.mDeathAnimationFinished
-                                || statsActor.creatureStats.mDeathAnimationFinished;
-                        }
+                    if (statsActor.creatureStats.mDynamic[0].mCurrent < 0.f)
+                        statsActor.creatureStats.mDynamic[0].mCurrent = 0.f;
+
+                    if (wasDead && cachedActor != nullptr && cachedActor->hasStatsDynamicData
+                        && mwmp::hasFiniteActorDynamicStats(*cachedActor))
+                    {
+                        statsActor.creatureStats = cachedActor->creatureStats;
+                        statsActor.creatureStats.mDead = true;
+                        statsActor.creatureStats.mDynamic[0].mCurrent = 0.f;
+                        statsActor.creatureStats.mDeathAnimationFinished
+                            = cachedActor->creatureStats.mDeathAnimationFinished
+                            || runtimeActor.creatureStats.mDeathAnimationFinished;
                     }
                     statsActor.statsDynamicSequence = cachedActor != nullptr && cachedActor->hasStatsDynamicData
                         ? cachedActor->statsDynamicSequence + 1
@@ -4561,14 +4564,18 @@ namespace mwmp
 
             for (uint8_t statIndex = 0; statIndex < 3; ++statIndex)
             {
-                float incomingCurrent = snapshot.creatureStats.mDynamic[statIndex].mCurrent;
+                ESM::StatState<float> incomingStat = snapshot.creatureStats.mDynamic[statIndex];
                 if (statIndex == 0)
-                    incomingCurrent = std::max(0.f, incomingCurrent);
-
-                float& targetCurrent = target->creatureStats.mDynamic[statIndex].mCurrent;
-                if (incomingCurrent + healthDeadEpsilon < targetCurrent)
                 {
-                    targetCurrent = incomingCurrent;
+                    incomingStat.mCurrent = std::max(0.f, incomingStat.mCurrent);
+                    if (wasDead)
+                        incomingStat.mCurrent = 0.f;
+                }
+
+                ESM::StatState<float>& targetStat = target->creatureStats.mDynamic[statIndex];
+                if (hasMeaningfulDynamicStatChange(targetStat, incomingStat))
+                {
+                    targetStat = incomingStat;
                     addChangedIndex(statIndex);
                     changed = true;
                 }
