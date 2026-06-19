@@ -404,8 +404,18 @@ namespace
             case ID_OBJECT_LOCK:
                 target.lockLevel = incoming.lockLevel;
                 break;
+            case ID_OBJECT_MISCELLANEOUS:
+                target.goldPool = incoming.goldPool;
+                target.lastGoldRestockHour = incoming.lastGoldRestockHour;
+                target.lastGoldRestockDay = incoming.lastGoldRestockDay;
+                break;
             case ID_OBJECT_STATE:
                 target.objectState = incoming.objectState;
+                break;
+            case ID_OBJECT_TRAP:
+                target.isDisarmed = incoming.isDisarmed;
+                if (!incoming.isDisarmed)
+                    target.position = incoming.position;
                 break;
             case ID_DOOR_STATE:
                 target.doorState = incoming.doorState;

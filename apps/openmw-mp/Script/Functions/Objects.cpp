@@ -111,12 +111,14 @@ namespace
             case ID_DOOR_STATE:
             case ID_OBJECT_DELETE:
             case ID_OBJECT_LOCK:
+            case ID_OBJECT_MISCELLANEOUS:
             case ID_OBJECT_MOVE:
             case ID_OBJECT_PLACE:
             case ID_OBJECT_ROTATE:
             case ID_OBJECT_SCALE:
             case ID_OBJECT_SPAWN:
             case ID_OBJECT_STATE:
+            case ID_OBJECT_TRAP:
                 return true;
             case ID_CONTAINER:
                 // Private/player-scoped container packets are often sent only to the attached
