@@ -2,6 +2,7 @@
 #include "Cell.hpp"
 #include "CellController.hpp"
 #include "ServerNetworking.hpp"
+#include "ServerSimulation.hpp"
 #include "actor/ActorSequenceCoalescing.hpp"
 #include <components/openmw-mp/Transport/ReceivedPacket.hpp>
 #include <algorithm>
@@ -202,7 +203,16 @@ bool ActorProcessor::Process(ReceivedPacket& packet, BaseActorList &actorList) n
                 myPacket->Read();
 
             if (actorList.isValid && myPacket->isPacketValid())
+            {
+                Cell* serverCell = CellController::get()->getCell(&actorList.cell);
+                ServerNetworking* networking = ServerNetworking::getPtr();
+                if (networking != nullptr
+                    && networking->getServerSimulation().rejectClientActorPacketForServerOwnedCell(
+                        serverCell, actorList, processor.second->strPacketID.c_str()))
+                    return true;
+
                 processor.second->Do(*myPacket, *player, actorList);
+            }
             else
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "Received %s that failed integrity check and was ignored!", processor.second->strPacketID.c_str());
 

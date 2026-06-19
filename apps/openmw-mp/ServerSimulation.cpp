@@ -2845,6 +2845,12 @@ namespace mwmp
     bool ServerSimulation::shouldUseRuntimeFallbackMovement(
         const ActorMovementKey& actorKey, const BaseActor& runtimeActor, const BaseActor* cachedActor)
     {
+        if (mRuntime != nullptr && mRuntime->hasOpenMwWorld())
+        {
+            mRuntimeActorMovementStates.erase(actorKey);
+            return false;
+        }
+
         const bool hasImportedServerMovement = cachedActor != nullptr && hasServerOwnedActorMovement(*cachedActor);
         const bool hasRuntimeMovementIntent = hasMovementIntent(runtimeActor.direction);
         if (!runtimeActor.hasPositionData || !isFiniteActorMovementSnapshot(runtimeActor)
@@ -3324,6 +3330,12 @@ namespace mwmp
         payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorAttackPackets);
         payload += ",\"openMwRuntimeRejectedClientActorCastPackets\":";
         payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorCastPackets);
+        payload += ",\"openMwRuntimeRejectedClientActorAuthorityPackets\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rejectedClientActorAuthorityPackets);
+        payload += ",\"openMwRuntimeLastRejectedClientActorPacket\":";
+        payload += jsonString(mRuntimeActorSnapshotStats.lastRejectedClientActorPacket);
+        payload += ",\"openMwRuntimeLastRejectedClientActorCell\":";
+        payload += jsonString(mRuntimeActorSnapshotStats.lastRejectedClientActorCellDescription);
         payload += ",\"openMwRuntimeFallbackMovementActorCount\":";
         payload += std::to_string(runtimeActorFallbackMovementActorCount);
         payload += ",\"openMwRuntimeFallbackMovementActivationCount\":";
@@ -4032,6 +4044,22 @@ namespace mwmp
     bool ServerSimulation::acceptPlayerCast(Player& caster)
     {
         return isAcceptedCastTarget(caster.cast, caster.cell, &caster, nullptr);
+    }
+
+    bool ServerSimulation::rejectClientActorPacketForServerOwnedCell(
+        const Cell* serverCell, const BaseActorList& actorList, const char* packetName)
+    {
+        if (!canAuthoritativelySimulateActors())
+            return false;
+
+        const bool serverOwnsCell = serverCell == nullptr || runtimeOwnsActorCell(*serverCell);
+        if (!serverOwnsCell)
+            return false;
+
+        ++mRuntimeActorSnapshotStats.rejectedClientActorAuthorityPackets;
+        mRuntimeActorSnapshotStats.lastRejectedClientActorPacket = packetName != nullptr ? packetName : "";
+        mRuntimeActorSnapshotStats.lastRejectedClientActorCellDescription = actorList.cell.getDescription();
+        return true;
     }
 
     bool ServerSimulation::acceptActorAiSnapshot(BaseActorList& actorList, Cell& serverCell)

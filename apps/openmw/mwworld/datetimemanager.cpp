@@ -7,6 +7,7 @@
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+#include "../serversimulationmode.hpp"
 
 #include "duration.hpp"
 #include "globals.hpp"
@@ -256,6 +257,12 @@ namespace MWWorld
     {
         auto stateManager = MWBase::Environment::get().getStateManager();
         auto wm = MWBase::Environment::get().getWindowManager();
+        if (OMW::isServerSimulationModeActive())
+        {
+            mPaused = stateManager->getState() == MWBase::StateManager::State_NoGame;
+            return;
+        }
+
         mPaused = !mPausedTags.empty() || wm->isConsoleMode() || wm->isPostProcessorHudVisible()
             || wm->isInteractiveMessageBoxActive() || stateManager->getState() == MWBase::StateManager::State_NoGame;
     }

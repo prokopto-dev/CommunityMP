@@ -62,6 +62,8 @@ namespace mwmp
         bool acceptActorCasts(BaseActorList& actorList, ::Cell& serverCell);
         bool acceptPlayerCast(::Player& caster);
         bool acceptActorAiSnapshot(BaseActorList& actorList, ::Cell& serverCell);
+        bool rejectClientActorPacketForServerOwnedCell(
+            const ::Cell* serverCell, const BaseActorList& actorList, const char* packetName);
         void applyPlayerAttack(::Player& attacker);
         bool acceptActorMovementSnapshot(ActorPacket& packet, BaseActorList& actorList, ::Cell& serverCell);
         bool acceptPlayerCellChange(::Player& player, PlayerPacket& packet);
@@ -123,10 +125,13 @@ namespace mwmp
             std::uint64_t rejectedClientActorAiPackets = 0;
             std::uint64_t rejectedClientActorAttackPackets = 0;
             std::uint64_t rejectedClientActorCastPackets = 0;
+            std::uint64_t rejectedClientActorAuthorityPackets = 0;
             std::uint64_t fallbackMovementActivationCount = 0;
             std::uint64_t fallbackMovementResumeCount = 0;
             std::uint64_t fallbackMovementSuppressedSnapshotCount = 0;
             std::string lastSnapshotCellDescription;
+            std::string lastRejectedClientActorPacket;
+            std::string lastRejectedClientActorCellDescription;
             std::size_t lastSnapshotActorCount = 0;
             std::string lastFallbackMovementCellKey;
             unsigned int lastFallbackMovementRefNum = 0;

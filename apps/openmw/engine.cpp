@@ -1654,6 +1654,10 @@ bool OMW::Engine::tickServerSimulation(float simulationDeltaSeconds, float clock
     const double simulationDt = clampedSimulationDeltaSeconds * timeManager.getSimulationTimeScale();
     const double clockDt = clampedClockDeltaSeconds * timeManager.getSimulationTimeScale();
 
+    // Headless ticks do not pass through the interactive run loop, so refresh pause state before simulation systems
+    // read it.
+    timeManager.updateIsPaused();
+
     mViewer->advance(timeManager.getRenderingSimulationTime());
 
     const unsigned frameNumber = mViewer->getFrameStamp()->getFrameNumber();
