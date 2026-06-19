@@ -75,6 +75,7 @@ namespace
     constexpr float serverFallbackFatigueAttackBase = 2.0f;
     constexpr float serverFallbackFatigueAttackMult = 0.0f;
     constexpr float serverFallbackWeaponFatigueMult = 0.25f;
+    constexpr int serverEquipmentSlotCarriedRight = 16;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
@@ -1473,6 +1474,39 @@ namespace
         return weapon;
     }
 
+    bool isServerMeleeWeaponType(int weaponType)
+    {
+        return weaponType >= ESM::Weapon::ShortBladeOneHand && weaponType <= ESM::Weapon::AxeTwoHand;
+    }
+
+    struct ServerActorMeleeWeaponContext
+    {
+        std::string weaponId;
+        int charge = -1;
+        mwmp::WorldRecordWinner weapon;
+    };
+
+    std::optional<ServerActorMeleeWeaponContext> findServerActorMeleeWeapon(const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasEquipmentData || serverEquipmentSlotCarriedRight < 0
+            || serverEquipmentSlotCarriedRight >= mwmp::equipmentSlotCount)
+            return std::nullopt;
+
+        const mwmp::Item& item = actor.equipmentItems[serverEquipmentSlotCarriedRight];
+        if (item.refId.empty() || !mwmp::isValidEquipmentItem(item))
+            return std::nullopt;
+
+        std::optional<mwmp::WorldRecordWinner> weapon = findServerFallbackWeaponRecord(item.refId);
+        if (!weapon || !isServerMeleeWeaponType(weapon->itemEquipmentWeaponType))
+            return std::nullopt;
+
+        ServerActorMeleeWeaponContext context;
+        context.weaponId = item.refId;
+        context.charge = item.charge;
+        context.weapon = std::move(*weapon);
+        return context;
+    }
+
     bool selectWeaponAttackDamage(
         const mwmp::WorldRecordWinner& weapon, std::string_view attackAnimation, int& minDamage, int& maxDamage)
     {
@@ -1969,30 +2003,83 @@ namespace
         return 0.65f + 0.35f * fatigueRatio;
     }
 
-    float getServerActorMeleeDamage(const mwmp::BaseActor& actor)
+    float getActorProfileStrengthScale(const std::optional<mwmp::WorldActorProfileRecord>& profile)
     {
+        if (!profile)
+            return 1.f;
+
+        static const int strengthIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Strength);
+        if (strengthIndex < 0 || strengthIndex >= static_cast<int>(profile->attributes.size()))
+            return 1.f;
+
+        const int strength = profile->attributes[strengthIndex];
+        if (strength < 0)
+            return 1.f;
+
+        return std::max(0.f, serverFallbackDamageStrengthBase
+            + (static_cast<float>(strength) * serverFallbackDamageStrengthMult * 0.1f));
+    }
+
+    float getServerActorWeaponDamage(const mwmp::BaseActor& actor,
+        const ServerActorMeleeWeaponContext& weaponContext, std::string_view attackAnimation,
+        const std::optional<mwmp::WorldActorProfileRecord>& profile)
+    {
+        int minDamage = 0;
+        int maxDamage = 0;
+        if (!selectWeaponAttackDamage(weaponContext.weapon, attackAnimation, minDamage, maxDamage))
+            return 0.f;
+
+        constexpr float fullAttackStrength = 1.f;
+        float damage = static_cast<float>(minDamage)
+            + (static_cast<float>(maxDamage - minDamage) * fullAttackStrength);
+        if (weaponContext.charge >= 0 && weaponContext.weapon.itemEquipmentHealth > 0)
+        {
+            const float normalizedHealth = std::clamp(
+                static_cast<float>(weaponContext.charge)
+                    / static_cast<float>(weaponContext.weapon.itemEquipmentHealth),
+                0.f, 1.f);
+            damage *= normalizedHealth;
+        }
+
+        damage *= getActorProfileStrengthScale(profile);
+        damage *= getActorFatigueDamageScale(actor);
+        return std::clamp(damage, serverActorMeleeMinimumDamage, maxServerAttackDamage);
+    }
+
+    float getServerActorMeleeDamage(const mwmp::BaseActor& actor, std::string_view attackAnimation,
+        const std::optional<ServerActorMeleeWeaponContext>& weaponContext)
+    {
+        std::optional<mwmp::WorldActorProfileRecord> profile;
         if (!actor.refId.empty())
         {
             mwmp::WorldDatabaseStore::get().ensureLoaded();
-            if (const std::optional<mwmp::WorldActorProfileRecord> profile
-                = mwmp::WorldDatabaseStore::get().findActorProfileByRecordKey(actor.refId))
+            profile = mwmp::WorldDatabaseStore::get().findActorProfileByRecordKey(actor.refId);
+        }
+
+        if (weaponContext)
+        {
+            const float weaponDamage = getServerActorWeaponDamage(actor, *weaponContext, attackAnimation, profile);
+            if (weaponDamage > healthDeadEpsilon)
+                return weaponDamage;
+        }
+
+        if (profile)
+        {
+            int bestAttack = 0;
+            for (const int attack : profile->attacks)
+                bestAttack = std::max(bestAttack, attack);
+
+            if (bestAttack > 0)
+                return std::clamp(static_cast<float>(bestAttack) * getActorFatigueDamageScale(actor),
+                    serverActorMeleeMinimumDamage, maxServerAttackDamage);
+
+            if (profile->npc)
             {
-                int bestAttack = 0;
-                for (const int attack : profile->attacks)
-                    bestAttack = std::max(bestAttack, attack);
-
-                if (bestAttack > 0)
-                    return std::clamp(static_cast<float>(bestAttack) * getActorFatigueDamageScale(actor),
-                        serverActorMeleeMinimumDamage, maxServerAttackDamage);
-
-                if (profile->npc)
-                {
-                    const float combatRating = profile->combat > 0 ? static_cast<float>(profile->combat) : 30.f;
-                    const float level = std::max(1.f, static_cast<float>(profile->level));
-                    const float npcDamage = 3.f + level * 0.5f + combatRating * 0.12f;
-                    return std::clamp(npcDamage * getActorFatigueDamageScale(actor),
-                        serverActorMeleeMinimumDamage, serverActorMeleeMaximumFallbackDamage);
-                }
+                const float combatRating = profile->combat > 0 ? static_cast<float>(profile->combat) : 30.f;
+                const float level = std::max(1.f, static_cast<float>(profile->level));
+                const float npcDamage = 3.f + level * 0.5f + combatRating * 0.12f;
+                return std::clamp(npcDamage * getActorFatigueDamageScale(actor),
+                    serverActorMeleeMinimumDamage, serverActorMeleeMaximumFallbackDamage);
             }
         }
 
@@ -2012,12 +2099,17 @@ namespace
     mwmp::Attack makeServerActorMeleeAttack(const mwmp::BaseActor& actor, const mwmp::Target& target,
         const ESM::Position& hitPosition, const std::string& runtimeAttackAnimation)
     {
+        const std::string attackAnimation = runtimeAttackAnimation.empty() ? "chop" : runtimeAttackAnimation;
+        const std::optional<ServerActorMeleeWeaponContext> weaponContext = findServerActorMeleeWeapon(actor);
+
         mwmp::Attack attack;
         attack.target = target;
         attack.type = mwmp::Attack::MELEE;
-        attack.attackAnimation = runtimeAttackAnimation.empty() ? "chop" : runtimeAttackAnimation;
+        attack.attackAnimation = attackAnimation;
+        if (weaponContext)
+            attack.rangedWeaponId = weaponContext->weaponId;
         attack.hitPosition = hitPosition;
-        attack.damage = getServerActorMeleeDamage(actor);
+        attack.damage = getServerActorMeleeDamage(actor, attack.attackAnimation, weaponContext);
         attack.attackStrength = 1.f;
         attack.isHit = true;
         attack.success = true;
