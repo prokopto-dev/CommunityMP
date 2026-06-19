@@ -2648,6 +2648,96 @@ namespace
         EXPECT_TRUE(actor.spellsActiveChanges.activeSpells.empty());
     }
 
+    TEST(MpBasePacketTest, playerSpellsActiveRoundTripsNativeSpellIdentity)
+    {
+        mwmp::BasePlayer sent(testGuid());
+        sent.spellsActiveChanges.action = mwmp::SpellsActiveChanges::ADD;
+        mwmp::ActiveSpell spell = makeFiniteActiveSpell();
+        spell.id = "runtime stack key";
+        spell.isStackingSpell = true;
+        spell.params.mActiveSpellId = ESM::RefId::stringRefId("openmw generated active id");
+        spell.params.mSourceSpellId = ESM::RefId::stringRefId("potion_restore_health_01");
+        spell.caster.isPlayer = false;
+        spell.caster.refId = "fargoth";
+        spell.caster.refNum = 330;
+        spell.caster.mpNum = 7;
+        sent.spellsActiveChanges.activeSpells.push_back(spell);
+
+        PacketStream stream;
+        mwmp::PacketPlayerSpellsActive writer;
+        writePlayerPacketToPayload(writer, sent, stream);
+
+        mwmp::BasePlayer received(testGuid());
+        mwmp::PacketPlayerSpellsActive reader;
+        reader.setPlayer(&received);
+        reader.Packet(&stream, false);
+
+        ASSERT_TRUE(reader.isPacketValid());
+        EXPECT_EQ(received.spellsActiveChanges.action, mwmp::SpellsActiveChanges::ADD);
+        ASSERT_EQ(received.spellsActiveChanges.activeSpells.size(), 1);
+        const mwmp::ActiveSpell& receivedSpell = received.spellsActiveChanges.activeSpells[0];
+        EXPECT_EQ(receivedSpell.id, "runtime stack key");
+        EXPECT_TRUE(receivedSpell.isStackingSpell);
+        EXPECT_EQ(receivedSpell.params.mActiveSpellId, ESM::RefId::stringRefId("openmw generated active id"));
+        EXPECT_EQ(receivedSpell.params.mSourceSpellId, ESM::RefId::stringRefId("potion_restore_health_01"));
+        EXPECT_EQ(receivedSpell.params.mDisplayName, "Firebite");
+        EXPECT_FALSE(receivedSpell.caster.isPlayer);
+        EXPECT_EQ(receivedSpell.caster.refId, "fargoth");
+        EXPECT_EQ(receivedSpell.caster.refNum, 330u);
+        EXPECT_EQ(receivedSpell.caster.mpNum, 7u);
+        ASSERT_EQ(receivedSpell.params.mEffects.size(), 1);
+        EXPECT_EQ(receivedSpell.params.mEffects[0].mEffectId, ESM::RefId::stringRefId("fire damage"));
+        EXPECT_FLOAT_EQ(receivedSpell.params.mEffects[0].mMagnitude, 5.f);
+        EXPECT_FLOAT_EQ(receivedSpell.params.mEffects[0].mTimeLeft, 8.f);
+    }
+
+    TEST(MpBasePacketTest, actorSpellsActiveRoundTripsNativeSpellIdentity)
+    {
+        mwmp::BaseActorList sent;
+        sent.guid = testGuid();
+        setInteriorCell(sent.cell, "Seyda Neen");
+
+        mwmp::BaseActor actor;
+        actor.refNum = 128;
+        actor.mpNum = 4;
+        actor.spellsActiveChanges.action = mwmp::SpellsActiveChanges::REMOVE;
+        mwmp::ActiveSpell spell = makeFiniteActiveSpell();
+        spell.id = "runtime nonstack key";
+        spell.params.mActiveSpellId = ESM::RefId::stringRefId("openmw active id");
+        spell.params.mSourceSpellId = ESM::RefId::stringRefId("hearth heal");
+        actor.spellsActiveChanges.activeSpells.push_back(spell);
+        sent.baseActors.push_back(actor);
+
+        PacketStream stream;
+        mwmp::PacketActorSpellsActive writer;
+        writeActorPacketToPayload(writer, sent, stream);
+
+        mwmp::BaseActorList received;
+        received.isValid = true;
+        mwmp::PacketActorSpellsActive reader;
+        reader.setActorList(&received);
+        reader.Packet(&stream, false);
+
+        ASSERT_TRUE(reader.isPacketValid());
+        ASSERT_TRUE(received.isValid);
+        ASSERT_EQ(received.baseActors.size(), 1);
+        const mwmp::BaseActor& receivedActor = received.baseActors[0];
+        EXPECT_EQ(receivedActor.refNum, 128u);
+        EXPECT_EQ(receivedActor.mpNum, 4u);
+        EXPECT_EQ(receivedActor.spellsActiveChanges.action, mwmp::SpellsActiveChanges::REMOVE);
+        ASSERT_EQ(receivedActor.spellsActiveChanges.activeSpells.size(), 1);
+        const mwmp::ActiveSpell& receivedSpell = receivedActor.spellsActiveChanges.activeSpells[0];
+        EXPECT_EQ(receivedSpell.id, "runtime nonstack key");
+        EXPECT_FALSE(receivedSpell.isStackingSpell);
+        EXPECT_EQ(receivedSpell.params.mActiveSpellId, ESM::RefId::stringRefId("openmw active id"));
+        EXPECT_EQ(receivedSpell.params.mSourceSpellId, ESM::RefId::stringRefId("hearth heal"));
+        EXPECT_EQ(receivedSpell.params.mDisplayName, "Firebite");
+        EXPECT_TRUE(receivedSpell.caster.isPlayer);
+        EXPECT_EQ(receivedSpell.caster.guid, testGuid());
+        ASSERT_EQ(receivedSpell.params.mEffects.size(), 1);
+        EXPECT_EQ(receivedSpell.params.mEffects[0].mEffectId, ESM::RefId::stringRefId("fire damage"));
+    }
+
     TEST(MpBasePacketTest, playerSpellsActiveRejectsNonFiniteEffectValues)
     {
         mwmp::BasePlayer sent(testGuid());

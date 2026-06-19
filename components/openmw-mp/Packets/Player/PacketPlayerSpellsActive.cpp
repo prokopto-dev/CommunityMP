@@ -60,6 +60,8 @@ void PacketPlayerSpellsActive::Packet(PacketStream *newBitstream, bool send)
     for (auto&& activeSpell : player->spellsActiveChanges.activeSpells)
     {
         RW(activeSpell.id, send, true);
+        RW(activeSpell.params.mActiveSpellId, send, true);
+        RW(activeSpell.params.mSourceSpellId, send, true);
         RW(activeSpell.isStackingSpell, send);
         RW(activeSpell.timestampDay, send);
         RW(activeSpell.timestampHour, send);

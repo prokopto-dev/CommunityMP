@@ -59,6 +59,8 @@ void PacketActorSpellsActive::Actor(BaseActor &actor, bool send)
     for (auto&& activeSpell : actor.spellsActiveChanges.activeSpells)
     {
         RW(activeSpell.id, send, true);
+        RW(activeSpell.params.mActiveSpellId, send, true);
+        RW(activeSpell.params.mSourceSpellId, send, true);
         RW(activeSpell.isStackingSpell, send);
         RW(activeSpell.timestampDay, send);
         RW(activeSpell.timestampHour, send);

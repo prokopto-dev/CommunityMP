@@ -73,6 +73,22 @@ namespace
         return ESM::RefId::stringRefId(id);
     }
 
+    ESM::RefId activeSpellSourceId(const mwmp::ActiveSpell& activeSpell)
+    {
+        if (!activeSpell.params.mSourceSpellId.empty())
+            return activeSpell.params.mSourceSpellId;
+
+        return stringRefId(activeSpell.id);
+    }
+
+    ESM::RefId activeSpellActiveId(const mwmp::ActiveSpell& activeSpell)
+    {
+        if (!activeSpell.params.mActiveSpellId.empty())
+            return activeSpell.params.mActiveSpellId;
+
+        return activeSpellSourceId(activeSpell);
+    }
+
     std::string refIdToString(const ESM::RefId& id)
     {
         return id.serializeText();
@@ -1258,9 +1274,10 @@ void LocalPlayer::addSpellsActive()
             caster = ptrPlayer;
 
         // Don't do a check for a spell's existence, because active effects from potions need to be applied here too
+        const ESM::RefId sourceSpellId = activeSpellSourceId(activeSpell);
         MWMechanics::ActiveSpells::ActiveSpellParams params(
-            caster, stringRefId(activeSpell.id), activeSpell.params.mDisplayName, ESM::RefNum());
-        params.setActiveSpellId(activeSpell.params.mActiveSpellId);
+            caster, sourceSpellId, activeSpell.params.mDisplayName, ESM::RefNum());
+        params.setActiveSpellId(activeSpellActiveId(activeSpell));
         params.getEffects() = activeSpell.params.mEffects;
         applyActiveSpellPacketFlags(params, activeSpell);
         activeSpells.addSpell(params);
@@ -1419,11 +1436,11 @@ void LocalPlayer::removeSpellsActive()
 
         if (activeSpell.isStackingSpell)
         {
-            activeSpells.removeEffectsByActiveSpellId(ptrPlayer, stringRefId(activeSpell.id));
+            activeSpells.removeEffectsByActiveSpellId(ptrPlayer, activeSpellActiveId(activeSpell));
         }
         else
         {
-            activeSpells.removeEffectsBySourceSpellId(ptrPlayer, stringRefId(activeSpell.id));
+            activeSpells.removeEffectsBySourceSpellId(ptrPlayer, activeSpellSourceId(activeSpell));
         }
     }
 }

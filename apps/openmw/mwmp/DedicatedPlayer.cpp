@@ -55,6 +55,22 @@ namespace
         return ESM::RefId::stringRefId(id);
     }
 
+    ESM::RefId activeSpellSourceId(const mwmp::ActiveSpell& activeSpell)
+    {
+        if (!activeSpell.params.mSourceSpellId.empty())
+            return activeSpell.params.mSourceSpellId;
+
+        return stringRefId(activeSpell.id);
+    }
+
+    ESM::RefId activeSpellActiveId(const mwmp::ActiveSpell& activeSpell)
+    {
+        if (!activeSpell.params.mActiveSpellId.empty())
+            return activeSpell.params.mActiveSpellId;
+
+        return activeSpellSourceId(activeSpell);
+    }
+
     std::string refIdToString(const ESM::RefId& id)
     {
         return id.serializeText();
@@ -875,9 +891,10 @@ void DedicatedPlayer::addSpellsActive()
         MWWorld::Ptr caster = MechanicsHelper::getPlayerPtr(activeSpell.caster);
         if (caster.isEmpty())
             caster = getPtr();
+        const ESM::RefId sourceSpellId = activeSpellSourceId(activeSpell);
         MWMechanics::ActiveSpells::ActiveSpellParams params(
-            caster, stringRefId(activeSpell.id), activeSpell.params.mDisplayName, ESM::RefNum());
-        params.setActiveSpellId(activeSpell.params.mActiveSpellId);
+            caster, sourceSpellId, activeSpell.params.mDisplayName, ESM::RefNum());
+        params.setActiveSpellId(activeSpellActiveId(activeSpell));
         params.getEffects() = activeSpell.params.mEffects;
         params.setFlag(ESM::ActiveSpells::Flag_Temporary);
         if (activeSpell.isStackingSpell)
@@ -898,11 +915,11 @@ void DedicatedPlayer::removeSpellsActive()
         // Remove stacking spells based on their timestamps
         if (activeSpell.isStackingSpell)
         {
-            activeSpells.removeEffectsByActiveSpellId(getPtr(), stringRefId(activeSpell.id));
+            activeSpells.removeEffectsByActiveSpellId(getPtr(), activeSpellActiveId(activeSpell));
         }
         else
         {
-            activeSpells.removeEffectsBySourceSpellId(getPtr(), stringRefId(activeSpell.id));
+            activeSpells.removeEffectsBySourceSpellId(getPtr(), activeSpellSourceId(activeSpell));
         }
     }
 }
