@@ -1136,6 +1136,18 @@ namespace
         return !std::isfinite(directionDeltaSquared) || directionDeltaSquared > runtimeActorDirectionEpsilonSquared;
     }
 
+    bool hasMeaningfulRuntimeTransformDelta(const mwmp::BaseActor& actor, const mwmp::BaseActor& previousActor)
+    {
+        if (!actor.hasPositionData || !previousActor.hasPositionData)
+            return false;
+
+        const float distanceSquared = squaredDistance(actor.position, previousActor.position);
+        if (std::isfinite(distanceSquared) && distanceSquared > runtimeActorMovementEpsilonSquared)
+            return true;
+
+        return hasMeaningfulRotationChange(actor.position, previousActor.position);
+    }
+
     bool hasRuntimeAnimFlagsChange(const mwmp::BaseActor& actor, const mwmp::BaseActor& previousActor)
     {
         return actor.movementFlags != previousActor.movementFlags
@@ -2951,6 +2963,21 @@ namespace mwmp
                 const ActorMovementKey actorKey{ runtimeCellKey, runtimeActor.refNum, runtimeActor.mpNum };
                 const bool useRuntimeFallbackMovement = shouldUseRuntimeFallbackMovement(
                     actorKey, runtimeActor, cachedActor);
+                const bool rawRuntimeMovementIntent = hasMeaningfulMovementIntent(runtimeActor.direction);
+                const bool runtimeTransformDelta = previousActor != nullptr
+                    && hasMeaningfulRuntimeTransformDelta(runtimeActor, *previousActor);
+                if (rawRuntimeMovementIntent)
+                    ++mRuntimeActorSnapshotStats.rawMovementIntentSnapshotCount;
+                if (runtimeTransformDelta)
+                    ++mRuntimeActorSnapshotStats.transformDeltaSnapshotCount;
+                if (rawRuntimeMovementIntent && previousActor != nullptr && previousActor->hasPositionData
+                    && !runtimeTransformDelta)
+                {
+                    ++mRuntimeActorSnapshotStats.rawMovementIntentWithoutTransformCount;
+                    mRuntimeActorSnapshotStats.lastIntentWithoutTransformCellKey = runtimeCellKey;
+                    mRuntimeActorSnapshotStats.lastIntentWithoutTransformRefNum = runtimeActor.refNum;
+                    mRuntimeActorSnapshotStats.lastIntentWithoutTransformMpNum = runtimeActor.mpNum;
+                }
                 BaseActor visualActor = runtimeActor;
                 switch (applyActualRuntimeMovementDirection(visualActor, previousActor))
                 {
@@ -3600,6 +3627,18 @@ namespace mwmp
         payload += std::to_string(mRuntimeActorSnapshotStats.redundantPositionSnapshotSuppressedCount);
         payload += ",\"openMwRuntimeRedundantAnimFlagsSnapshotSuppressedCount\":";
         payload += std::to_string(mRuntimeActorSnapshotStats.redundantAnimFlagsSnapshotSuppressedCount);
+        payload += ",\"openMwRuntimeRawMovementIntentSnapshotCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rawMovementIntentSnapshotCount);
+        payload += ",\"openMwRuntimeTransformDeltaSnapshotCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.transformDeltaSnapshotCount);
+        payload += ",\"openMwRuntimeRawMovementIntentWithoutTransformCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.rawMovementIntentWithoutTransformCount);
+        payload += ",\"openMwRuntimeLastIntentWithoutTransformCellKey\":";
+        payload += jsonString(mRuntimeActorSnapshotStats.lastIntentWithoutTransformCellKey);
+        payload += ",\"openMwRuntimeLastIntentWithoutTransformRefNum\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.lastIntentWithoutTransformRefNum);
+        payload += ",\"openMwRuntimeLastIntentWithoutTransformMpNum\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.lastIntentWithoutTransformMpNum);
         payload += ",\"openMwRuntimeLastFallbackMovementCellKey\":";
         payload += jsonString(mRuntimeActorSnapshotStats.lastFallbackMovementCellKey);
         payload += ",\"openMwRuntimeLastFallbackMovementRefNum\":";

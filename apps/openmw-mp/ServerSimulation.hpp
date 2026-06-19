@@ -133,6 +133,9 @@ namespace mwmp
             std::uint64_t visualDirectionDerivedCount = 0;
             std::uint64_t redundantPositionSnapshotSuppressedCount = 0;
             std::uint64_t redundantAnimFlagsSnapshotSuppressedCount = 0;
+            std::uint64_t rawMovementIntentSnapshotCount = 0;
+            std::uint64_t transformDeltaSnapshotCount = 0;
+            std::uint64_t rawMovementIntentWithoutTransformCount = 0;
             std::string lastSnapshotCellDescription;
             std::string lastRejectedClientActorPacket;
             std::string lastRejectedClientActorCellDescription;
@@ -140,6 +143,9 @@ namespace mwmp
             std::string lastFallbackMovementCellKey;
             unsigned int lastFallbackMovementRefNum = 0;
             unsigned int lastFallbackMovementMpNum = 0;
+            std::string lastIntentWithoutTransformCellKey;
+            unsigned int lastIntentWithoutTransformRefNum = 0;
+            unsigned int lastIntentWithoutTransformMpNum = 0;
         };
 
         struct RuntimeActorMovementState
