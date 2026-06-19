@@ -4126,45 +4126,25 @@ namespace mwmp
 
                 if (runtimeOwnsClientRenderedAi)
                 {
-                    const bool hasPresentedAi = mRuntimeClientAiPresentedActors.find(actorKey)
+                    const bool hasClearedClientAi = mRuntimeClientAiPresentedActors.find(actorKey)
                         != mRuntimeClientAiPresentedActors.end();
-                    const bool shouldPresentCombatAi = !actorInteractionLocked && cachedActor != nullptr
-                        && actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor);
-                    const bool shouldPresentCancelAi = !actorInteractionLocked && cachedActor != nullptr
-                        && cachedActor->hasAiData && !shouldPresentCombatAi
-                        && cachedActor->aiAction != BaseActorList::CANCEL;
-                    const bool authoritativeAiChanged = cachedActor != nullptr
-                        && (previousActor == nullptr || !sameActorAi(*previousActor, *cachedActor));
-                    if ((shouldPresentCombatAi || shouldPresentCancelAi) && (!hasPresentedAi || authoritativeAiChanged))
+                    if (cachedActor != nullptr && !hasClearedClientAi)
                     {
                         BaseActor aiActor = visualActor;
                         aiActor.hasAiData = true;
                         aiActor.hasPositionData = false;
                         aiActor.aiCoordinates = zeroPosition();
-                        if (shouldPresentCombatAi)
-                        {
-                            aiActor.hasAiTarget = true;
-                            aiActor.aiTarget = cachedActor->aiTarget;
-                            aiActor.aiAction = BaseActorList::COMBAT;
-                            aiActor.aiDistance = cachedActor->aiDistance;
-                            aiActor.aiDuration = cachedActor->aiDuration;
-                            aiActor.aiShouldRepeat = cachedActor->aiShouldRepeat;
-                        }
-                        else
-                        {
-                            aiActor.hasAiTarget = false;
-                            aiActor.aiTarget = Target();
-                            aiActor.aiAction = BaseActorList::CANCEL;
-                            aiActor.aiDistance = 0;
-                            aiActor.aiDuration = 0;
-                            aiActor.aiShouldRepeat = false;
-                        }
+                        aiActor.hasAiTarget = false;
+                        aiActor.aiTarget = Target();
+                        aiActor.aiAction = BaseActorList::CANCEL;
+                        aiActor.aiDistance = 0;
+                        aiActor.aiDuration = 0;
+                        aiActor.aiShouldRepeat = false;
                         aiActor.direction = zeroPosition();
                         aiList.baseActors.push_back(std::move(aiActor));
                         mRuntimeClientAiPresentedActors.insert(actorKey);
                     }
-                    else if (actorInteractionLocked || cachedActor == nullptr || !cachedActor->hasAiData
-                        || cachedActor->aiAction == BaseActorList::CANCEL)
+                    else if (cachedActor == nullptr)
                         mRuntimeClientAiPresentedActors.erase(actorKey);
                 }
                 else

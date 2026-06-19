@@ -660,12 +660,22 @@ void Cell::readAi(ActorList& actorList)
 
     if (dedicatedActors.empty()) return;
 
+    const bool serverOwnsActors = hasServerActorAuthority();
+
     for (const auto &baseActor : actorList.baseActors)
     {
         std::string mapIndex = Main::get().getCellController()->generateMapIndex(baseActor);
 
         if (dedicatedActors.count(mapIndex) > 0)
         {
+            if (serverOwnsActors && baseActor.aiAction != BaseActorList::CANCEL)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
+                    "Ignoring ActorAI about %s because the cell is server-authoritative",
+                    mapIndex.c_str());
+                continue;
+            }
+
             DedicatedActor *actor = dedicatedActors[mapIndex];
             if (!normalizeSequencedPositionForAi(*actor, baseActor))
             {
