@@ -370,6 +370,28 @@ namespace mwmp
         return false;
     }
 
+    bool SimulationRuntime::applyPlayerRangedAttackToActor(
+        const SimulationPlayerTarget& player, const SimulationActorTarget& actor, const Attack& attack,
+        float attackStrength)
+    {
+        static_cast<void>(player);
+        static_cast<void>(actor);
+        static_cast<void>(attack);
+        static_cast<void>(attackStrength);
+        return false;
+    }
+
+    bool SimulationRuntime::applyPlayerRangedAttackToPlayer(
+        const SimulationPlayerTarget& attacker, const SimulationPlayerTarget& target, const Attack& attack,
+        float attackStrength)
+    {
+        static_cast<void>(attacker);
+        static_cast<void>(target);
+        static_cast<void>(attack);
+        static_cast<void>(attackStrength);
+        return false;
+    }
+
     bool SimulationRuntime::dispatchServerEvent(
         std::string_view eventName, const SimulationRuntimeEventArguments& arguments)
     {

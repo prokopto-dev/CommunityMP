@@ -5913,6 +5913,17 @@ namespace mwmp
                         runtimeAttacker, runtimeTarget, attack, serverMeleeAttackStrength))
                     return;
             }
+            else if (target != nullptr && mRuntime != nullptr && mRuntime->canOwnActorAuthority()
+                && !attack.pressed && attack.type == Attack::RANGED
+                && hasAcceptedLivePlayerBody(attacker, &target->cell)
+                && hasAcceptedLivePlayerBody(*target, &attacker.cell))
+            {
+                SimulationPlayerTarget runtimeAttacker = makeRuntimePlayerTarget(attacker);
+                SimulationPlayerTarget runtimeTarget = makeRuntimePlayerTarget(*target);
+                if (mRuntime->applyPlayerRangedAttackToPlayer(
+                        runtimeAttacker, runtimeTarget, attack, attack.attackStrength))
+                    return;
+            }
 
             if (!canApplyServerAttackDamage(attack))
                 return;
@@ -5944,7 +5955,7 @@ namespace mwmp
             mRuntimeClientAiPresentedActors.erase(actorKey);
         }
         const ESM::Cell& targetCellData = targetCell->getCellData();
-        bool nativeRuntimeHandledMelee = false;
+        bool nativeRuntimeHandledAttack = false;
         if (mRuntime != nullptr && mRuntime->canOwnActorAuthority()
             && hasAcceptedLivePlayerBody(attacker, &targetCellData))
         {
@@ -5959,15 +5970,20 @@ namespace mwmp
             static_cast<void>(mRuntime->startActorCombatWithPlayer(runtimeActor, runtimePlayer));
             if (!attack.pressed && attack.type == Attack::MELEE)
             {
-                nativeRuntimeHandledMelee = mRuntime->applyPlayerMeleeAttackToActor(
+                nativeRuntimeHandledAttack = mRuntime->applyPlayerMeleeAttackToActor(
                     runtimePlayer, runtimeActor, attack, serverMeleeAttackStrength);
+            }
+            else if (!attack.pressed && attack.type == Attack::RANGED)
+            {
+                nativeRuntimeHandledAttack = mRuntime->applyPlayerRangedAttackToActor(
+                    runtimePlayer, runtimeActor, attack, attack.attackStrength);
             }
         }
 
         if (aiChanged && (mRuntime == nullptr || !mRuntime->canOwnActorAuthority()))
             broadcastActorAi(*targetCell, *targetActor);
 
-        if (nativeRuntimeHandledMelee)
+        if (nativeRuntimeHandledAttack)
             return;
 
         if (!canApplyServerAttackDamage(attack))

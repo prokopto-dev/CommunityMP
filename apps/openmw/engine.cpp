@@ -113,6 +113,7 @@
 
 #include "mwmechanics/aisequence.hpp"
 #include "mwmechanics/aipackage.hpp"
+#include "mwmechanics/combat.hpp"
 #include "mwmechanics/creaturestats.hpp"
 #include "mwmechanics/mechanicsmanagerimp.hpp"
 #include "mwmechanics/movement.hpp"
@@ -928,6 +929,58 @@ namespace
         const float resolvedAttackStrength = success ? requestedAttackStrength : 0.f;
         attacker.getClass().hit(attacker, resolvedAttackStrength, attackType, target, hitPosition, success);
         playerCreatureStats.setAttackingOrSpell(false);
+        return true;
+    }
+
+    MWWorld::Ptr findServerSimulationInventoryItem(const MWWorld::Ptr& actor, std::string_view itemId)
+    {
+        if (actor.isEmpty() || itemId.empty() || !actor.getClass().hasInventoryStore(actor))
+            return MWWorld::Ptr();
+
+        const ESM::RefId refId = ESM::RefId::stringRefId(std::string(itemId));
+        MWWorld::InventoryStore& inventoryStore = actor.getClass().getInventoryStore(actor);
+        return inventoryStore.search(refId);
+    }
+
+    bool isWeaponPtr(const MWWorld::Ptr& ptr)
+    {
+        return !ptr.isEmpty() && ptr.getType() == ESM::Weapon::sRecordId;
+    }
+
+    bool applyServerSimulationPlayerRangedHit(const MWWorld::Ptr& player, const MWWorld::Ptr& victim,
+        const mwmp::Attack& attack, float attackStrength, MWBase::MechanicsManager& mechanicsManager)
+    {
+        MWWorld::Ptr attacker = player;
+        MWWorld::Ptr target = victim;
+        if (attacker.isEmpty() || target.isEmpty() || !attacker.getClass().isActor() || !target.getClass().isActor())
+            return false;
+
+        MWMechanics::CreatureStats& attackerStats = attacker.getClass().getCreatureStats(attacker);
+        MWMechanics::CreatureStats& targetStats = target.getClass().getCreatureStats(target);
+        if (attackerStats.isDead() || targetStats.isDead())
+            return false;
+
+        MWWorld::Ptr weapon = findServerSimulationInventoryItem(attacker, attack.rangedWeaponId);
+        if (!isWeaponPtr(weapon))
+            return false;
+
+        MWWorld::Ptr projectile = attack.rangedAmmoId.empty()
+            ? weapon
+            : findServerSimulationInventoryItem(attacker, attack.rangedAmmoId);
+        if (!isWeaponPtr(projectile))
+            return false;
+
+        targetStats.setAttacked(true);
+        mechanicsManager.startCombat(target, attacker, nullptr);
+
+        attackerStats.setDrawState(MWMechanics::DrawState::Weapon);
+        attackerStats.setAttackType("shoot");
+        attackerStats.setAttackingOrSpell(true);
+
+        const float requestedAttackStrength = sanitizeServerSimulationAttackStrength(attackStrength);
+        const osg::Vec3f hitPosition = attack.hitPosition.asVec3();
+        MWMechanics::projectileHit(attacker, target, weapon, projectile, hitPosition, requestedAttackStrength);
+        attackerStats.setAttackingOrSpell(false);
         return true;
     }
 
@@ -2821,6 +2874,60 @@ bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell
         return false;
 
     return applyServerSimulationPlayerMeleeHit(player, target, attack, attackStrength, *mMechanicsManager);
+}
+
+bool OMW::Engine::applyServerSimulationPlayerRangedAttackToActor(const ESM::Cell& cell, std::string_view actorRefId,
+    unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Attack& attack, float attackStrength,
+    const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
+    const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
+{
+    if (!mServerSimulationPrepared || mWorld == nullptr || mMechanicsManager == nullptr
+        || attack.type != mwmp::Attack::RANGED || attack.pressed || !mwmp::isPacketGuidAssigned(playerGuid))
+        return false;
+
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
+            playerBaseStats, playerEquipmentItems))
+        return false;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    MWWorld::CellStore* cellStore = player.getCell();
+    MWWorld::Ptr actor = findServerSimulationActor(cellStore, actorRefId, actorRefNum, actorMpNum);
+    if (actor.isEmpty() || !actor.getClass().isActor())
+        return false;
+
+    return applyServerSimulationPlayerRangedHit(player, actor, attack, attackStrength, *mMechanicsManager);
+}
+
+bool OMW::Engine::applyServerSimulationPlayerRangedAttackToPlayer(const ESM::Cell& cell,
+    const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
+    mwmp::PacketGuid targetGuid, const mwmp::Attack& attack, float attackStrength,
+    const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
+    const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
+{
+    if (!mServerSimulationPrepared || mWorld == nullptr || mMechanicsManager == nullptr
+        || attack.type != mwmp::Attack::RANGED || attack.pressed || !mwmp::isPacketGuidAssigned(playerGuid)
+        || !mwmp::isPacketGuidAssigned(targetGuid) || playerGuid == targetGuid)
+        return false;
+
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
+            playerBaseStats, playerEquipmentItems))
+        return false;
+
+    const auto targetIt = mServerSimulationPlayerActors.find(targetGuid);
+    if (targetIt == mServerSimulationPlayerActors.end() || targetIt->second.ptr.isEmpty())
+        return false;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    MWWorld::Ptr target = targetIt->second.ptr;
+    if (target.getCell() == nullptr || player.getCell() == nullptr || target.getCell() != player.getCell())
+        return false;
+
+    return applyServerSimulationPlayerRangedHit(player, target, attack, attackStrength, *mMechanicsManager);
 }
 
 void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists)
