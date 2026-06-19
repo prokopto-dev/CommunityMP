@@ -7029,8 +7029,6 @@ namespace mwmp
         std::vector<BaseActor> acceptedActors;
         acceptedActors.reserve(actorList.baseActors.size());
 
-        Player* source = Players::getPlayer(actorList.guid);
-
         for (BaseActor actor : actorList.baseActors)
         {
             BaseActor* currentActor = serverCell.getActor(actor.refNum, actor.mpNum);
@@ -7048,37 +7046,9 @@ namespace mwmp
                 continue;
 
             acceptActorCombatSequence(*currentActor, actor);
+            if (canApplyServerAttackDamage(actor.attack))
+                clearRuntimeAttackOutcome(actor.attack);
             acceptedActors.push_back(actor);
-
-            const Attack& attack = actor.attack;
-            if (!canApplyServerAttackDamage(attack))
-                continue;
-
-            if (attack.target.isPlayer)
-            {
-                Player* target = Players::getPlayer(attack.target.guid);
-                bool becameDead = false;
-                if (target != nullptr && applyAttackDamageToPlayer(*target, attack, becameDead))
-                {
-                    broadcastPlayerStats(*target);
-                    notifyPlayerStatsDynamic(*target);
-                    if (becameDead)
-                    {
-                        target->killer = makeActorKillerTarget(*currentActor);
-                        clearActorCombatTargetsForPlayer(*target, "server accepted actor attack killed the player");
-                        notifyPlayerDeath(*target);
-                    }
-                }
-                continue;
-            }
-
-            BaseActor* target = findActorTarget(serverCell, attack.target);
-            if (target != nullptr && applyAttackDamageToActor(*target, attack))
-            {
-                broadcastActorStats(serverCell, *target);
-                if (source != nullptr)
-                    notifyActorStatsDynamic(*source, serverCell);
-            }
         }
 
         actorList.baseActors = std::move(acceptedActors);
