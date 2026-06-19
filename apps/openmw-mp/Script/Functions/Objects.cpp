@@ -5,6 +5,8 @@
 #include <apps/openmw-mp/ServerNetworking.hpp>
 #include <apps/openmw-mp/Player.hpp>
 #include <apps/openmw-mp/Utils.hpp>
+#include <apps/openmw-mp/Cell.hpp>
+#include <apps/openmw-mp/CellController.hpp>
 #include <apps/openmw-mp/processors/ObjectProcessor.hpp>
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 
@@ -101,11 +103,49 @@ namespace
             object.containerItemCount = static_cast<unsigned int>(object.containerItems.size());
     }
 
+    bool shouldCacheServerObjectSend(mwmp::PacketId packetId, bool sendToOtherPlayers)
+    {
+        switch (packetId)
+        {
+            case ID_DOOR_DESTINATION:
+            case ID_DOOR_STATE:
+            case ID_OBJECT_DELETE:
+            case ID_OBJECT_LOCK:
+            case ID_OBJECT_MOVE:
+            case ID_OBJECT_PLACE:
+            case ID_OBJECT_ROTATE:
+            case ID_OBJECT_SCALE:
+            case ID_OBJECT_SPAWN:
+            case ID_OBJECT_STATE:
+                return true;
+            case ID_CONTAINER:
+                // Private/player-scoped container packets are often sent only to the attached
+                // player. Cache only shared container results that the server broadcasts.
+                return sendToOtherPlayers;
+            default:
+                return false;
+        }
+    }
+
+    void updateServerObjectCacheFromSend(mwmp::PacketId packetId, BaseObjectList& objectList, bool sendToOtherPlayers)
+    {
+        if (!shouldCacheServerObjectSend(packetId, sendToOtherPlayers))
+            return;
+
+        mwmp::ObjectPacket* packet = mwmp::ServerNetworking::get().getObjectPacketController()->GetPacket(packetId);
+        if (packet == nullptr || !packet->carriesCellData())
+            return;
+
+        if (Cell* serverCell = CellController::get()->getCell(&objectList.cell))
+            serverCell->readObjectList(static_cast<unsigned char>(packetId), &objectList);
+    }
+
     void SendObjectPacket(mwmp::PacketId packetId, bool sendToOtherPlayers, bool skipAttachedPlayer)
     {
         mwmp::ObjectPacket* packet = mwmp::ServerNetworking::get().getObjectPacketController()->GetPacket(packetId);
         syncObjectListCounts(writeObjectList);
         packet->setObjectList(&writeObjectList);
+        updateServerObjectCacheFromSend(packetId, writeObjectList, sendToOtherPlayers);
 
         if (!skipAttachedPlayer)
             packet->Send(false);

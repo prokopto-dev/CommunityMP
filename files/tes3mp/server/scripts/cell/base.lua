@@ -612,6 +612,12 @@ function BaseCell:SetAuthority(pid)
     tes3mp.LogMessage(enumerations.log.INFO, "Authority of cell " .. self.data.entry.description ..
         " is now " .. logicHandler.GetChatName(pid))
 
+    if config.cppClientActorAuthority == true then
+        tes3mp.LogMessage(enumerations.log.INFO, "Deferred actor authority packet for cell " ..
+            self.data.entry.description .. " because C++ actor authority is enabled")
+        return true
+    end
+
     self:LoadActorAuthority(pid)
     return true
 end

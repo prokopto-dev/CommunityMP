@@ -9,6 +9,31 @@ using namespace mwmp;
 template<class T>
 typename BasePacketProcessor<T>::processors_t BasePacketProcessor<T>::processors;
 
+namespace
+{
+    bool isServerAuthoredObjectStatePacket(unsigned char packetId)
+    {
+        switch (packetId)
+        {
+            case ID_CONTAINER:
+            case ID_DOOR_DESTINATION:
+            case ID_DOOR_STATE:
+            case ID_OBJECT_DELETE:
+            case ID_OBJECT_LOCK:
+            case ID_OBJECT_MOVE:
+            case ID_OBJECT_PLACE:
+            case ID_OBJECT_ROTATE:
+            case ID_OBJECT_SCALE:
+            case ID_OBJECT_SPAWN:
+            case ID_OBJECT_STATE:
+            case ID_OBJECT_TRAP:
+                return true;
+            default:
+                return false;
+        }
+    }
+}
+
 void ObjectProcessor::Do(ObjectPacket &packet, Player &player, BaseObjectList &objectList)
 {
     sendToLoadedOrBroadcast(packet, objectList);
@@ -62,8 +87,19 @@ bool ObjectProcessor::Process(ReceivedPacket& packet, BaseObjectList &objectList
                 processor.second->Do(*myPacket, *player, objectList);
                 if (objectList.isValid && myPacket->carriesCellData())
                 {
-                    if (Cell* serverCell = CellController::get()->getCell(&objectList.cell))
-                        serverCell->readObjectList(packet.id(), &objectList);
+                    // Client packets are requests. The C++ cache tracks the server-emitted result,
+                    // after Lua/runtime validators have accepted, clamped, or rejected the change.
+                    if (!isServerAuthoredObjectStatePacket(packet.id()))
+                    {
+                        if (Cell* serverCell = CellController::get()->getCell(&objectList.cell))
+                            serverCell->readObjectList(packet.id(), &objectList);
+                    }
+                    else
+                    {
+                        LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE,
+                            "Deferred %s cell cache update until server-authored object state send",
+                            processor.second->strPacketID.c_str());
+                    }
                 }
             }
             else

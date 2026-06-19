@@ -259,9 +259,9 @@ config.allowCellAuthorityTransferForLowerPing = false
 -- ready to own actors without falling back to client-observed cell authority.
 config.serverAuthoritativeActors = false
 
--- Set this true only when native C++ actor snapshots are ready to replace
--- Lua's legacy client authority packets for cells.
-config.cppClientActorAuthority = false
+-- Prefer the native C++ actor snapshot bridge over Lua's legacy client
+-- authority packets for cells.
+config.cppClientActorAuthority = true
 
 -- Which numerical IDs should be used by custom menus implemented in the Lua scripts,
 -- to prevent other menu inputs from being taken into account for them
