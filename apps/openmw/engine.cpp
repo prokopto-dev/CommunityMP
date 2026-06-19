@@ -1878,6 +1878,34 @@ bool OMW::Engine::tickServerSimulation(float simulationDeltaSeconds, float clock
     return true;
 }
 
+void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::SimulationPlayerTarget>& players)
+{
+    mServerSimulationPlayerActors.clear();
+    if (!mServerSimulationMode)
+        return;
+
+    for (const mwmp::SimulationPlayerTarget& player : players)
+    {
+        if (!mwmp::isPacketGuidAssigned(player.guid) || !player.hasPosition)
+            continue;
+
+        const std::string cellDescription = player.cell.getDescription();
+        if (cellDescription.empty())
+            continue;
+
+        ServerSimulationPlayerActorState state;
+        state.cellDescription = cellDescription;
+        state.position = player.position;
+        state.name = player.name;
+        if (player.hasStatsDynamicData && hasFiniteSimpleCreatureStats(player.creatureStats))
+        {
+            state.stats = player.creatureStats;
+            state.hasStatsDynamicData = true;
+        }
+        mServerSimulationPlayerActors[player.guid] = std::move(state);
+    }
+}
+
 bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition,
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats)
 {

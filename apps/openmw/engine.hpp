@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <components/compiler/extensions.hpp>
 #include <components/debug/debuglog.hpp>
@@ -117,6 +118,7 @@ namespace MWMechanics
 namespace mwmp
 {
     class BaseActorList;
+    struct SimulationPlayerTarget;
     struct SimulationPlayerSnapshot;
 }
 
@@ -221,6 +223,15 @@ namespace OMW
         bool mServerSimulationFocusPlayerSet = false;
         bool mServerSimulationFocusPlayerStatsSet = false;
         std::map<std::string, mwmp::Target> mServerSimulationActorPlayerTargets;
+        struct ServerSimulationPlayerActorState
+        {
+            std::string cellDescription;
+            ESM::Position position;
+            std::string name;
+            mwmp::SimpleCreatureStats stats;
+            bool hasStatsDynamicData = false;
+        };
+        std::map<mwmp::PacketGuid, ServerSimulationPlayerActorState> mServerSimulationPlayerActors;
 
         // not implemented
         Engine(const Engine&);
@@ -283,6 +294,7 @@ namespace OMW
         /// Advance one server-owned OpenMW simulation frame.
         bool tickServerSimulation(float deltaSeconds);
         bool tickServerSimulation(float simulationDeltaSeconds, float clockDeltaSeconds);
+        void setServerSimulationPlayerActors(const std::vector<mwmp::SimulationPlayerTarget>& players);
 
         /// Move the server-owned OpenMW simulation scene to the requested cell.
         bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr,

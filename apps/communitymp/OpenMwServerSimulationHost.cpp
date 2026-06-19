@@ -350,6 +350,9 @@ namespace
         void setPlayerActors(const std::vector<mwmp::SimulationPlayerTarget>& players) override
         {
             mPersistentPlayerActors.clear();
+            if (mEngine != nullptr)
+                mEngine->setServerSimulationPlayerActors(players);
+
             for (const mwmp::SimulationPlayerTarget& player : players)
             {
                 if (!mwmp::isPacketGuidAssigned(player.guid) || !player.hasPosition)
