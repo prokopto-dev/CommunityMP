@@ -101,6 +101,7 @@
 #include "mwworld/inventorystore.hpp"
 #include "mwworld/datetimemanager.hpp"
 #include "mwworld/scene.hpp"
+#include "mwworld/worldmodel.hpp"
 #include "mwworld/worldimp.hpp"
 
 #include "mwrender/vismask.hpp"
@@ -113,6 +114,7 @@
 
 #include "mwmechanics/aisequence.hpp"
 #include "mwmechanics/aipackage.hpp"
+#include "mwmechanics/activespells.hpp"
 #include "mwmechanics/combat.hpp"
 #include "mwmechanics/creaturestats.hpp"
 #include "mwmechanics/mechanicsmanagerimp.hpp"
@@ -674,6 +676,131 @@ namespace
             && target.mpNum != static_cast<unsigned int>(-1);
     }
 
+    mwmp::Target makeServerSimulationFocusPlayerTarget(
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+    {
+        mwmp::Target target;
+        target.guid = mwmp::unassignedPacketGuid();
+        if (!mwmp::isPacketGuidAssigned(focusPlayerGuid))
+            return target;
+
+        target.isPlayer = true;
+        target.guid = focusPlayerGuid;
+        target.name = std::string(focusPlayerName);
+        return target;
+    }
+
+    MWWorld::Ptr findServerSimulationRefNumPtr(ESM::RefNum refNum)
+    {
+        MWWorld::Ptr ptr;
+        if (refNum.mIndex == 0)
+            return ptr;
+
+        try
+        {
+            ptr = MWBase::Environment::get().getWorldModel()->getPtr(refNum);
+        }
+        catch (const std::exception&)
+        {
+        }
+
+        return ptr;
+    }
+
+    mwmp::Target makeServerSimulationActiveSpellCasterTarget(
+        const MWMechanics::ActiveSpells::ActiveSpellParams& params, const MWWorld::Ptr& fallback,
+        const MWWorld::Ptr& focusPlayer,
+        const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+    {
+        MWWorld::Ptr caster = findServerSimulationRefNumPtr(params.getCaster());
+        if (caster.isEmpty())
+            caster = fallback;
+
+        if (caster.isEmpty())
+        {
+            mwmp::Target target;
+            target.guid = mwmp::unassignedPacketGuid();
+            return target;
+        }
+
+        if (caster == focusPlayer)
+            return makeServerSimulationFocusPlayerTarget(focusPlayerGuid, focusPlayerName);
+
+        mwmp::Target playerTarget = makeServerSimulationPlayerTargetFromPtr(caster, playerActors);
+        if (hasResolvedServerSimulationTarget(playerTarget))
+            return playerTarget;
+
+        return makeServerSimulationActorTarget(caster);
+    }
+
+    bool shouldReplicateServerSimulationActiveSpell(
+        const MWMechanics::ActiveSpells::ActiveSpellParams& params)
+    {
+        if (!params.hasFlag(ESM::ActiveSpells::Flag_Temporary))
+            return false;
+
+        if (params.getSourceSpellId().empty() && params.getActiveSpellId().empty())
+            return false;
+
+        for (const ESM::ActiveEffect& effect : params.getEffects())
+        {
+            if (!std::isfinite(effect.mMagnitude) || !std::isfinite(effect.mDuration)
+                || !std::isfinite(effect.mTimeLeft))
+                return false;
+        }
+
+        return true;
+    }
+
+    void appendServerSimulationActiveSpell(std::vector<mwmp::ActiveSpell>& activeSpells,
+        const MWMechanics::ActiveSpells::ActiveSpellParams& params, const MWWorld::Ptr& spellTarget,
+        const MWWorld::Ptr& focusPlayer,
+        const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+    {
+        if (!shouldReplicateServerSimulationActiveSpell(params))
+            return;
+
+        const bool isStackingSpell = params.hasFlag(ESM::ActiveSpells::Flag_Stackable);
+        const ESM::RefId packetId = isStackingSpell && !params.getActiveSpellId().empty()
+            ? params.getActiveSpellId()
+            : params.getSourceSpellId();
+        if (packetId.empty())
+            return;
+
+        mwmp::ActiveSpell spell;
+        spell.id = packetId.serializeText();
+        spell.isStackingSpell = isStackingSpell;
+        spell.caster = makeServerSimulationActiveSpellCasterTarget(
+            params, spellTarget, focusPlayer, playerActors, focusPlayerGuid, focusPlayerName);
+        spell.params.mActiveSpellId = params.getActiveSpellId();
+        spell.params.mSourceSpellId = params.getSourceSpellId();
+        spell.params.mDisplayName = params.getDisplayName();
+        spell.params.mEffects = params.getEffects();
+        activeSpells.push_back(std::move(spell));
+    }
+
+    void copyServerSimulationSpellsActive(mwmp::SpellsActiveChanges& spellsActiveChanges,
+        const MWWorld::Ptr& ptr, const MWWorld::Ptr& focusPlayer,
+        const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+    {
+        spellsActiveChanges.activeSpells.clear();
+        spellsActiveChanges.action = mwmp::SpellsActiveChanges::SET;
+
+        if (ptr.isEmpty() || !ptr.getClass().isActor())
+            return;
+
+        const MWMechanics::ActiveSpells& activeSpells
+            = ptr.getClass().getCreatureStats(ptr).getActiveSpells();
+        for (const MWMechanics::ActiveSpells::ActiveSpellParams& params : activeSpells)
+        {
+            appendServerSimulationActiveSpell(spellsActiveChanges.activeSpells, params, ptr, focusPlayer,
+                playerActors, focusPlayerGuid, focusPlayerName);
+        }
+    }
+
     mwmp::Target makeServerSimulationCombatTarget(const MWWorld::Ptr& ptr, const MWWorld::Ptr& focusPlayer,
         const std::map<std::string, mwmp::Target>& actorPlayerTargets,
         const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
@@ -1183,6 +1310,8 @@ namespace
         actor.hasAnimFlagsData = true;
 
         copyServerSimulationEquipment(actor, ptr);
+        copyServerSimulationSpellsActive(
+            actor.spellsActiveChanges, ptr, player, playerActors, focusPlayerGuid, focusPlayerName);
         copyServerSimulationAi(actor, ptr, player, actorPlayerTargets, playerActors, focusPlayerGuid, focusPlayerName);
         copyServerSimulationAttack(actor, creatureStats);
         const auto nativeAttack = nativeAttackEvents.find(actorKey);
@@ -3282,7 +3411,7 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
 void OMW::Engine::exportServerSimulationPlayerActorSnapshots(
     std::vector<mwmp::SimulationPlayerSnapshot>& playerSnapshots) const
 {
-    if (!mServerSimulationPrepared || !mServerSimulationMode)
+    if (!mServerSimulationPrepared || !mServerSimulationMode || mWorld == nullptr)
         return;
 
     for (const auto& [guid, state] : mServerSimulationPlayerActors)
@@ -3309,6 +3438,9 @@ void OMW::Engine::exportServerSimulationPlayerActorSnapshots(
             for (int i = 0; i < 3; ++i)
                 copyDynamicStat(creatureStats.getDynamic(i), snapshot.creatureStats.mDynamic[i]);
             snapshot.hasStatsDynamicData = true;
+            copyServerSimulationSpellsActive(snapshot.spellsActiveChanges, state.ptr, mWorld->getPlayerPtr(),
+                mServerSimulationPlayerActors, mServerSimulationFocusPlayerGuid, mServerSimulationFocusPlayerName);
+            snapshot.hasSpellsActiveData = true;
         }
         else if (state.hasStatsDynamicData)
         {
@@ -3343,6 +3475,9 @@ bool OMW::Engine::exportServerSimulationFocusPlayerSnapshot(mwmp::SimulationPlay
     for (int i = 0; i < 3; ++i)
         copyDynamicStat(creatureStats.getDynamic(i), snapshot.creatureStats.mDynamic[i]);
     snapshot.hasStatsDynamicData = true;
+    copyServerSimulationSpellsActive(snapshot.spellsActiveChanges, player, player, mServerSimulationPlayerActors,
+        mServerSimulationFocusPlayerGuid, mServerSimulationFocusPlayerName);
+    snapshot.hasSpellsActiveData = true;
 
     return true;
 }

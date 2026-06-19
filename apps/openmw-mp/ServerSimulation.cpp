@@ -1457,6 +1457,109 @@ namespace
         return left.refId.empty() || right.refId.empty() || left.refId == right.refId;
     }
 
+    bool hasFiniteActiveSpellValues(const mwmp::ActiveSpell& activeSpell)
+    {
+        if (!std::isfinite(activeSpell.timestampHour))
+            return false;
+
+        for (const ESM::ActiveEffect& effect : activeSpell.params.mEffects)
+        {
+            if (!std::isfinite(effect.mMagnitude) || !std::isfinite(effect.mDuration)
+                || !std::isfinite(effect.mTimeLeft))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool sameActiveSpellEffectShape(const ESM::ActiveEffect& left, const ESM::ActiveEffect& right)
+    {
+        constexpr float effectEpsilon = 0.001f;
+        return left.mEffectId == right.mEffectId
+            && left.mArg == right.mArg
+            && std::abs(left.mMagnitude - right.mMagnitude) <= effectEpsilon
+            && std::abs(left.mDuration - right.mDuration) <= effectEpsilon;
+    }
+
+    bool sameActiveSpellIdentity(const mwmp::ActiveSpell& left, const mwmp::ActiveSpell& right)
+    {
+        return left.id == right.id
+            && left.isStackingSpell == right.isStackingSpell
+            && targetsReferToSameEntity(left.caster, right.caster);
+    }
+
+    bool sameActiveSpellSnapshot(const mwmp::ActiveSpell& left, const mwmp::ActiveSpell& right)
+    {
+        if (!sameActiveSpellIdentity(left, right))
+            return false;
+
+        if (left.params.mActiveSpellId != right.params.mActiveSpellId
+            || left.params.mSourceSpellId != right.params.mSourceSpellId
+            || left.params.mDisplayName != right.params.mDisplayName
+            || left.params.mEffects.size() != right.params.mEffects.size())
+            return false;
+
+        for (std::size_t i = 0; i < left.params.mEffects.size(); ++i)
+        {
+            if (!sameActiveSpellEffectShape(left.params.mEffects[i], right.params.mEffects[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool containsActiveSpellSnapshot(
+        const std::vector<mwmp::ActiveSpell>& activeSpells, const mwmp::ActiveSpell& activeSpell)
+    {
+        return std::find_if(activeSpells.begin(), activeSpells.end(), [&](const mwmp::ActiveSpell& candidate) {
+            return sameActiveSpellSnapshot(candidate, activeSpell);
+        }) != activeSpells.end();
+    }
+
+    std::vector<mwmp::ActiveSpell> collectActiveSpellsToAdd(
+        const std::vector<mwmp::ActiveSpell>& current, const std::vector<mwmp::ActiveSpell>& previous)
+    {
+        std::vector<mwmp::ActiveSpell> result;
+        for (const mwmp::ActiveSpell& activeSpell : current)
+        {
+            if (activeSpell.id.empty() || !hasFiniteActiveSpellValues(activeSpell))
+                continue;
+
+            if (!containsActiveSpellSnapshot(previous, activeSpell))
+                result.push_back(activeSpell);
+        }
+        return result;
+    }
+
+    std::vector<mwmp::ActiveSpell> collectActiveSpellsToRemove(
+        const std::vector<mwmp::ActiveSpell>& previous, const std::vector<mwmp::ActiveSpell>& current)
+    {
+        std::vector<mwmp::ActiveSpell> result;
+        for (const mwmp::ActiveSpell& activeSpell : previous)
+        {
+            if (activeSpell.id.empty() || !hasFiniteActiveSpellValues(activeSpell))
+                continue;
+
+            if (!containsActiveSpellSnapshot(current, activeSpell))
+                result.push_back(activeSpell);
+        }
+        return result;
+    }
+
+    mwmp::SpellsActiveChanges makeFullSpellsActiveSnapshot(
+        const std::vector<mwmp::ActiveSpell>& activeSpells)
+    {
+        mwmp::SpellsActiveChanges snapshot;
+        snapshot.action = mwmp::SpellsActiveChanges::SET;
+        snapshot.activeSpells.reserve(activeSpells.size());
+        for (const mwmp::ActiveSpell& activeSpell : activeSpells)
+        {
+            if (!activeSpell.id.empty() && hasFiniteActiveSpellValues(activeSpell))
+                snapshot.activeSpells.push_back(activeSpell);
+        }
+        return snapshot;
+    }
+
     mwmp::BaseActor* findActorTarget(Cell& cell, const mwmp::Target& target)
     {
         mwmp::BaseActor* actor = cell.getActor(target.refNum, target.mpNum);
@@ -2430,6 +2533,24 @@ namespace
         cell.sendToLoaded(aiPacket, &aiList);
     }
 
+    void broadcastPlayerSpellsActive(
+        Player& target, const std::vector<mwmp::ActiveSpell>& activeSpells, int action)
+    {
+        if (activeSpells.empty())
+            return;
+
+        mwmp::PlayerPacket* packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(
+            ID_PLAYER_SPELLS_ACTIVE);
+        if (packet == nullptr)
+            return;
+
+        target.spellsActiveChanges.action = action;
+        target.spellsActiveChanges.activeSpells = activeSpells;
+        packet->setPlayer(&target);
+        packet->Send(target.guid);
+        target.sendToLoaded(packet);
+    }
+
     mwmp::Target makePlayerAiTarget(const Player& player)
     {
         mwmp::Target target;
@@ -2891,6 +3012,7 @@ namespace mwmp
         mPlayerMovementStates.erase(guid);
         mPlayerAcceptedCells.erase(guid);
         mPlayerMeleeWindups.erase(guid);
+        mRuntimePlayerSpellsActiveSnapshots.erase(guid);
         for (auto it = mActorInteractionLeases.begin(); it != mActorInteractionLeases.end();)
         {
             if (it->second.playerGuid == guid)
@@ -3867,12 +3989,13 @@ namespace mwmp
         ActorPacket* animFlagsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ANIM_FLAGS);
         ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
         ActorPacket* equipmentPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
+        ActorPacket* spellsActivePacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_SPELLS_ACTIVE);
         ActorPacket* aiPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_AI);
         ActorPacket* attackPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ATTACK);
         ActorPacket* deathPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_DEATH);
         if (listPacket == nullptr || cellChangePacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
-            || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr || attackPacket == nullptr
-            || deathPacket == nullptr)
+            || statsPacket == nullptr || equipmentPacket == nullptr || spellsActivePacket == nullptr
+            || aiPacket == nullptr || attackPacket == nullptr || deathPacket == nullptr)
             return;
 
         const Clock::time_point now = Clock::now();
@@ -3984,6 +4107,18 @@ namespace mwmp
             equipmentList.guid = unassignedPacketGuid();
             equipmentList.action = BaseActorList::SET;
             equipmentList.isValid = true;
+
+            BaseActorList spellsActiveRemoveList;
+            spellsActiveRemoveList.cell = runtimeList.cell;
+            spellsActiveRemoveList.guid = unassignedPacketGuid();
+            spellsActiveRemoveList.action = BaseActorList::SET;
+            spellsActiveRemoveList.isValid = true;
+
+            BaseActorList spellsActiveAddList;
+            spellsActiveAddList.cell = runtimeList.cell;
+            spellsActiveAddList.guid = unassignedPacketGuid();
+            spellsActiveAddList.action = BaseActorList::SET;
+            spellsActiveAddList.isValid = true;
 
             BaseActorList aiList;
             aiList.cell = runtimeList.cell;
@@ -4175,6 +4310,31 @@ namespace mwmp
                     equipmentList.baseActors.push_back(std::move(equipmentActor));
                 }
 
+                const std::vector<ActiveSpell> previousActiveSpells = previousActor != nullptr
+                    ? previousActor->spellsActiveChanges.activeSpells
+                    : std::vector<ActiveSpell>{};
+                const std::vector<ActiveSpell>& currentActiveSpells
+                    = runtimeActor.spellsActiveChanges.activeSpells;
+                std::vector<ActiveSpell> removedActiveSpells
+                    = collectActiveSpellsToRemove(previousActiveSpells, currentActiveSpells);
+                if (!removedActiveSpells.empty())
+                {
+                    BaseActor spellsActor = runtimeActor;
+                    spellsActor.spellsActiveChanges.action = SpellsActiveChanges::REMOVE;
+                    spellsActor.spellsActiveChanges.activeSpells = std::move(removedActiveSpells);
+                    spellsActiveRemoveList.baseActors.push_back(std::move(spellsActor));
+                }
+
+                std::vector<ActiveSpell> addedActiveSpells
+                    = collectActiveSpellsToAdd(currentActiveSpells, previousActiveSpells);
+                if (!addedActiveSpells.empty())
+                {
+                    BaseActor spellsActor = runtimeActor;
+                    spellsActor.spellsActiveChanges.action = SpellsActiveChanges::ADD;
+                    spellsActor.spellsActiveChanges.activeSpells = std::move(addedActiveSpells);
+                    spellsActiveAddList.baseActors.push_back(std::move(spellsActor));
+                }
+
                 if (runtimeOwnsClientRenderedAi)
                 {
                     const bool hasClearedClientAi = mRuntimeClientAiPresentedActors.find(actorKey)
@@ -4297,6 +4457,22 @@ namespace mwmp
                 serverCell->sendToLoaded(equipmentPacket, &equipmentList);
             }
 
+            spellsActiveRemoveList.count = static_cast<unsigned int>(spellsActiveRemoveList.baseActors.size());
+            if (spellsActiveRemoveList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_SPELLS_ACTIVE, &spellsActiveRemoveList);
+                spellsActivePacket->setActorList(&spellsActiveRemoveList);
+                serverCell->sendToLoaded(spellsActivePacket, &spellsActiveRemoveList);
+            }
+
+            spellsActiveAddList.count = static_cast<unsigned int>(spellsActiveAddList.baseActors.size());
+            if (spellsActiveAddList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_SPELLS_ACTIVE, &spellsActiveAddList);
+                spellsActivePacket->setActorList(&spellsActiveAddList);
+                serverCell->sendToLoaded(spellsActivePacket, &spellsActiveAddList);
+            }
+
             aiList.count = static_cast<unsigned int>(aiList.baseActors.size());
             if (aiList.count != 0)
             {
@@ -4332,8 +4508,8 @@ namespace mwmp
         const Clock::time_point now = Clock::now();
         for (const SimulationPlayerSnapshot& snapshot : playerSnapshots)
         {
-            if (!mwmp::isPacketGuidAssigned(snapshot.guid) || !snapshot.hasStatsDynamicData
-                || !hasFiniteSimpleCreatureStats(snapshot.creatureStats))
+            if (!mwmp::isPacketGuidAssigned(snapshot.guid)
+                || (!snapshot.hasStatsDynamicData && !snapshot.hasSpellsActiveData))
                 continue;
 
             Player* target = Players::getPlayer(snapshot.guid);
@@ -4341,6 +4517,28 @@ namespace mwmp
                 continue;
 
             if (!isSameSimulationCell(target->cell, snapshot.cell))
+                continue;
+
+            if (snapshot.hasSpellsActiveData)
+            {
+                SpellsActiveChanges& previousSnapshot = mRuntimePlayerSpellsActiveSnapshots[snapshot.guid];
+                SpellsActiveChanges currentSnapshot = makeFullSpellsActiveSnapshot(
+                    snapshot.spellsActiveChanges.activeSpells);
+
+                std::vector<ActiveSpell> removedActiveSpells = collectActiveSpellsToRemove(
+                    previousSnapshot.activeSpells, currentSnapshot.activeSpells);
+                if (!removedActiveSpells.empty())
+                    broadcastPlayerSpellsActive(*target, removedActiveSpells, SpellsActiveChanges::REMOVE);
+
+                std::vector<ActiveSpell> addedActiveSpells = collectActiveSpellsToAdd(
+                    currentSnapshot.activeSpells, previousSnapshot.activeSpells);
+                if (!addedActiveSpells.empty())
+                    broadcastPlayerSpellsActive(*target, addedActiveSpells, SpellsActiveChanges::ADD);
+
+                previousSnapshot = std::move(currentSnapshot);
+            }
+
+            if (!snapshot.hasStatsDynamicData || !hasFiniteSimpleCreatureStats(snapshot.creatureStats))
                 continue;
 
             const float currentHealth = target->creatureStats.mDynamic[0].mCurrent;

@@ -223,6 +223,7 @@ namespace mwmp
         std::map<ActorMovementKey, RuntimeActorMovementState> mRuntimeActorMovementStates;
         std::map<ActorMovementKey, ServerActorCombatState> mServerActorCombatStates;
         std::map<PacketGuid, PlayerMeleeWindupState> mPlayerMeleeWindups;
+        std::map<PacketGuid, SpellsActiveChanges> mRuntimePlayerSpellsActiveSnapshots;
         std::set<ActorMovementKey> mRuntimeClientAiPresentedActors;
         std::map<ActorMovementKey, ActorInteractionLease> mActorInteractionLeases;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;

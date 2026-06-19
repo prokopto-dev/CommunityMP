@@ -142,6 +142,50 @@ namespace
             || reference.baseActorAiAction == mwmp::BaseActorList::FOLLOW;
     }
 
+    bool sameActiveSpellIdentity(const mwmp::ActiveSpell& left, const mwmp::ActiveSpell& right)
+    {
+        return left.id == right.id && left.isStackingSpell == right.isStackingSpell;
+    }
+
+    void mergeActorSpellsActiveChanges(
+        mwmp::SpellsActiveChanges& stored, const mwmp::SpellsActiveChanges& incoming)
+    {
+        if (incoming.action == mwmp::SpellsActiveChanges::SET)
+        {
+            stored = incoming;
+            return;
+        }
+
+        if (incoming.action == mwmp::SpellsActiveChanges::ADD)
+        {
+            for (const mwmp::ActiveSpell& activeSpell : incoming.activeSpells)
+            {
+                const auto existing = std::find_if(stored.activeSpells.begin(), stored.activeSpells.end(),
+                    [&](const mwmp::ActiveSpell& storedSpell) {
+                        return sameActiveSpellIdentity(storedSpell, activeSpell);
+                    });
+
+                if (existing != stored.activeSpells.end())
+                    *existing = activeSpell;
+                else
+                    stored.activeSpells.push_back(activeSpell);
+            }
+        }
+        else if (incoming.action == mwmp::SpellsActiveChanges::REMOVE)
+        {
+            for (const mwmp::ActiveSpell& activeSpell : incoming.activeSpells)
+            {
+                stored.activeSpells.erase(std::remove_if(stored.activeSpells.begin(), stored.activeSpells.end(),
+                                              [&](const mwmp::ActiveSpell& storedSpell) {
+                                                  return sameActiveSpellIdentity(storedSpell, activeSpell);
+                                              }),
+                    stored.activeSpells.end());
+            }
+        }
+
+        stored.action = mwmp::SpellsActiveChanges::SET;
+    }
+
     bool targetIdMatchesReference(const mwmp::WorldCellReferenceRecord& candidate, std::string_view targetId)
     {
         return equalsIgnoreCase(candidate.refId, targetId) || equalsIgnoreCase(candidate.baseRecordId, targetId);
@@ -648,6 +692,11 @@ void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newA
 
                 for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
                     cellActor->equipmentItems[slot] = newActor.equipmentItems[slot];
+                break;
+
+            case ID_ACTOR_SPELLS_ACTIVE:
+
+                mergeActorSpellsActiveChanges(cellActor->spellsActiveChanges, newActor.spellsActiveChanges);
                 break;
 
             case ID_ACTOR_DEATH:

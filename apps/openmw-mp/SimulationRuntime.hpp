@@ -81,8 +81,10 @@ namespace mwmp
         PacketGuid guid = unassignedPacketGuid();
         std::string name;
         SimpleCreatureStats creatureStats;
+        SpellsActiveChanges spellsActiveChanges;
         bool hasPositionData = false;
         bool hasStatsDynamicData = false;
+        bool hasSpellsActiveData = false;
     };
 
     struct SimulationRuntimeEventArgument
