@@ -1804,29 +1804,7 @@ namespace
         acceptedActor.refId = currentActor.refId.empty() ? incomingActor.refId : currentActor.refId;
         acceptedActor.cell = cell.getCellData();
         acceptedActor.hasAiData = true;
-
-        if (currentActor.hasPositionData)
-        {
-            acceptedActor.hasPositionData = true;
-            acceptedActor.positionSequence = currentActor.positionSequence;
-            acceptedActor.position = currentActor.position;
-            acceptedActor.direction = currentActor.direction;
-            acceptedActor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
-                currentActor.movementSampleIntervalSeconds);
-            acceptedActor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(
-                currentActor.movementLatencySeconds);
-        }
-        else if (incomingActor.hasPositionData && isFiniteActorMovementSnapshot(incomingActor))
-        {
-            acceptedActor.hasPositionData = true;
-            sanitizeFinitePosition(acceptedActor.direction);
-            acceptedActor.movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
-                incomingActor.movementSampleIntervalSeconds);
-            acceptedActor.movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(
-                incomingActor.movementLatencySeconds);
-        }
-        else
-            acceptedActor.hasPositionData = false;
+        acceptedActor.hasPositionData = false;
 
         return acceptedActor;
     }
@@ -2032,7 +2010,7 @@ namespace
         if (!std::isfinite(fatigue))
             return false;
 
-        fatigue -= damage;
+        fatigue = std::max(0.f, fatigue - damage);
         ++target.statsDynamicSequence;
         target.hasStatsDynamicData = true;
         return true;
@@ -2068,6 +2046,57 @@ namespace
             ID_ACTOR_STATS_DYNAMIC);
         statsPacket->setActorList(&statsList);
         cell.sendToLoaded(statsPacket, &statsList);
+    }
+
+    void broadcastActorAi(Cell& cell, const mwmp::BaseActor& target)
+    {
+        mwmp::BaseActorList aiList;
+        aiList.cell = cell.getCellData();
+        aiList.guid = mwmp::unassignedPacketGuid();
+        aiList.action = mwmp::BaseActorList::SET;
+        aiList.isValid = true;
+        aiList.baseActors.push_back(target);
+        aiList.count = static_cast<unsigned int>(aiList.baseActors.size());
+
+        mwmp::ActorPacket* aiPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(
+            ID_ACTOR_AI);
+        if (aiPacket == nullptr)
+            return;
+
+        aiPacket->setActorList(&aiList);
+        cell.sendToLoaded(aiPacket, &aiList);
+    }
+
+    mwmp::Target makePlayerAiTarget(const Player& player)
+    {
+        mwmp::Target target;
+        target.isPlayer = true;
+        target.guid = player.guid;
+        target.name = player.npc.mName;
+        return target;
+    }
+
+    bool applyCombatTargetToActor(Cell& cell, mwmp::BaseActor& targetActor, const Player& attacker)
+    {
+        if (!isLivePlayerAiTarget(attacker) || !attacker.hasFinitePositionPacket())
+            return false;
+
+        if (getCellSimulationKey(attacker.cell) != getCellSimulationKey(cell.getCellData()))
+            return false;
+
+        const mwmp::Target aiTarget = makePlayerAiTarget(attacker);
+        const bool alreadyTargetingPlayer = targetActor.hasAiData && targetActor.hasAiTarget
+            && targetActor.aiAction == mwmp::BaseActorList::COMBAT
+            && targetsReferToSameEntity(targetActor.aiTarget, aiTarget);
+
+        targetActor.hasAiData = true;
+        targetActor.aiAction = mwmp::BaseActorList::COMBAT;
+        targetActor.aiDistance = 0;
+        targetActor.aiDuration = 0;
+        targetActor.aiShouldRepeat = true;
+        targetActor.aiTarget = aiTarget;
+        targetActor.hasAiTarget = true;
+        return !alreadyTargetingPlayer;
     }
 
     void notifyPlayerDeath(Player& target)
@@ -2913,6 +2942,16 @@ namespace mwmp
             BaseActorList identityList = runtimeList;
             identityList.guid = unassignedPacketGuid();
             identityList.action = BaseActorList::SET;
+            for (BaseActor& identityActor : identityList.baseActors)
+            {
+                const auto previousActorIt = cachedActorsBeforeIdentity.find(actorIdentityPair(identityActor));
+                const BaseActor* previousActor = previousActorIt != cachedActorsBeforeIdentity.end()
+                    ? &previousActorIt->second
+                    : nullptr;
+                static_cast<void>(applyActualRuntimeMovementDirection(identityActor, previousActor));
+                identityActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                identityActor.movementLatencySeconds = 0.f;
+            }
             identityList.count = static_cast<unsigned int>(identityList.baseActors.size());
             serverCell->readActorList(ID_ACTOR_LIST, &identityList);
 
@@ -3059,7 +3098,10 @@ namespace mwmp
                     equipmentList.baseActors.push_back(std::move(equipmentActor));
                 }
 
-                if (runtimeActor.hasAiData && cachedActor != nullptr && hasValidActorAiSnapshot(*serverCell, runtimeActor))
+                if (runtimeActor.hasAiData && cachedActor != nullptr
+                    && !(actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor)
+                        && runtimeActor.aiAction != BaseActorList::COMBAT)
+                    && hasValidActorAiSnapshot(*serverCell, runtimeActor))
                 {
                     BaseActor aiActor = buildServerAcceptedAiActor(*serverCell, runtimeActor, *cachedActor);
                     if (previousActor == nullptr || !sameActorAi(*previousActor, aiActor))
@@ -4504,7 +4546,14 @@ namespace mwmp
         }
 
         auto [targetCell, targetActor] = findLoadedActorTarget(attacker, attack.target);
-        if (targetCell != nullptr && targetActor != nullptr && applyAttackDamageToActor(*targetActor, attack))
+        if (targetCell == nullptr || targetActor == nullptr)
+            return;
+
+        const bool aiChanged = applyCombatTargetToActor(*targetCell, *targetActor, attacker);
+        if (aiChanged)
+            broadcastActorAi(*targetCell, *targetActor);
+
+        if (applyAttackDamageToActor(*targetActor, attack))
         {
             broadcastActorStats(*targetCell, *targetActor);
             notifyActorStatsDynamic(attacker, *targetCell);

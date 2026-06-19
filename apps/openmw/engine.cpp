@@ -1756,6 +1756,7 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
     if (!mServerSimulationPrepared || mWorld == nullptr)
         return;
 
+    const MWWorld::Ptr player = mWorld->getPlayerPtr();
     for (MWWorld::CellStore* cellStore : mWorld->getWorldScene().getActiveCells())
     {
         if (cellStore == nullptr || cellStore->getCell() == nullptr)
@@ -1769,9 +1770,15 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
         actorList.count = 0;
 
         cellStore->forEachType<ESM::NPC>([&](const MWWorld::Ptr& ptr) {
+            if (ptr == player)
+                return true;
+
             return appendServerSimulationActor(actorList, ptr);
         });
         cellStore->forEachType<ESM::Creature>([&](const MWWorld::Ptr& ptr) {
+            if (ptr == player)
+                return true;
+
             return appendServerSimulationActor(actorList, ptr);
         });
 

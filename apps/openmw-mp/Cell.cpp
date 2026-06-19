@@ -102,7 +102,9 @@ namespace
 
     bool isActorBootstrapCategory(std::string_view category)
     {
-        return category == "actor" || category == "levelledActor";
+        // Levelled actors are spawn lists, not concrete refs with creature stats.
+        // Let the OpenMW runtime resolve them before they enter actor replication.
+        return category == "actor";
     }
 
     bool isObjectBootstrapCategory(std::string_view category)
