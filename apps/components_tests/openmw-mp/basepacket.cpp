@@ -958,6 +958,7 @@ namespace
         EXPECT_TRUE(player.equipmentIndexChanges.empty());
         EXPECT_EQ(player.inventoryChanges.action, mwmp::InventoryChanges::SET);
         EXPECT_TRUE(player.inventoryChanges.items.empty());
+        EXPECT_TRUE(player.acceptedInventoryItems.empty());
         EXPECT_TRUE(player.equipmentItems[0].refId.empty());
         EXPECT_FLOAT_EQ(player.position.pos[0], 0.f);
         EXPECT_FLOAT_EQ(player.creatureStats.mDynamic[0].mCurrent, 0.f);
@@ -2542,6 +2543,55 @@ namespace
         EXPECT_EQ(player.inventoryChanges.action, mwmp::InventoryChanges::REMOVE);
         ASSERT_EQ(player.inventoryChanges.items.size(), 1u);
         EXPECT_EQ(player.inventoryChanges.items[0].count, 3);
+    }
+
+    TEST(MpBasePacketTest, playerInventoryAcceptMaintainsFullSnapshot)
+    {
+        mwmp::BasePlayer player(testGuid());
+
+        player.inventorySequence = 1;
+        player.inventoryChanges.action = mwmp::InventoryChanges::SET;
+        player.inventoryChanges.items = {
+            { "gold_001", 10, -1, -1.f, "" },
+            { "iron dagger", 1, 80, -1.f, "" },
+        };
+        ASSERT_TRUE(player.acceptInventoryPacket());
+        ASSERT_EQ(player.acceptedInventoryItems.size(), 2u);
+        EXPECT_EQ(player.acceptedInventoryItems[0].refId, "gold_001");
+        EXPECT_EQ(player.acceptedInventoryItems[0].count, 10);
+
+        player.inventorySequence = 2;
+        player.inventoryChanges.action = mwmp::InventoryChanges::ADD;
+        player.inventoryChanges.items = {
+            { "gold_001", 5, -1, -1.f, "" },
+            { "iron dagger", 1, 50, -1.f, "" },
+        };
+        ASSERT_TRUE(player.acceptInventoryPacket());
+        ASSERT_EQ(player.acceptedInventoryItems.size(), 3u);
+        EXPECT_EQ(player.acceptedInventoryItems[0].refId, "gold_001");
+        EXPECT_EQ(player.acceptedInventoryItems[0].count, 15);
+        EXPECT_EQ(player.acceptedInventoryItems[2].refId, "iron dagger");
+        EXPECT_EQ(player.acceptedInventoryItems[2].charge, 50);
+
+        player.inventorySequence = 1;
+        player.inventoryChanges.action = mwmp::InventoryChanges::REMOVE;
+        player.inventoryChanges.items = { { "gold_001", 100, -1, -1.f, "" } };
+        EXPECT_FALSE(player.acceptInventoryPacket());
+        ASSERT_EQ(player.acceptedInventoryItems.size(), 3u);
+        EXPECT_EQ(player.acceptedInventoryItems[0].count, 15);
+
+        player.inventorySequence = 3;
+        player.inventoryChanges.action = mwmp::InventoryChanges::REMOVE;
+        player.inventoryChanges.items = {
+            { "gold_001", 12, -1, -1.f, "" },
+            { "iron dagger", 1, 80, -1.f, "" },
+        };
+        ASSERT_TRUE(player.acceptInventoryPacket());
+        ASSERT_EQ(player.acceptedInventoryItems.size(), 2u);
+        EXPECT_EQ(player.acceptedInventoryItems[0].refId, "gold_001");
+        EXPECT_EQ(player.acceptedInventoryItems[0].count, 3);
+        EXPECT_EQ(player.acceptedInventoryItems[1].refId, "iron dagger");
+        EXPECT_EQ(player.acceptedInventoryItems[1].charge, 50);
     }
 
     TEST(MpBasePacketTest, actorSpellsActiveRejectsOversizedCountBeforeResize)

@@ -155,6 +155,7 @@ namespace OMW
         ESM::RefId classId;
         mwmp::SimulationPlayerBaseStats baseStats;
         mwmp::SimpleCreatureStats stats;
+        std::vector<mwmp::Item> inventoryItems;
         std::array<mwmp::Item, mwmp::equipmentSlotCount> equipmentItems = {};
         std::unique_ptr<MWWorld::ManualRef> reference;
         MWWorld::Ptr ptr;
@@ -162,6 +163,7 @@ namespace OMW
         bool hasBaseInfo = false;
         bool hasClass = false;
         bool hasBaseStatsData = false;
+        bool hasInventoryData = false;
         bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;
     };
@@ -333,6 +335,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Start native OpenMW combat against the server focus player proxy.
@@ -342,6 +345,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerMeleeAttackToActor(const ESM::Cell& cell, std::string_view actorRefId,
             unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
@@ -349,6 +353,7 @@ namespace OMW
             float attackStrength, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell& cell,
             const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
@@ -356,6 +361,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerRangedAttackToActor(const ESM::Cell& cell, std::string_view actorRefId,
             unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
@@ -363,6 +369,7 @@ namespace OMW
             float attackStrength, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerRangedAttackToPlayer(const ESM::Cell& cell,
             const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
@@ -370,12 +377,14 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool resolveServerSimulationPlayerCast(const ESM::Cell& cell, const ESM::Position& playerPosition,
             mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast,
             bool& castSucceeded, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell, std::string_view actorRefId,
             unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
@@ -383,6 +392,7 @@ namespace OMW
             bool& castSucceeded, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cell,
             const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
@@ -390,6 +400,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.

@@ -473,6 +473,7 @@ namespace
                 player.hasBaseInfo ? &player.npc : nullptr,
                 player.hasClass ? &player.classId : nullptr,
                 player.hasBaseStatsData ? &player.baseStats : nullptr,
+                player.hasInventoryData ? &player.inventoryItems : nullptr,
                 player.hasEquipmentData ? &player.equipmentItems : nullptr);
         }
 
@@ -488,6 +489,7 @@ namespace
                 player.hasBaseInfo ? &player.npc : nullptr,
                 player.hasClass ? &player.classId : nullptr,
                 player.hasBaseStatsData ? &player.baseStats : nullptr,
+                player.hasInventoryData ? &player.inventoryItems : nullptr,
                 player.hasEquipmentData ? &player.equipmentItems : nullptr);
         }
 
@@ -503,6 +505,7 @@ namespace
                 attacker.hasBaseInfo ? &attacker.npc : nullptr,
                 attacker.hasClass ? &attacker.classId : nullptr,
                 attacker.hasBaseStatsData ? &attacker.baseStats : nullptr,
+                attacker.hasInventoryData ? &attacker.inventoryItems : nullptr,
                 attacker.hasEquipmentData ? &attacker.equipmentItems : nullptr);
         }
 
@@ -518,6 +521,7 @@ namespace
                 player.hasBaseInfo ? &player.npc : nullptr,
                 player.hasClass ? &player.classId : nullptr,
                 player.hasBaseStatsData ? &player.baseStats : nullptr,
+                player.hasInventoryData ? &player.inventoryItems : nullptr,
                 player.hasEquipmentData ? &player.equipmentItems : nullptr);
         }
 
@@ -533,6 +537,7 @@ namespace
                 attacker.hasBaseInfo ? &attacker.npc : nullptr,
                 attacker.hasClass ? &attacker.classId : nullptr,
                 attacker.hasBaseStatsData ? &attacker.baseStats : nullptr,
+                attacker.hasInventoryData ? &attacker.inventoryItems : nullptr,
                 attacker.hasEquipmentData ? &attacker.equipmentItems : nullptr);
         }
 
@@ -549,6 +554,7 @@ namespace
                 caster.hasBaseInfo ? &caster.npc : nullptr,
                 caster.hasClass ? &caster.classId : nullptr,
                 caster.hasBaseStatsData ? &caster.baseStats : nullptr,
+                caster.hasInventoryData ? &caster.inventoryItems : nullptr,
                 caster.hasEquipmentData ? &caster.equipmentItems : nullptr);
         }
 
@@ -565,6 +571,7 @@ namespace
                 caster.hasBaseInfo ? &caster.npc : nullptr,
                 caster.hasClass ? &caster.classId : nullptr,
                 caster.hasBaseStatsData ? &caster.baseStats : nullptr,
+                caster.hasInventoryData ? &caster.inventoryItems : nullptr,
                 caster.hasEquipmentData ? &caster.equipmentItems : nullptr);
         }
 
@@ -581,6 +588,7 @@ namespace
                 caster.hasBaseInfo ? &caster.npc : nullptr,
                 caster.hasClass ? &caster.classId : nullptr,
                 caster.hasBaseStatsData ? &caster.baseStats : nullptr,
+                caster.hasInventoryData ? &caster.inventoryItems : nullptr,
                 caster.hasEquipmentData ? &caster.equipmentItems : nullptr);
         }
 
@@ -700,6 +708,7 @@ namespace
                 focus.hasPlayerBaseInfo ? &focus.playerNpc : nullptr,
                 focus.hasPlayerClass ? &focus.playerClassId : nullptr,
                 focus.hasPlayerBaseStatsData ? &focus.playerBaseStats : nullptr,
+                focus.hasPlayerInventoryData ? &focus.playerInventoryItems : nullptr,
                 focus.hasPlayerEquipmentData ? &focus.playerEquipmentItems : nullptr);
             mFocusState.lastQueuedDeltaSeconds = queuedDeltaSeconds;
             if (mFocusState.lastFocusSucceeded)

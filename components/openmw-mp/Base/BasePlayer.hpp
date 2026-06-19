@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadcrea.hpp>
@@ -175,6 +176,70 @@ namespace mwmp
         };
         int action; // 0 - Clear and set in entirety, 1 - Add item, 2 - Remove item
     };
+
+    inline bool inventorySnapshotStackMatches(const Item& left, const Item& right)
+    {
+        return left.refId == right.refId && left.charge == right.charge
+            && left.enchantmentCharge == right.enchantmentCharge && left.soul == right.soul;
+    }
+
+    inline void addInventorySnapshotItem(std::vector<Item>& snapshot, const Item& item)
+    {
+        if (item.refId.empty() || item.count <= 0)
+            return;
+
+        for (Item& existing : snapshot)
+        {
+            if (!inventorySnapshotStackMatches(existing, item))
+                continue;
+
+            existing.count += item.count;
+            return;
+        }
+
+        snapshot.push_back(item);
+    }
+
+    inline void removeInventorySnapshotItem(std::vector<Item>& snapshot, const Item& item)
+    {
+        if (item.refId.empty() || item.count <= 0)
+            return;
+
+        for (auto it = snapshot.begin(); it != snapshot.end(); ++it)
+        {
+            if (!inventorySnapshotStackMatches(*it, item))
+                continue;
+
+            it->count -= item.count;
+            if (it->count <= 0)
+                snapshot.erase(it);
+            return;
+        }
+    }
+
+    inline void applyInventoryChangesToSnapshot(std::vector<Item>& snapshot, const InventoryChanges& changes)
+    {
+        if (changes.action == InventoryChanges::SET)
+        {
+            snapshot.clear();
+            for (const Item& item : changes.items)
+                addInventorySnapshotItem(snapshot, item);
+            return;
+        }
+
+        if (changes.action == InventoryChanges::ADD)
+        {
+            for (const Item& item : changes.items)
+                addInventorySnapshotItem(snapshot, item);
+            return;
+        }
+
+        if (changes.action == InventoryChanges::REMOVE)
+        {
+            for (const Item& item : changes.items)
+                removeInventorySnapshotItem(snapshot, item);
+        }
+    }
 
     struct SpellbookChanges
     {
@@ -395,6 +460,7 @@ namespace mwmp
         {
             acceptedInventorySequence = inventorySequence;
             acceptedInventoryChanges = inventoryChanges;
+            applyInventoryChangesToSnapshot(acceptedInventoryItems, inventoryChanges);
             hasAcceptedInventoryPacket = true;
         }
 
@@ -416,6 +482,7 @@ namespace mwmp
             acceptedInventorySequence = 0;
             acceptedInventoryChanges.action = InventoryChanges::SET;
             acceptedInventoryChanges.items.clear();
+            acceptedInventoryItems.clear();
             hasAcceptedInventoryPacket = false;
         }
 
@@ -724,6 +791,7 @@ namespace mwmp
         std::uint32_t inventorySequence = 0;
         std::uint32_t acceptedInventorySequence = 0;
         InventoryChanges acceptedInventoryChanges;
+        std::vector<Item> acceptedInventoryItems;
         bool hasAcceptedInventoryPacket = false;
 
         SpellbookChanges spellbookChanges;

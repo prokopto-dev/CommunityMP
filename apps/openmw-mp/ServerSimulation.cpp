@@ -1326,6 +1326,11 @@ namespace
         }
         target.baseStats = makeSimulationPlayerBaseStats(player.creatureStats, player.npcStats);
         target.hasBaseStatsData = true;
+        if (player.hasAcceptedInventoryPacket)
+        {
+            target.inventoryItems = player.acceptedInventoryItems;
+            target.hasInventoryData = true;
+        }
         if (player.hasAcceptedEquipmentPacket)
         {
             for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
@@ -3671,6 +3676,11 @@ namespace mwmp
             focus.hasPlayerBaseInfo = true;
             focus.playerBaseStats = makeSimulationPlayerBaseStats(visitor.creatureStats, visitor.npcStats);
             focus.hasPlayerBaseStatsData = true;
+            if (visitor.hasAcceptedInventoryPacket)
+            {
+                focus.playerInventoryItems = visitor.acceptedInventoryItems;
+                focus.hasPlayerInventoryData = true;
+            }
             if (!visitor.charClass.mId.empty())
             {
                 focus.playerClassId = visitor.charClass.mId;

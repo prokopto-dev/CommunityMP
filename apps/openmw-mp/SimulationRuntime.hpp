@@ -29,12 +29,14 @@ namespace mwmp
         ESM::RefId playerClassId;
         SimulationPlayerBaseStats playerBaseStats;
         SimpleCreatureStats playerStats;
+        std::vector<Item> playerInventoryItems;
         std::array<Item, equipmentSlotCount> playerEquipmentItems = {};
         bool hasPlayer = false;
         bool hasPlayerBaseInfo = false;
         bool hasPlayerClass = false;
         bool hasPlayerBaseStatsData = false;
         bool hasPlayerStats = false;
+        bool hasPlayerInventoryData = false;
         bool hasPlayerEquipmentData = false;
     };
 
@@ -56,11 +58,13 @@ namespace mwmp
         ESM::RefId classId;
         SimulationPlayerBaseStats baseStats;
         SimpleCreatureStats creatureStats;
+        std::vector<Item> inventoryItems;
         std::array<Item, equipmentSlotCount> equipmentItems = {};
         bool hasPosition = false;
         bool hasBaseInfo = false;
         bool hasClass = false;
         bool hasBaseStatsData = false;
+        bool hasInventoryData = false;
         bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;
     };
