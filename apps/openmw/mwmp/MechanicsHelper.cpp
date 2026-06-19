@@ -8,16 +8,19 @@
 #include <components/misc/rng.hpp>
 #include <components/settings/values.hpp>
 #include <components/esm3/loadlevlist.hpp>
+#include <components/esm3/loadsoun.hpp>
 #include <components/esm3/loadweap.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
+#include "../mwbase/soundmanager.hpp"
 #include "../mwbase/world.hpp"
 
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/damagesourcetype.hpp"
 #include "../mwmechanics/levelledlist.hpp"
+#include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/spellcasting.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
@@ -31,6 +34,7 @@
 #include "../mwworld/inventorystore.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <exception>
 #include <map>
@@ -537,6 +541,62 @@ namespace
         else if (appliedDamage >= 0.001f && !victimStats.getKnockedDown())
         {
             victimStats.setHitRecovery(true);
+        }
+    }
+
+    bool attackVisuallyDamagesHealth(
+        const mwmp::Attack& attack, const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim)
+    {
+        if (attack.type != mwmp::Attack::MELEE || !attack.rangedWeaponId.empty()
+            || !attacker.getClass().isBipedal(attacker))
+            return true;
+
+        const MWMechanics::CreatureStats& victimStats = victim.getClass().getCreatureStats(victim);
+        return victimStats.isParalyzed() || (victimStats.getKnockedDown() && !attack.knockdown);
+    }
+
+    void playNetworkHitCue(const mwmp::Attack& attack, const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim)
+    {
+        if (victim.isEmpty() || !attack.success || attack.block || attack.damage < 0.001f)
+            return;
+
+        MWBase::SoundManager* soundManager = MWBase::Environment::get().getSoundManager();
+        if (soundManager == nullptr)
+            return;
+
+        const bool healthDamage = attackVisuallyDamagesHealth(attack, attacker, victim);
+
+        try
+        {
+            if (attack.type == mwmp::Attack::MELEE && attack.rangedWeaponId.empty()
+                && attacker.getClass().isBipedal(attacker))
+            {
+                if (attacker.getClass().isNpc() && attacker.getClass().getNpcStats(attacker).isWerewolf())
+                {
+                    auto& prng = MWBase::Environment::get().getWorld()->getPrng();
+                    const ESM::Sound* sound
+                        = MWBase::Environment::get().getESMStore()->get<ESM::Sound>().searchRandom("WolfHit", prng);
+                    if (sound != nullptr)
+                        soundManager->playSound3D(victim, sound->mId, 1.0f, 1.0f);
+                    return;
+                }
+
+                if (!healthDamage)
+                {
+                    static const std::array<ESM::RefId, 2> sounds
+                        = { ESM::RefId::stringRefId("Hand To Hand Hit"), ESM::RefId::stringRefId("Hand To Hand Hit 2") };
+                    auto& prng = MWBase::Environment::get().getWorld()->getPrng();
+                    soundManager->playSound3D(victim, sounds[Misc::Rng::rollDice(sounds.size(), prng)], 1.0f, 1.0f);
+                    return;
+                }
+            }
+
+            if (healthDamage)
+                soundManager->playSound3D(victim, ESM::RefId::stringRefId("Health Damage"), 1.0f, 1.0f);
+        }
+        catch (const std::exception& e)
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "Failed to play network hit cue: %s", e.what());
         }
     }
 
@@ -1482,6 +1542,7 @@ void MechanicsHelper::processAttack(Attack attack, const MWWorld::Ptr& attacker,
         if (!applyAuthoritativeState)
         {
             const float visualDamageCue = attack.success ? std::max(attack.damage, 1.f) : 0.f;
+            playNetworkHitCue(attack, attacker, victim);
             applyAttackReaction(attack, victim, visualDamageCue);
             return;
         }
