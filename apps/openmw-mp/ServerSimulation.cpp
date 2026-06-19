@@ -1380,6 +1380,14 @@ namespace
         return serverPlayerMeleeMinimumStrength + windup * (1.f - serverPlayerMeleeMinimumStrength);
     }
 
+    float sanitizePlayerReleaseMeleeAttackStrength(float attackStrength)
+    {
+        if (!std::isfinite(attackStrength) || attackStrength <= 0.f)
+            return serverPlayerMeleeMinimumStrength;
+
+        return std::clamp(attackStrength, serverPlayerMeleeMinimumStrength, 1.f);
+    }
+
     bool hasValidCastShape(const mwmp::Cast& cast)
     {
         if (cast.type != mwmp::Cast::REGULAR && cast.type != mwmp::Cast::ITEM)
@@ -6218,7 +6226,7 @@ namespace mwmp
                     mPlayerMeleeWindups.erase(windup);
                 }
                 else
-                    serverMeleeAttackStrength = serverPlayerMeleeMinimumStrength;
+                    serverMeleeAttackStrength = sanitizePlayerReleaseMeleeAttackStrength(attack.attackStrength);
             }
         }
         else
