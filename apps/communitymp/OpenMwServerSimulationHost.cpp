@@ -436,6 +436,18 @@ namespace
             return focus.cell.getDescription();
         }
 
+        static std::string focusScheduleKey(const mwmp::SimulationCellFocus& focus)
+        {
+            std::string key = focusDescription(focus);
+            if (key.empty())
+                return key;
+
+            if (focus.hasPlayer && mwmp::isPacketGuidAssigned(focus.playerGuid))
+                key += "#player:" + mwmp::packetGuidToString(focus.playerGuid);
+
+            return key;
+        }
+
         static mwmp::SimulationPlayerSnapshot makeVirtualPlayerSnapshot(const mwmp::SimulationCellFocus& focus)
         {
             mwmp::SimulationPlayerSnapshot snapshot;
@@ -481,9 +493,9 @@ namespace
             std::set<std::string> activeFocuses;
             for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
             {
-                const std::string description = focusDescription(focus);
-                if (!description.empty())
-                    activeFocuses.insert(description);
+                const std::string key = focusScheduleKey(focus);
+                if (!key.empty())
+                    activeFocuses.insert(key);
             }
 
             for (auto it = mQueuedFocusDeltaSeconds.begin(); it != mQueuedFocusDeltaSeconds.end();)
@@ -499,9 +511,9 @@ namespace
         {
             for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
             {
-                const std::string description = focusDescription(focus);
-                if (!description.empty())
-                    mQueuedFocusDeltaSeconds[description] += deltaSeconds;
+                const std::string key = focusScheduleKey(focus);
+                if (!key.empty())
+                    mQueuedFocusDeltaSeconds[key] += deltaSeconds;
             }
         }
 
@@ -516,7 +528,8 @@ namespace
             const mwmp::SimulationCellFocus& focus = mSimulationFocuses[mNextSimulationFocus];
             mNextSimulationFocus = (mNextSimulationFocus + 1) % mSimulationFocuses.size();
             const std::string description = focusDescription(focus);
-            const auto queuedIt = mQueuedFocusDeltaSeconds.find(description);
+            const std::string scheduleKey = focusScheduleKey(focus);
+            const auto queuedIt = mQueuedFocusDeltaSeconds.find(scheduleKey);
             const float queuedDeltaSeconds = queuedIt != mQueuedFocusDeltaSeconds.end()
                 ? queuedIt->second
                 : fallbackDeltaSeconds;

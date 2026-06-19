@@ -3402,35 +3402,46 @@ namespace mwmp
         if (cellController == nullptr)
             return;
 
-        auto buildFocusForState = [&](const std::string& cellKey, const ShadowCellAuthorityState& state,
-                                      const ESM::Cell& cell) {
+        auto buildFocusForVisitor = [&](const ESM::Cell& cell, Player& visitor) -> std::optional<SimulationCellFocus> {
+            if (visitor.getLoadState() == Player::KICKED)
+                return std::nullopt;
+
+            if (!visitor.hasFinitePositionPacket() || !isSameSimulationCell(visitor.cell, cell))
+                return std::nullopt;
+
             SimulationCellFocus focus;
             focus.cell = cell;
-
-            for (PacketGuid visitorGuid : state.visitors)
+            focus.position = visitor.position;
+            focus.hasPosition = true;
+            focus.playerGuid = visitor.guid;
+            focus.playerName = visitor.npc.mName;
+            focus.hasPlayer = true;
+            if (visitor.hasFiniteDynamicStats())
             {
-                Player* visitor = Players::getPlayer(visitorGuid);
-                if (visitor == nullptr || visitor->getLoadState() == Player::KICKED)
-                    continue;
-
-                if (!visitor->hasFinitePositionPacket() || !isSameSimulationCell(visitor->cell, focus.cell))
-                    continue;
-
-                focus.position = visitor->position;
-                focus.hasPosition = true;
-                focus.playerGuid = visitor->guid;
-                focus.playerName = visitor->npc.mName;
-                focus.hasPlayer = true;
-                if (visitor->hasFiniteDynamicStats())
-                {
-                    focus.playerStats = makeSimpleCreatureStats(visitor->creatureStats);
-                    focus.hasPlayerStats = true;
-                }
-                break;
+                focus.playerStats = makeSimpleCreatureStats(visitor.creatureStats);
+                focus.hasPlayerStats = true;
             }
 
-            static_cast<void>(cellKey);
             return focus;
+        };
+
+        auto buildPlayerFocusesForState = [&](const ShadowCellAuthorityState& state, const ESM::Cell& cell) {
+            std::vector<SimulationCellFocus> focuses;
+            std::set<PacketGuid> seenVisitors;
+            for (PacketGuid visitorGuid : state.visitors)
+            {
+                if (!seenVisitors.insert(visitorGuid).second)
+                    continue;
+
+                Player* visitor = Players::getPlayer(visitorGuid);
+                if (visitor == nullptr)
+                    continue;
+
+                if (std::optional<SimulationCellFocus> focus = buildFocusForVisitor(cell, *visitor))
+                    focuses.push_back(std::move(*focus));
+            }
+
+            return focuses;
         };
 
         std::vector<SimulationCellFocus> simulationFocuses;
@@ -3453,13 +3464,15 @@ namespace mwmp
             if (liveCell != nullptr && !liveCell->hasSimulationInterest())
                 liveCell->setSimulationInterest(true);
 
-            SimulationCellFocus focus = buildFocusForState(cellKey, state, state.cell);
+            std::vector<SimulationCellFocus> playerFocuses = buildPlayerFocusesForState(state, state.cell);
             ++focusSelectionStats.candidateCellCount;
-            if (focus.hasPosition)
+            if (!playerFocuses.empty())
             {
-                simulationFocuses.push_back(std::move(focus));
+                for (SimulationCellFocus& focus : playerFocuses)
+                    simulationFocuses.push_back(std::move(focus));
                 focusedCellKeys.insert(cellKey);
                 ++focusSelectionStats.directFocusCellCount;
+                focusSelectionStats.directFocusPlayerCount += playerFocuses.size();
             }
             else
             {
@@ -4563,6 +4576,8 @@ namespace mwmp
         payload += std::to_string(mRuntimeFocusSelectionStats.candidateCellCount);
         payload += ",\"openMwRuntimeDirectFocusCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.directFocusCellCount);
+        payload += ",\"openMwRuntimeDirectFocusPlayerCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.directFocusPlayerCount);
         payload += ",\"openMwRuntimeDeferredLoadedCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.deferredLoadedCellCount);
         payload += ",\"openMwRuntimeScriptFocusCellCount\":";

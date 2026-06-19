@@ -186,6 +186,7 @@ namespace mwmp
         {
             std::size_t candidateCellCount = 0;
             std::size_t directFocusCellCount = 0;
+            std::size_t directFocusPlayerCount = 0;
             std::size_t deferredLoadedCellCount = 0;
             std::size_t scriptFocusCellCount = 0;
             std::size_t scriptFocusWithoutPositionCellCount = 0;
