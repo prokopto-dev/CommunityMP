@@ -6823,6 +6823,12 @@ namespace mwmp
 
     bool ServerSimulation::acceptPlayerStatsDynamic(Player& player)
     {
+        if (mRuntime != nullptr && mRuntime->canOwnActorAuthority() && player.hasAcceptedStatsDynamicPacket)
+        {
+            player.restoreAcceptedStatsDynamicPacket();
+            return false;
+        }
+
         if (player.hasAcceptedStatsDynamicPacket && player.hasFiniteDynamicStats()
             && shouldSuppressTransientPlayerDeath(player, player.cell, player.acceptedStatsDynamicDead,
                 player.acceptedStatsDynamic[0].mCurrent, player.creatureStats.mDead,
