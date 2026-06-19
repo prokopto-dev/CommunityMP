@@ -432,11 +432,22 @@ namespace
                 && appendSnapshot(std::move(focusSnapshot)))
                 mFocusState.exportedFocusPlayerSnapshot = true;
 
-            for (const auto& [guid, snapshot] : mPersistentPlayerActors)
+            std::vector<mwmp::SimulationPlayerSnapshot> enginePlayerSnapshots;
+            mEngine->exportServerSimulationPlayerActorSnapshots(enginePlayerSnapshots);
+            for (mwmp::SimulationPlayerSnapshot& snapshot : enginePlayerSnapshots)
             {
-                static_cast<void>(guid);
-                if (appendSnapshot(snapshot))
+                if (appendSnapshot(std::move(snapshot)))
                     ++mFocusState.persistentPlayerActorSnapshotCount;
+            }
+
+            if (mFocusState.persistentPlayerActorSnapshotCount == 0)
+            {
+                for (const auto& [guid, snapshot] : mPersistentPlayerActors)
+                {
+                    static_cast<void>(guid);
+                    if (appendSnapshot(snapshot))
+                        ++mFocusState.persistentPlayerActorSnapshotCount;
+                }
             }
 
             for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)

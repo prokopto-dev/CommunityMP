@@ -225,7 +225,7 @@ namespace OMW
         std::map<std::string, mwmp::Target> mServerSimulationActorPlayerTargets;
         struct ServerSimulationPlayerActorState
         {
-            std::string cellDescription;
+            ESM::Cell cell;
             ESM::Position position;
             std::string name;
             mwmp::SimpleCreatureStats stats;
@@ -309,6 +309,8 @@ namespace OMW
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists);
+        void exportServerSimulationPlayerActorSnapshots(
+            std::vector<mwmp::SimulationPlayerSnapshot>& playerSnapshots) const;
         bool exportServerSimulationFocusPlayerSnapshot(mwmp::SimulationPlayerSnapshot& snapshot) const;
 
         bool isServerSimulationPrepared() const { return mServerSimulationPrepared; }

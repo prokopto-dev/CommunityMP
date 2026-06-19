@@ -1894,7 +1894,7 @@ void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::Simula
             continue;
 
         ServerSimulationPlayerActorState state;
-        state.cellDescription = cellDescription;
+        state.cell = player.cell;
         state.position = player.position;
         state.name = player.name;
         if (player.hasStatsDynamicData && hasFiniteSimpleCreatureStats(player.creatureStats))
@@ -2070,6 +2070,32 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
         actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
         if (actorList.count != 0)
             actorLists.push_back(std::move(actorList));
+    }
+}
+
+void OMW::Engine::exportServerSimulationPlayerActorSnapshots(
+    std::vector<mwmp::SimulationPlayerSnapshot>& playerSnapshots) const
+{
+    if (!mServerSimulationPrepared || !mServerSimulationMode)
+        return;
+
+    for (const auto& [guid, state] : mServerSimulationPlayerActors)
+    {
+        if (!mwmp::isPacketGuidAssigned(guid) || state.cell.getDescription().empty())
+            continue;
+
+        mwmp::SimulationPlayerSnapshot snapshot;
+        snapshot.cell = state.cell;
+        snapshot.position = state.position;
+        snapshot.guid = guid;
+        snapshot.name = state.name;
+        snapshot.hasPositionData = true;
+        if (state.hasStatsDynamicData)
+        {
+            snapshot.creatureStats = state.stats;
+            snapshot.hasStatsDynamicData = true;
+        }
+        playerSnapshots.push_back(std::move(snapshot));
     }
 }
 
