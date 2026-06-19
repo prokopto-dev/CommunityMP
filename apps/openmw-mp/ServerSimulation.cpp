@@ -4708,7 +4708,7 @@ namespace mwmp
     bool ServerSimulation::shouldUseRuntimeFallbackMovement(
         const ActorMovementKey& actorKey, const BaseActor& runtimeActor, const BaseActor* cachedActor)
     {
-        if (mRuntime != nullptr && mRuntime->hasOpenMwWorld())
+        if (!canAuthoritativelySimulateActors())
         {
             mRuntimeActorMovementStates.erase(actorKey);
             return false;
