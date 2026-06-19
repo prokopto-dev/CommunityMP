@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,8 @@
 #include <osgViewer/ViewerEventHandlers>
 
 #include "mwbase/environment.hpp"
+#include "mwworld/manualref.hpp"
+#include "mwworld/ptr.hpp"
 
 namespace Resource
 {
@@ -147,6 +150,8 @@ namespace OMW
         ESM::Position position;
         std::string name;
         mwmp::SimpleCreatureStats stats;
+        std::unique_ptr<MWWorld::ManualRef> reference;
+        MWWorld::Ptr ptr;
         bool hasStatsDynamicData = false;
     };
 
@@ -247,6 +252,11 @@ namespace OMW
 
         void neutralizeServerSimulationPlayer();
         void applyServerSimulationFocusPlayerStats();
+        void applyServerSimulationPlayerActorStats(ServerSimulationPlayerActorState& state);
+        void clearServerSimulationPlayerActorReference(ServerSimulationPlayerActorState& state);
+        void clearServerSimulationPlayerActorReferences();
+        bool isServerSimulationPlayerActorReference(const MWWorld::Ptr& ptr) const;
+        void syncServerSimulationPlayerActorReferences();
         void hideServerSimulationWindow();
 
         void createWindow();
