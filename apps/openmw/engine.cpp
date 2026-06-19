@@ -684,6 +684,15 @@ void OMW::Engine::neutralizeServerSimulationPlayer()
     playerStats.setHitAttemptActor({});
     playerStats.setDrawState(MWMechanics::DrawState::Nothing);
 
+    MWMechanics::Movement& playerMovement = player.getClass().getMovementSettings(player);
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        playerMovement.mPosition[axis] = 0.f;
+        playerMovement.mRotation[axis] = 0.f;
+    }
+    playerMovement.mSpeedFactor = 0.f;
+    mWorld->setActorCollisionMode(player, false, false);
+
     const std::vector<MWWorld::Ptr> serverFocusDummyTargets{ player };
     for (const MWWorld::Ptr& actor : mMechanicsManager->getActorsFighting(player))
     {

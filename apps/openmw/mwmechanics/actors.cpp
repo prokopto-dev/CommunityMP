@@ -1460,6 +1460,8 @@ namespace MWMechanics
                 const MWWorld::Ptr& otherPtr = otherCached.mPtr;
                 if (otherPtr == ptr || otherPtr == currentTarget)
                     continue;
+                if (OMW::isServerSimulationModeActive() && otherPtr == player)
+                    continue;
 
                 const osg::Vec3f& otherHalfExtents = otherCached.mHalfExtents;
                 const osg::Vec3f deltaPos = otherPtr.getRefData().getPosition().asVec3() - basePos;
