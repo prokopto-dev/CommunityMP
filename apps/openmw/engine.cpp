@@ -1028,6 +1028,11 @@ namespace
         return std::clamp(attackStrength, 0.1f, 1.f);
     }
 
+    MWWorld::Ptr ensureServerSimulationMeleeWeaponEquipped(
+        const MWWorld::Ptr& actor, const mwmp::Attack& attack, bool& usedTempWeapon);
+
+    void removeTemporaryServerSimulationWeapon(const MWWorld::Ptr& actor, const MWWorld::Ptr& weapon);
+
     bool applyServerSimulationPlayerMeleeHit(const MWWorld::Ptr& player, const MWWorld::Ptr& victim,
         const mwmp::Attack& attack, float attackStrength, MWBase::MechanicsManager& mechanicsManager)
     {
@@ -1048,6 +1053,9 @@ namespace
         const int attackType = getServerSimulationMeleeAttackType(attackTypeName);
         const float requestedAttackStrength = sanitizeServerSimulationAttackStrength(attackStrength);
 
+        bool usedTempWeapon = false;
+        MWWorld::Ptr attackWeapon = ensureServerSimulationMeleeWeaponEquipped(attacker, attack, usedTempWeapon);
+
         playerCreatureStats.setDrawState(MWMechanics::DrawState::Weapon);
         playerCreatureStats.setAttackType(attackTypeName);
         playerCreatureStats.setAttackingOrSpell(true);
@@ -1057,6 +1065,8 @@ namespace
         const float resolvedAttackStrength = success ? requestedAttackStrength : 0.f;
         attacker.getClass().hit(attacker, resolvedAttackStrength, attackType, target, hitPosition, success);
         playerCreatureStats.setAttackingOrSpell(false);
+        if (usedTempWeapon)
+            removeTemporaryServerSimulationWeapon(attacker, attackWeapon);
         return true;
     }
 
@@ -1068,6 +1078,83 @@ namespace
         const ESM::RefId refId = ESM::RefId::stringRefId(std::string(itemId));
         MWWorld::InventoryStore& inventoryStore = actor.getClass().getInventoryStore(actor);
         return inventoryStore.search(refId);
+    }
+
+    MWWorld::Ptr ensureServerSimulationMeleeWeaponEquipped(
+        const MWWorld::Ptr& actor, const mwmp::Attack& attack, bool& usedTempWeapon)
+    {
+        usedTempWeapon = false;
+        if (actor.isEmpty() || attack.rangedWeaponId.empty() || !actor.getClass().hasInventoryStore(actor))
+            return MWWorld::Ptr();
+
+        const ESM::RefId weaponId = ESM::RefId::stringRefId(attack.rangedWeaponId);
+        if (weaponId.empty() || MWBase::Environment::get().getESMStore()->find(weaponId) == 0)
+            return MWWorld::Ptr();
+
+        MWWorld::InventoryStore& inventoryStore = actor.getClass().getInventoryStore(actor);
+        MWWorld::ContainerStoreIterator weaponSlot
+            = inventoryStore.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+        if (weaponSlot != inventoryStore.end() && weaponSlot->getCellRef().getRefId() == weaponId
+            && weaponSlot->getType() == ESM::Weapon::sRecordId)
+            return *weaponSlot;
+
+        MWWorld::Ptr weapon = inventoryStore.search(weaponId);
+        if (weapon.isEmpty())
+        {
+            try
+            {
+                MWWorld::ContainerStoreIterator added = actor.getClass().getContainerStore(actor).add(weaponId, 1, false);
+                if (added != actor.getClass().getContainerStore(actor).end())
+                {
+                    weapon = *added;
+                    usedTempWeapon = true;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Failed to add temporary server simulation melee weapon "
+                                    << attack.rangedWeaponId << ": " << e.what();
+                return MWWorld::Ptr();
+            }
+        }
+
+        if (weapon.isEmpty() || weapon.getType() != ESM::Weapon::sRecordId)
+            return MWWorld::Ptr();
+
+        try
+        {
+            std::shared_ptr<MWWorld::Action> action = weapon.getClass().use(weapon);
+            action->execute(actor, true);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to equip server simulation melee weapon "
+                                << attack.rangedWeaponId << ": " << e.what();
+            return MWWorld::Ptr();
+        }
+
+        weaponSlot = inventoryStore.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+        if (weaponSlot != inventoryStore.end() && weaponSlot->getCellRef().getRefId() == weaponId
+            && weaponSlot->getType() == ESM::Weapon::sRecordId)
+            return *weaponSlot;
+
+        return weapon;
+    }
+
+    void removeTemporaryServerSimulationWeapon(const MWWorld::Ptr& actor, const MWWorld::Ptr& weapon)
+    {
+        if (actor.isEmpty() || weapon.isEmpty() || !actor.getClass().hasInventoryStore(actor))
+            return;
+
+        try
+        {
+            actor.getClass().getInventoryStore(actor).remove(weapon, 1);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to remove temporary server simulation melee weapon "
+                                << weapon.getCellRef().getRefId() << ": " << e.what();
+        }
     }
 
     bool isWeaponPtr(const MWWorld::Ptr& ptr)
