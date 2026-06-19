@@ -234,7 +234,7 @@ void Player::setLoadState(int state)
     loadState = state;
 }
 
-int Player::getLoadState()
+int Player::getLoadState() const
 {
     return loadState;
 }

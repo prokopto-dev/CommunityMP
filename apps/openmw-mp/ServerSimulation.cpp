@@ -1425,6 +1425,15 @@ namespace
 
     bool isLivePlayerAiTarget(const Player& player)
     {
+        if (player.getLoadState() != Player::POSTLOADED)
+            return false;
+
+        if (!player.hasFiniteAcceptedStatsDynamic())
+            return false;
+
+        if (player.acceptedStatsDynamicDead || player.acceptedStatsDynamic[0].mCurrent <= healthDeadEpsilon)
+            return false;
+
         if (player.creatureStats.mDead)
             return false;
 
@@ -1435,13 +1444,27 @@ namespace
         return true;
     }
 
+    bool hasAcceptedLivePlayerBody(const Player& player, const ESM::Cell* requiredCell = nullptr)
+    {
+        if (!isLivePlayerAiTarget(player))
+            return false;
+
+        if (!player.hasAcceptedPositionPacket || !hasFiniteWorldPosition(player.acceptedPosition))
+            return false;
+
+        if (requiredCell != nullptr && getCellSimulationKey(player.cell) != getCellSimulationKey(*requiredCell))
+            return false;
+
+        return true;
+    }
+
     bool isAcceptedPlayerCastTarget(const mwmp::Target& target, const ESM::Cell& casterCell)
     {
         Player* targetPlayer = Players::getPlayer(target.guid);
-        if (targetPlayer == nullptr || !isLivePlayerAiTarget(*targetPlayer))
+        if (targetPlayer == nullptr || !hasAcceptedLivePlayerBody(*targetPlayer, &casterCell))
             return false;
 
-        return isSameSimulationCell(targetPlayer->cell, casterCell);
+        return true;
     }
 
     bool isAcceptedActorCombatTarget(Cell& cell, const mwmp::Target& target)
@@ -1539,14 +1562,8 @@ namespace
         if (target.isPlayer)
         {
             Player* player = Players::getPlayer(target.guid);
-            if (player == nullptr || !player->hasAcceptedPositionPacket
-                || !hasFiniteWorldPosition(player->acceptedPosition))
-                return false;
-
-            if (!isLivePlayerAiTarget(*player))
-                return false;
-
-            if (getCellSimulationKey(player->cell) != getCellSimulationKey(cell.getCellData()))
+            const ESM::Cell& cellData = cell.getCellData();
+            if (player == nullptr || !hasAcceptedLivePlayerBody(*player, &cellData))
                 return false;
 
             destination = player->acceptedPosition;
@@ -2358,11 +2375,8 @@ namespace
 
     bool applyCombatTargetToActor(Cell& cell, mwmp::BaseActor& targetActor, const Player& attacker)
     {
-        if (!isLivePlayerAiTarget(attacker) || !attacker.hasAcceptedPositionPacket
-            || !hasFiniteWorldPosition(attacker.acceptedPosition))
-            return false;
-
-        if (getCellSimulationKey(attacker.cell) != getCellSimulationKey(cell.getCellData()))
+        const ESM::Cell& cellData = cell.getCellData();
+        if (!hasAcceptedLivePlayerBody(attacker, &cellData))
             return false;
 
         const mwmp::Target aiTarget = makePlayerAiTarget(attacker);
@@ -3523,12 +3537,10 @@ namespace mwmp
         for (const auto& [guid, player] : *players)
         {
             static_cast<void>(guid);
-            if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid)
-                || player->getLoadState() == Player::KICKED)
+            if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid))
                 continue;
 
-            if (!player->hasAcceptedPositionPacket || !hasFiniteWorldPosition(player->acceptedPosition)
-                || player->cell.getDescription().empty())
+            if (!hasAcceptedLivePlayerBody(*player) || player->cell.getDescription().empty())
                 continue;
 
             SimulationPlayerTarget target;
@@ -3573,11 +3585,7 @@ namespace mwmp
             return;
 
         auto buildFocusForVisitor = [&](const ESM::Cell& cell, Player& visitor) -> std::optional<SimulationCellFocus> {
-            if (visitor.getLoadState() == Player::KICKED)
-                return std::nullopt;
-
-            if (!visitor.hasAcceptedPositionPacket || !hasFiniteWorldPosition(visitor.acceptedPosition)
-                || !isSameSimulationCell(visitor.cell, cell))
+            if (!hasAcceptedLivePlayerBody(visitor, &cell))
                 return std::nullopt;
 
             SimulationCellFocus focus;
@@ -5837,18 +5845,19 @@ namespace mwmp
                 targetActor->refNum, targetActor->mpNum };
             mRuntimeClientAiPresentedActors.erase(actorKey);
         }
-        if (mRuntime != nullptr && mRuntime->canOwnActorAuthority() && attacker.hasFinitePositionPacket()
-            && getCellSimulationKey(attacker.cell) == getCellSimulationKey(targetCell->getCellData()))
+        const ESM::Cell& targetCellData = targetCell->getCellData();
+        if (mRuntime != nullptr && mRuntime->canOwnActorAuthority()
+            && hasAcceptedLivePlayerBody(attacker, &targetCellData))
         {
             SimulationActorTarget runtimeActor;
-            runtimeActor.cell = targetCell->getCellData();
+            runtimeActor.cell = targetCellData;
             runtimeActor.refId = targetActor->refId;
             runtimeActor.refNum = targetActor->refNum;
             runtimeActor.mpNum = targetActor->mpNum;
 
             SimulationPlayerTarget runtimePlayer;
             runtimePlayer.cell = attacker.cell;
-            runtimePlayer.position = attacker.position;
+            runtimePlayer.position = attacker.acceptedPosition;
             runtimePlayer.guid = attacker.guid;
             runtimePlayer.name = attacker.npc.mName;
             runtimePlayer.npc = attacker.npc;

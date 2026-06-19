@@ -72,7 +72,7 @@ public:
     void clearLoginPasswordHash();
 
     void setLoadState(int state);
-    int getLoadState();
+    int getLoadState() const;
 
     virtual ~Player();
 
