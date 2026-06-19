@@ -17,6 +17,9 @@
 
 namespace
 {
+    // Matches MWMechanics::DrawState::Weapon without linking server storage to OpenMW mechanics headers.
+    constexpr char serverActorWeaponDrawState = 1;
+
     bool isFiniteActorPosition(const ESM::Position& position)
     {
         return std::isfinite(position.pos[0]) && std::isfinite(position.pos[1]) && std::isfinite(position.pos[2])
@@ -766,6 +769,12 @@ void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newA
 
                 mwmp::acceptActorCombatSequence(*cellActor, newActor);
                 cellActor->attack = newActor.attack;
+                if (newActor.attack.type == mwmp::Attack::MELEE || newActor.attack.type == mwmp::Attack::RANGED)
+                {
+                    cellActor->animFlagsSequence = cellActor->hasAnimFlagsData ? cellActor->animFlagsSequence + 1 : 1;
+                    cellActor->hasAnimFlagsData = true;
+                    cellActor->drawState = serverActorWeaponDrawState;
+                }
                 break;
             }
         }

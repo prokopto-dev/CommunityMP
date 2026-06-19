@@ -92,6 +92,8 @@ namespace
     constexpr float serverWeaponFatigueBlockMult = 1.f;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
+    // Matches MWMechanics::DrawState::Weapon without linking the dedicated server core to OpenMW mechanics headers.
+    constexpr char serverActorWeaponDrawState = 1;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
     constexpr auto luaObservationFreshnessWindow = std::chrono::seconds(5);
     constexpr float aiCoordinateStopDistance = 64.f;
@@ -4962,6 +4964,13 @@ namespace mwmp
                 }
                 else if (runtimeActor.hasPositionData && !useRuntimeFallbackMovement)
                     ++mRuntimeActorSnapshotStats.redundantPositionSnapshotSuppressedCount;
+
+                if (!actorInteractionLocked && cachedActor != nullptr
+                    && (actorHasServerCombatTarget(*cachedActor) || hasPendingServerActorMeleeRelease(actorKey)))
+                {
+                    visualActor.hasAnimFlagsData = true;
+                    visualActor.drawState = serverActorWeaponDrawState;
+                }
 
                 const bool sendRuntimeAnimFlagsSnapshot
                     = !actorInteractionLocked && shouldSendRuntimeAnimFlagsSnapshot(previousActor, visualActor);
