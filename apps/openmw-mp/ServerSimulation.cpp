@@ -6950,9 +6950,18 @@ namespace mwmp
 
         const bool hasReleaseOutcome = caster.cast.type == Cast::ITEM
             || (caster.cast.type == Cast::REGULAR && !caster.cast.pressed);
-        if (!hasReleaseOutcome || mRuntime == nullptr || !mRuntime->canOwnActorAuthority()
-            || !hasAcceptedLivePlayerBody(caster))
+        if (!hasReleaseOutcome || mRuntime == nullptr || !mRuntime->canOwnActorAuthority())
             return true;
+
+        if (!hasAcceptedLivePlayerBody(caster))
+        {
+            if (caster.cast.type == Cast::REGULAR)
+            {
+                caster.cast.success = false;
+                return true;
+            }
+            return false;
+        }
 
         SimulationPlayerTarget runtimeCaster = makeRuntimePlayerTarget(caster);
         bool castSucceeded = false;
@@ -6988,7 +6997,15 @@ namespace mwmp
             nativeRuntimeHandledCast = mRuntime->resolvePlayerCast(runtimeCaster, caster.cast, castSucceeded);
 
         if (!nativeRuntimeHandledCast)
-            return true;
+        {
+            if (caster.cast.type == Cast::REGULAR)
+            {
+                caster.cast.success = false;
+                return true;
+            }
+
+            return false;
+        }
 
         if (caster.cast.type == Cast::REGULAR)
         {
