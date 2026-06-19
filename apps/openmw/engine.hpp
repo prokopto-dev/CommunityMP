@@ -141,6 +141,15 @@ struct SDL_Window;
 
 namespace OMW
 {
+    struct ServerSimulationPlayerActorState
+    {
+        ESM::Cell cell;
+        ESM::Position position;
+        std::string name;
+        mwmp::SimpleCreatureStats stats;
+        bool hasStatsDynamicData = false;
+    };
+
     /// \brief Main engine class, that brings together all the components of OpenMW
     class Engine
     {
@@ -223,14 +232,6 @@ namespace OMW
         bool mServerSimulationFocusPlayerSet = false;
         bool mServerSimulationFocusPlayerStatsSet = false;
         std::map<std::string, mwmp::Target> mServerSimulationActorPlayerTargets;
-        struct ServerSimulationPlayerActorState
-        {
-            ESM::Cell cell;
-            ESM::Position position;
-            std::string name;
-            mwmp::SimpleCreatureStats stats;
-            bool hasStatsDynamicData = false;
-        };
         std::map<mwmp::PacketGuid, ServerSimulationPlayerActorState> mServerSimulationPlayerActors;
 
         // not implemented

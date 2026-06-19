@@ -494,15 +494,88 @@ namespace
         return key;
     }
 
+    bool isSameServerSimulationCell(const ESM::Cell& left, const ESM::Cell& right)
+    {
+        if (left.isExterior() != right.isExterior())
+            return false;
+
+        if (left.isExterior())
+            return left.mData.mX == right.mData.mX && left.mData.mY == right.mData.mY;
+
+        return left.mName == right.mName;
+    }
+
+    bool hasFiniteServerSimulationPosition(const ESM::Position& position)
+    {
+        return std::isfinite(position.pos[0]) && std::isfinite(position.pos[1]) && std::isfinite(position.pos[2]);
+    }
+
+    float getServerSimulationHorizontalDistanceSquared(
+        const ESM::Position& left, const ESM::Position& right)
+    {
+        const float dx = left.pos[0] - right.pos[0];
+        const float dy = left.pos[1] - right.pos[1];
+        return dx * dx + dy * dy;
+    }
+
+    mwmp::Target makeServerSimulationPlayerTargetFromActorState(
+        mwmp::PacketGuid guid, const OMW::ServerSimulationPlayerActorState& state)
+    {
+        mwmp::Target target;
+        target.guid = mwmp::unassignedPacketGuid();
+        if (!mwmp::isPacketGuidAssigned(guid))
+            return target;
+
+        target.isPlayer = true;
+        target.guid = guid;
+        target.name = state.name;
+        return target;
+    }
+
     mwmp::Target makeServerSimulationPlayerTarget(const std::map<std::string, mwmp::Target>& actorPlayerTargets,
-        const std::string& actorKey, mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+        const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
+        const std::string& actorKey, const ESM::Cell& actorCell, const ESM::Position& actorPosition,
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
     {
         if (!actorKey.empty())
         {
             const auto cachedTarget = actorPlayerTargets.find(actorKey);
             if (cachedTarget != actorPlayerTargets.end() && cachedTarget->second.isPlayer
                 && mwmp::isPacketGuidAssigned(cachedTarget->second.guid))
-                return cachedTarget->second;
+            {
+                if (playerActors.empty())
+                    return cachedTarget->second;
+
+                const auto playerActor = playerActors.find(cachedTarget->second.guid);
+                if (playerActor != playerActors.end()
+                    && isSameServerSimulationCell(actorCell, playerActor->second.cell))
+                    return cachedTarget->second;
+            }
+        }
+
+        if (hasFiniteServerSimulationPosition(actorPosition))
+        {
+            std::optional<float> bestDistanceSquared;
+            mwmp::Target bestTarget;
+            bestTarget.guid = mwmp::unassignedPacketGuid();
+
+            for (const auto& [guid, playerActor] : playerActors)
+            {
+                if (!mwmp::isPacketGuidAssigned(guid) || !hasFiniteServerSimulationPosition(playerActor.position)
+                    || !isSameServerSimulationCell(actorCell, playerActor.cell))
+                    continue;
+
+                const float distanceSquared
+                    = getServerSimulationHorizontalDistanceSquared(actorPosition, playerActor.position);
+                if (!bestDistanceSquared || distanceSquared < *bestDistanceSquared)
+                {
+                    bestDistanceSquared = distanceSquared;
+                    bestTarget = makeServerSimulationPlayerTargetFromActorState(guid, playerActor);
+                }
+            }
+
+            if (bestDistanceSquared && bestTarget.isPlayer && mwmp::isPacketGuidAssigned(bestTarget.guid))
+                return bestTarget;
         }
 
         mwmp::Target target;
@@ -578,8 +651,9 @@ namespace
     }
 
     void copyServerSimulationAi(mwmp::BaseActor& actor, const MWWorld::Ptr& ptr, const MWWorld::Ptr& player,
-        std::map<std::string, mwmp::Target>& actorPlayerTargets, mwmp::PacketGuid focusPlayerGuid,
-        std::string_view focusPlayerName)
+        std::map<std::string, mwmp::Target>& actorPlayerTargets,
+        const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
     {
         const std::string actorKey = makeServerSimulationActorIdentityKey(
             actor.cell, actor.refId, actor.refNum, actor.mpNum);
@@ -624,7 +698,8 @@ namespace
         {
             const bool targetIsServerProxyPlayer = package.getTarget() == player;
             actor.aiTarget = targetIsServerProxyPlayer
-                ? makeServerSimulationPlayerTarget(actorPlayerTargets, actorKey, focusPlayerGuid, focusPlayerName)
+                ? makeServerSimulationPlayerTarget(actorPlayerTargets, playerActors, actorKey, actor.cell,
+                      actor.position, focusPlayerGuid, focusPlayerName)
                 : makeServerSimulationActorTarget(package.getTarget());
             actor.hasAiTarget = actor.aiTarget.isPlayer || (actor.aiTarget.refNum != static_cast<unsigned int>(-1)
                 && actor.aiTarget.mpNum != static_cast<unsigned int>(-1));
@@ -683,6 +758,7 @@ namespace
 
     bool appendServerSimulationActor(mwmp::BaseActorList& actorList, const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& player, std::map<std::string, mwmp::Target>& actorPlayerTargets,
+        const std::map<mwmp::PacketGuid, OMW::ServerSimulationPlayerActorState>& playerActors,
         mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
     {
         if (ptr.isEmpty() || !ptr.getClass().isActor())
@@ -739,7 +815,7 @@ namespace
         actor.hasAnimFlagsData = true;
 
         copyServerSimulationEquipment(actor, ptr);
-        copyServerSimulationAi(actor, ptr, player, actorPlayerTargets, focusPlayerGuid, focusPlayerName);
+        copyServerSimulationAi(actor, ptr, player, actorPlayerTargets, playerActors, focusPlayerGuid, focusPlayerName);
         copyServerSimulationAttack(actor, creatureStats);
 
         actorList.baseActors.push_back(std::move(actor));
@@ -1904,6 +1980,18 @@ void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::Simula
         }
         mServerSimulationPlayerActors[player.guid] = std::move(state);
     }
+
+    for (auto it = mServerSimulationActorPlayerTargets.begin(); it != mServerSimulationActorPlayerTargets.end();)
+    {
+        if (it->second.isPlayer && mwmp::isPacketGuidAssigned(it->second.guid)
+            && mServerSimulationPlayerActors.find(it->second.guid) == mServerSimulationPlayerActors.end())
+        {
+            it = mServerSimulationActorPlayerTargets.erase(it);
+            continue;
+        }
+
+        ++it;
+    }
 }
 
 bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition,
@@ -2056,15 +2144,15 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
             if (ptr == player)
                 return true;
 
-            return appendServerSimulationActor(
-                actorList, ptr, player, mServerSimulationActorPlayerTargets, focusPlayerGuid, focusPlayerName);
+            return appendServerSimulationActor(actorList, ptr, player, mServerSimulationActorPlayerTargets,
+                mServerSimulationPlayerActors, focusPlayerGuid, focusPlayerName);
         });
         cellStore->forEachType<ESM::Creature>([&](const MWWorld::Ptr& ptr) {
             if (ptr == player)
                 return true;
 
-            return appendServerSimulationActor(
-                actorList, ptr, player, mServerSimulationActorPlayerTargets, focusPlayerGuid, focusPlayerName);
+            return appendServerSimulationActor(actorList, ptr, player, mServerSimulationActorPlayerTargets,
+                mServerSimulationPlayerActors, focusPlayerGuid, focusPlayerName);
         });
 
         actorList.count = static_cast<unsigned int>(actorList.baseActors.size());
