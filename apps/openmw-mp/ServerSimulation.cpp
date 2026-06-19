@@ -1296,6 +1296,15 @@ namespace
         return result;
     }
 
+    mwmp::SimulationPlayerBaseStats makeSimulationPlayerBaseStats(
+        const ESM::CreatureStats& creatureStats, const ESM::NpcStats& npcStats)
+    {
+        mwmp::SimulationPlayerBaseStats result;
+        result.attributes = creatureStats.mAttributes;
+        result.skills = npcStats.mSkills;
+        return result;
+    }
+
     bool canApplyServerAttackDamage(const mwmp::Attack& attack)
     {
         return attack.isHit && attack.success && !attack.block && std::isfinite(attack.damage)
@@ -3439,6 +3448,8 @@ namespace mwmp
                 target.classId = player->charClass.mId;
                 target.hasClass = true;
             }
+            target.baseStats = makeSimulationPlayerBaseStats(player->creatureStats, player->npcStats);
+            target.hasBaseStatsData = true;
             if (player->hasAcceptedEquipmentPacket)
             {
                 for (int slot = 0; slot < equipmentSlotCount; ++slot)
@@ -3482,6 +3493,8 @@ namespace mwmp
             focus.hasPlayer = true;
             focus.playerNpc = visitor.npc;
             focus.hasPlayerBaseInfo = true;
+            focus.playerBaseStats = makeSimulationPlayerBaseStats(visitor.creatureStats, visitor.npcStats);
+            focus.hasPlayerBaseStatsData = true;
             if (!visitor.charClass.mId.empty())
             {
                 focus.playerClassId = visitor.charClass.mId;
@@ -5695,6 +5708,8 @@ namespace mwmp
                     runtimePlayer.equipmentItems[slot] = attacker.equipmentItems[slot];
                 runtimePlayer.hasEquipmentData = true;
             }
+            runtimePlayer.baseStats = makeSimulationPlayerBaseStats(attacker.creatureStats, attacker.npcStats);
+            runtimePlayer.hasBaseStatsData = true;
             runtimePlayer.hasPosition = true;
             if (attacker.hasFiniteDynamicStats())
             {

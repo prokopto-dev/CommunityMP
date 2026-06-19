@@ -472,6 +472,7 @@ namespace
                 player.hasStatsDynamicData ? &player.creatureStats : nullptr,
                 player.hasBaseInfo ? &player.npc : nullptr,
                 player.hasClass ? &player.classId : nullptr,
+                player.hasBaseStatsData ? &player.baseStats : nullptr,
                 player.hasEquipmentData ? &player.equipmentItems : nullptr);
         }
 
@@ -590,6 +591,7 @@ namespace
                 focus.hasPlayerStats ? &focus.playerStats : nullptr,
                 focus.hasPlayerBaseInfo ? &focus.playerNpc : nullptr,
                 focus.hasPlayerClass ? &focus.playerClassId : nullptr,
+                focus.hasPlayerBaseStatsData ? &focus.playerBaseStats : nullptr,
                 focus.hasPlayerEquipmentData ? &focus.playerEquipmentItems : nullptr);
             mFocusState.lastQueuedDeltaSeconds = queuedDeltaSeconds;
             if (mFocusState.lastFocusSucceeded)

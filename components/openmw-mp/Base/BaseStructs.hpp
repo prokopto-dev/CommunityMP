@@ -1,11 +1,14 @@
 #ifndef OPENMW_BASESTRUCTS_HPP
 #define OPENMW_BASESTRUCTS_HPP
 
+#include <array>
 #include <cmath>
 #include <string>
 
+#include <components/esm/attr.hpp>
 #include <components/esm3/activespells.hpp>
 #include <components/esm3/loadcell.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <components/esm3/statstate.hpp>
 
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
@@ -263,6 +266,12 @@ namespace mwmp
         ESM::StatState<float> mDynamic[3];
         bool mDead = false;
         bool mDeathAnimationFinished = false;
+    };
+
+    struct SimulationPlayerBaseStats
+    {
+        std::array<ESM::StatState<float>, ESM::Attribute::Length> attributes = {};
+        std::array<ESM::StatState<float>, ESM::Skill::Length> skills = {};
     };
 }
 

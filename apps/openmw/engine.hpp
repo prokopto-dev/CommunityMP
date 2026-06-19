@@ -153,6 +153,7 @@ namespace OMW
         std::string name;
         ESM::NPC npc;
         ESM::RefId classId;
+        mwmp::SimulationPlayerBaseStats baseStats;
         mwmp::SimpleCreatureStats stats;
         std::array<mwmp::Item, mwmp::equipmentSlotCount> equipmentItems = {};
         std::unique_ptr<MWWorld::ManualRef> reference;
@@ -160,6 +161,7 @@ namespace OMW
         ESM::RefId recordId;
         bool hasBaseInfo = false;
         bool hasClass = false;
+        bool hasBaseStatsData = false;
         bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;
     };
@@ -262,6 +264,8 @@ namespace OMW
         void neutralizeServerSimulationPlayer();
         void applyServerSimulationFocusPlayerIdentity(
             std::string_view playerName, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId);
+        void applyServerSimulationActorBaseStats(const MWWorld::Ptr& actor,
+            const mwmp::SimulationPlayerBaseStats& baseStats, std::string_view actorName);
         void applyServerSimulationFocusPlayerStats();
         ESM::RefId ensureServerSimulationPlayerActorRecord(
             mwmp::PacketGuid guid, ServerSimulationPlayerActorState& state, const MWWorld::Ptr& proxyPlayer);
@@ -328,6 +332,7 @@ namespace OMW
             mwmp::PacketGuid playerGuid = mwmp::unassignedPacketGuid(), std::string_view playerName = {},
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
+            const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Start native OpenMW combat against the server focus player proxy.
@@ -336,6 +341,7 @@ namespace OMW
             mwmp::PacketGuid playerGuid, std::string_view playerName,
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
+            const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
