@@ -1,6 +1,7 @@
 #ifndef OPENMW_MP_SIMULATIONRUNTIME_HPP
 #define OPENMW_MP_SIMULATIONRUNTIME_HPP
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include <components/esm3/loadcell.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
@@ -42,8 +44,14 @@ namespace mwmp
         ESM::Position position;
         PacketGuid guid = unassignedPacketGuid();
         std::string name;
+        ESM::NPC npc;
+        ESM::RefId classId;
         SimpleCreatureStats creatureStats;
+        std::array<Item, equipmentSlotCount> equipmentItems = {};
         bool hasPosition = false;
+        bool hasBaseInfo = false;
+        bool hasClass = false;
+        bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;
     };
 

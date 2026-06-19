@@ -69,6 +69,8 @@
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 #include <components/esm/util.hpp>
+#include <components/esm3/loadclas.hpp>
+#include <components/esm3/loadrace.hpp>
 
 #include "../openmw-mp/SimulationRuntime.hpp"
 
@@ -90,7 +92,10 @@
 #include "mwsound/soundmanagerimp.hpp"
 
 #include "mwworld/class.hpp"
+#include "mwworld/action.hpp"
 #include "mwworld/cellstore.hpp"
+#include "mwworld/containerstore.hpp"
+#include "mwworld/esmstore.hpp"
 #include "mwworld/inventorystore.hpp"
 #include "mwworld/datetimemanager.hpp"
 #include "mwworld/scene.hpp"
@@ -449,6 +454,32 @@ namespace
         return isFiniteDynamicStatState(stats.mDynamic[0])
             && isFiniteDynamicStatState(stats.mDynamic[1])
             && isFiniteDynamicStatState(stats.mDynamic[2]);
+    }
+
+    ESM::RefId makeServerSimulationPlayerActorRecordId(mwmp::PacketGuid guid)
+    {
+        return ESM::RefId::stringRefId("$communitymp_server_player_" + mwmp::packetGuidToString(guid));
+    }
+
+    bool hasDifferentServerSimulationPlayerBase(const OMW::ServerSimulationPlayerActorState& state,
+        const mwmp::SimulationPlayerTarget& player)
+    {
+        if (player.hasBaseInfo != state.hasBaseInfo || player.hasClass != state.hasClass)
+            return true;
+
+        if (player.hasClass && player.classId != state.classId)
+            return true;
+
+        if (!player.hasBaseInfo)
+            return false;
+
+        return player.npc.mName != state.npc.mName
+            || player.npc.mModel != state.npc.mModel
+            || player.npc.mRace != state.npc.mRace
+            || player.npc.mHair != state.npc.mHair
+            || player.npc.mHead != state.npc.mHead
+            || player.npc.mFlags != state.npc.mFlags
+            || player.npc.mClass != state.npc.mClass;
     }
 
     void copyServerSimulationEquipment(mwmp::BaseActor& actor, const MWWorld::Ptr& ptr)
@@ -973,6 +1004,51 @@ void OMW::Engine::applyServerSimulationFocusPlayerStats()
         sourceDead && mServerSimulationFocusPlayerStats.mDeathAnimationFinished);
 }
 
+ESM::RefId OMW::Engine::ensureServerSimulationPlayerActorRecord(
+    mwmp::PacketGuid guid, ServerSimulationPlayerActorState& state, const MWWorld::Ptr& proxyPlayer)
+{
+    if (!mwmp::isPacketGuidAssigned(guid) || proxyPlayer.isEmpty() || proxyPlayer.get<ESM::NPC>() == nullptr
+        || proxyPlayer.get<ESM::NPC>()->mBase == nullptr || mWorld == nullptr)
+        return ESM::RefId();
+
+    if (state.recordId.empty())
+        state.recordId = makeServerSimulationPlayerActorRecordId(guid);
+
+    const ESM::NPC* proxyNpc = proxyPlayer.get<ESM::NPC>()->mBase;
+    ESM::NPC record = *proxyNpc;
+    if (state.hasBaseInfo)
+    {
+        record.mName = state.npc.mName;
+        record.mModel = state.npc.mModel;
+        record.mRace = state.npc.mRace;
+        record.mHair = state.npc.mHair;
+        record.mHead = state.npc.mHead;
+        record.mFlags = state.npc.mFlags;
+        if (!state.npc.mClass.empty())
+            record.mClass = state.npc.mClass;
+    }
+
+    if (!state.name.empty())
+        record.mName = state.name;
+
+    if (state.hasClass && !state.classId.empty())
+        record.mClass = state.classId;
+
+    const MWWorld::ESMStore& store = mWorld->getStore();
+    if (record.mRace.empty() || store.get<ESM::Race>().search(record.mRace) == nullptr)
+        record.mRace = proxyNpc->mRace;
+    if (record.mClass.empty() || store.get<ESM::Class>().search(record.mClass) == nullptr)
+        record.mClass = proxyNpc->mClass;
+    if (record.mName.empty())
+        record.mName = proxyNpc->mName;
+
+    record.mId = state.recordId;
+    record.mInventory.mList.clear();
+    record.mAiPackage.mList.clear();
+    mWorld->getStore().overrideRecord(record);
+    return record.mId;
+}
+
 void OMW::Engine::applyServerSimulationPlayerActorStats(ServerSimulationPlayerActorState& state)
 {
     if (state.ptr.isEmpty() || !state.ptr.getClass().isActor() || !state.hasStatsDynamicData)
@@ -992,6 +1068,64 @@ void OMW::Engine::applyServerSimulationPlayerActorStats(ServerSimulationPlayerAc
     }
 
     stats.setDeathAnimationFinished(sourceDead && state.stats.mDeathAnimationFinished);
+}
+
+void OMW::Engine::applyServerSimulationPlayerActorEquipment(ServerSimulationPlayerActorState& state)
+{
+    if (state.ptr.isEmpty() || !state.hasEquipmentData || !state.ptr.getClass().hasInventoryStore(state.ptr))
+        return;
+
+    MWWorld::InventoryStore& inventoryStore = state.ptr.getClass().getInventoryStore(state.ptr);
+    MWWorld::ContainerStore& containerStore = state.ptr.getClass().getContainerStore(state.ptr);
+    for (int slot = 0; slot < MWWorld::InventoryStore::Slots && slot < mwmp::equipmentSlotCount; ++slot)
+    {
+        const mwmp::Item& item = state.equipmentItems[slot];
+        if (!mwmp::isValidEquipmentItem(item))
+            continue;
+
+        const ESM::RefId desiredId = item.refId.empty() ? ESM::RefId() : ESM::RefId::stringRefId(item.refId);
+        MWWorld::ContainerStoreIterator equipped = inventoryStore.getSlot(slot);
+        if (equipped != inventoryStore.end())
+        {
+            const ESM::RefId equippedId = equipped->getCellRef().getRefId();
+            if (equippedId == desiredId)
+                continue;
+
+            try
+            {
+                containerStore.remove(equippedId, containerStore.count(equippedId), false);
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Failed to remove stale server simulation player equipment "
+                                    << equippedId << " from " << state.name << ": " << e.what();
+            }
+        }
+
+        if (desiredId.empty())
+            continue;
+
+        try
+        {
+            if (MWBase::Environment::get().getESMStore()->find(desiredId) == 0)
+                continue;
+
+            MWWorld::ContainerStoreIterator added = containerStore.add(desiredId, item.count, false);
+            if (added == containerStore.end())
+                continue;
+
+            added->getCellRef().setCharge(item.charge);
+            added->getCellRef().setEnchantmentCharge(item.enchantmentCharge);
+            added->getCellRef().setSoul(ESM::RefId::stringRefId(item.soul));
+            std::shared_ptr<MWWorld::Action> action = added->getClass().use(*added);
+            action->execute(state.ptr, true);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to equip server simulation player item "
+                                << item.refId << " on " << state.name << ": " << e.what();
+        }
+    }
 }
 
 void OMW::Engine::clearServerSimulationPlayerActorReference(ServerSimulationPlayerActorState& state)
@@ -1081,8 +1215,11 @@ void OMW::Engine::syncServerSimulationPlayerActorReferences()
             clearServerSimulationPlayerActorReference(state);
             try
             {
+                ESM::RefId playerRecordId = ensureServerSimulationPlayerActorRecord(guid, state, proxyPlayer);
+                if (playerRecordId.empty())
+                    playerRecordId = proxyPlayer.getCellRef().getRefId();
                 state.reference = std::make_unique<MWWorld::ManualRef>(
-                    *MWBase::Environment::get().getESMStore(), proxyPlayer, 1);
+                    *MWBase::Environment::get().getESMStore(), playerRecordId, 1);
                 state.ptr = mWorld->placeObject(state.reference->getPtr(), activeCellStore, state.position);
                 Log(Debug::Verbose) << "Created server simulation player actor reference for "
                                     << state.name << " in " << activeCell.getDescription();
@@ -1113,6 +1250,7 @@ void OMW::Engine::syncServerSimulationPlayerActorReferences()
         movement.mSpeedFactor = 0.f;
 
         applyServerSimulationPlayerActorStats(state);
+        applyServerSimulationPlayerActorEquipment(state);
     }
 
     if (mMechanicsManager == nullptr)
@@ -2172,14 +2310,32 @@ void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::Simula
         ServerSimulationPlayerActorState state;
         if (auto previous = previousPlayerActors.find(player.guid); previous != previousPlayerActors.end())
         {
-            state.reference = std::move(previous->second.reference);
-            state.ptr = previous->second.ptr;
+            state = std::move(previous->second);
             previousPlayerActors.erase(previous);
         }
+
+        const bool baseChanged = hasDifferentServerSimulationPlayerBase(state, player);
+        if (baseChanged)
+            clearServerSimulationPlayerActorReference(state);
 
         state.cell = player.cell;
         state.position = player.position;
         state.name = player.name;
+        if (player.hasBaseInfo)
+        {
+            state.npc = player.npc;
+            state.hasBaseInfo = true;
+        }
+        if (player.hasClass)
+        {
+            state.classId = player.classId;
+            state.hasClass = true;
+        }
+        if (player.hasEquipmentData)
+        {
+            state.equipmentItems = player.equipmentItems;
+            state.hasEquipmentData = true;
+        }
         if (player.hasStatsDynamicData && hasFiniteSimpleCreatureStats(player.creatureStats))
         {
             state.stats = player.creatureStats;

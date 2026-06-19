@@ -1,6 +1,7 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
+#include <array>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -12,6 +13,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm/position.hpp>
 #include <components/esm/refid.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/files/collections.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
@@ -149,9 +151,16 @@ namespace OMW
         ESM::Cell cell;
         ESM::Position position;
         std::string name;
+        ESM::NPC npc;
+        ESM::RefId classId;
         mwmp::SimpleCreatureStats stats;
+        std::array<mwmp::Item, mwmp::equipmentSlotCount> equipmentItems = {};
         std::unique_ptr<MWWorld::ManualRef> reference;
         MWWorld::Ptr ptr;
+        ESM::RefId recordId;
+        bool hasBaseInfo = false;
+        bool hasClass = false;
+        bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;
     };
 
@@ -252,7 +261,10 @@ namespace OMW
 
         void neutralizeServerSimulationPlayer();
         void applyServerSimulationFocusPlayerStats();
+        ESM::RefId ensureServerSimulationPlayerActorRecord(
+            mwmp::PacketGuid guid, ServerSimulationPlayerActorState& state, const MWWorld::Ptr& proxyPlayer);
         void applyServerSimulationPlayerActorStats(ServerSimulationPlayerActorState& state);
+        void applyServerSimulationPlayerActorEquipment(ServerSimulationPlayerActorState& state);
         void clearServerSimulationPlayerActorReference(ServerSimulationPlayerActorState& state);
         void clearServerSimulationPlayerActorReferences();
         bool isServerSimulationPlayerActorReference(const MWWorld::Ptr& ptr) const;

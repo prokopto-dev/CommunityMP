@@ -3432,6 +3432,19 @@ namespace mwmp
             target.position = player->position;
             target.guid = player->guid;
             target.name = player->npc.mName;
+            target.npc = player->npc;
+            target.hasBaseInfo = true;
+            if (!player->charClass.mId.empty())
+            {
+                target.classId = player->charClass.mId;
+                target.hasClass = true;
+            }
+            if (player->hasAcceptedEquipmentPacket)
+            {
+                for (int slot = 0; slot < equipmentSlotCount; ++slot)
+                    target.equipmentItems[slot] = player->equipmentItems[slot];
+                target.hasEquipmentData = true;
+            }
             target.hasPosition = true;
             if (player->hasFiniteDynamicStats())
             {
@@ -5656,6 +5669,19 @@ namespace mwmp
             runtimePlayer.position = attacker.position;
             runtimePlayer.guid = attacker.guid;
             runtimePlayer.name = attacker.npc.mName;
+            runtimePlayer.npc = attacker.npc;
+            runtimePlayer.hasBaseInfo = true;
+            if (!attacker.charClass.mId.empty())
+            {
+                runtimePlayer.classId = attacker.charClass.mId;
+                runtimePlayer.hasClass = true;
+            }
+            if (attacker.hasAcceptedEquipmentPacket)
+            {
+                for (int slot = 0; slot < equipmentSlotCount; ++slot)
+                    runtimePlayer.equipmentItems[slot] = attacker.equipmentItems[slot];
+                runtimePlayer.hasEquipmentData = true;
+            }
             runtimePlayer.hasPosition = true;
             if (attacker.hasFiniteDynamicStats())
             {
