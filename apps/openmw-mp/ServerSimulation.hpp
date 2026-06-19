@@ -167,6 +167,7 @@ namespace mwmp
         {
             ESM::Position lastRuntimePosition;
             std::uint32_t stagnantSnapshotCount = 0;
+            std::uint32_t movingSnapshotCount = 0;
             bool hasRuntimePosition = false;
             bool useFallbackMovement = false;
         };

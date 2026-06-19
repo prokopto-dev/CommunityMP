@@ -112,6 +112,7 @@ namespace
     constexpr float runtimeActorRotationEpsilonRadians = 0.001f;
     constexpr float runtimeActorDirectionEpsilonSquared = 0.0001f;
     constexpr std::uint32_t runtimeActorFallbackSnapshotThreshold = 15;
+    constexpr std::uint32_t runtimeActorFallbackResumeSnapshotThreshold = 8;
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
     constexpr auto runtimeActorMovementHealthLogInterval = std::chrono::seconds(10);
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
@@ -4929,7 +4930,8 @@ namespace mwmp
                     visualActor.direction = zeroPosition();
                     visualActor.hasPositionData = visualActor.hasPositionData || runtimeActor.hasPositionData;
                 }
-                if (!actorInteractionLocked && useRuntimeFallbackMovement && cachedActor != nullptr)
+                if (!actorInteractionLocked && useRuntimeFallbackMovement && cachedActor != nullptr
+                    && !hasServerOwnedActorMovement(*cachedActor))
                 {
                     cachedActor->direction = runtimeActor.direction;
                     sanitizeFinitePosition(cachedActor->direction);
@@ -5471,6 +5473,7 @@ namespace mwmp
         {
             state.lastRuntimePosition = runtimeActor.position;
             state.stagnantSnapshotCount = 0;
+            state.movingSnapshotCount = 0;
             state.hasRuntimePosition = true;
             state.useFallbackMovement = false;
             return false;
@@ -5481,6 +5484,22 @@ namespace mwmp
         {
             state.lastRuntimePosition = runtimeActor.position;
             state.stagnantSnapshotCount = 0;
+            if (wasUsingFallback)
+            {
+                if (state.movingSnapshotCount < runtimeActorFallbackResumeSnapshotThreshold)
+                    ++state.movingSnapshotCount;
+
+                if (state.movingSnapshotCount < runtimeActorFallbackResumeSnapshotThreshold)
+                {
+                    ++mRuntimeActorSnapshotStats.fallbackMovementSuppressedSnapshotCount;
+                    mRuntimeActorSnapshotStats.lastFallbackMovementCellKey = actorKey.cellKey;
+                    mRuntimeActorSnapshotStats.lastFallbackMovementRefNum = runtimeActor.refNum;
+                    mRuntimeActorSnapshotStats.lastFallbackMovementMpNum = runtimeActor.mpNum;
+                    return true;
+                }
+            }
+
+            state.movingSnapshotCount = 0;
             state.useFallbackMovement = false;
 
             if (wasUsingFallback)
@@ -5495,6 +5514,7 @@ namespace mwmp
         }
 
         state.lastRuntimePosition = runtimeActor.position;
+        state.movingSnapshotCount = 0;
         if (state.stagnantSnapshotCount < runtimeActorFallbackSnapshotThreshold)
             ++state.stagnantSnapshotCount;
 
