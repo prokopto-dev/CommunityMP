@@ -594,6 +594,30 @@ namespace
         return value;
     }
 
+    bool isServerSimulationMeleeAttackType(std::string_view attackType)
+    {
+        return attackType == "chop" || attackType == "slash" || attackType == "thrust";
+    }
+
+    void copyServerSimulationAttack(mwmp::BaseActor& actor, const MWMechanics::CreatureStats& creatureStats)
+    {
+        const std::string_view attackType = creatureStats.getAttackType();
+        actor.hasCombatData = true;
+        actor.attack.type = static_cast<char>(mwmp::Attack::MELEE);
+        actor.attack.pressed = creatureStats.getAttackingOrSpell();
+        actor.attack.success = false;
+        actor.attack.isHit = false;
+        actor.attack.block = false;
+        actor.attack.damage = 0.f;
+        actor.attack.attackStrength = actor.attack.pressed ? 0.f : 1.f;
+
+        if (isServerSimulationMeleeAttackType(attackType))
+            actor.attack.attackAnimation = std::string(attackType);
+
+        if (actor.hasAiTarget)
+            actor.attack.target = actor.aiTarget;
+    }
+
     bool appendServerSimulationActor(mwmp::BaseActorList& actorList, const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& player, mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
     {
@@ -644,6 +668,7 @@ namespace
 
         copyServerSimulationEquipment(actor, ptr);
         copyServerSimulationAi(actor, ptr, player, focusPlayerGuid, focusPlayerName);
+        copyServerSimulationAttack(actor, creatureStats);
 
         actorList.baseActors.push_back(std::move(actor));
         return true;

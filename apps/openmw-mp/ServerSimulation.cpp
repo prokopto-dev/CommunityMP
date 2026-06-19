@@ -1798,6 +1798,31 @@ namespace
         return sameActorAiCoordinates(left.aiCoordinates, right.aiCoordinates);
     }
 
+    bool sameRuntimeAttackPresentation(const mwmp::BaseActor& left, const mwmp::BaseActor& right)
+    {
+        if (left.hasCombatData != right.hasCombatData)
+            return false;
+
+        if (!left.hasCombatData)
+            return true;
+
+        return left.attack.pressed == right.attack.pressed
+            && left.attack.type == right.attack.type
+            && left.attack.attackAnimation == right.attack.attackAnimation
+            && sameActorAiTarget(left.attack.target, right.attack.target);
+    }
+
+    bool shouldSendRuntimeAttackSnapshot(const mwmp::BaseActor* previousActor, const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasCombatData || actor.attack.type != mwmp::Attack::MELEE)
+            return false;
+
+        if (previousActor == nullptr || !previousActor->hasCombatData)
+            return actor.attack.pressed;
+
+        return !sameRuntimeAttackPresentation(*previousActor, actor);
+    }
+
     mwmp::BaseActor buildServerAcceptedAiActor(Cell& cell, const mwmp::BaseActor& incomingActor,
         const mwmp::BaseActor& currentActor)
     {
@@ -3016,8 +3041,9 @@ namespace mwmp
         ActorPacket* statsPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_STATS_DYNAMIC);
         ActorPacket* equipmentPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
         ActorPacket* aiPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_AI);
+        ActorPacket* attackPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ATTACK);
         if (listPacket == nullptr || cellChangePacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
-            || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr)
+            || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr || attackPacket == nullptr)
             return;
 
         const Clock::time_point now = Clock::now();
@@ -3133,6 +3159,12 @@ namespace mwmp
             aiList.guid = unassignedPacketGuid();
             aiList.action = BaseActorList::SET;
             aiList.isValid = true;
+
+            BaseActorList attackList;
+            attackList.cell = runtimeList.cell;
+            attackList.guid = unassignedPacketGuid();
+            attackList.action = BaseActorList::SET;
+            attackList.isValid = true;
 
             for (const BaseActor& runtimeActor : runtimeList.baseActors)
             {
@@ -3291,6 +3323,26 @@ namespace mwmp
                     if (previousActor == nullptr || !sameActorAi(*previousActor, aiActor))
                         aiList.baseActors.push_back(std::move(aiActor));
                 }
+
+                if (!actorInteractionLocked && visualActor.hasPositionData
+                    && shouldSendRuntimeAttackSnapshot(previousActor, runtimeActor))
+                {
+                    BaseActor attackActor = visualActor;
+                    attackActor.hasCombatData = true;
+                    attackActor.combatSequence = cachedActor != nullptr && cachedActor->hasCombatData
+                        ? cachedActor->combatSequence + 1
+                        : 1;
+                    attackActor.attack = runtimeActor.attack;
+                    attackActor.attack.isHit = false;
+                    attackActor.attack.success = false;
+                    attackActor.attack.damage = 0.f;
+                    attackActor.attack.block = false;
+                    attackActor.hasPositionData = true;
+                    attackActor.positionSequence = nextPositionSequence;
+                    attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                    attackActor.movementLatencySeconds = 0.f;
+                    attackList.baseActors.push_back(std::move(attackActor));
+                }
             }
 
             positionList.count = static_cast<unsigned int>(positionList.baseActors.size());
@@ -3331,6 +3383,14 @@ namespace mwmp
                 serverCell->readActorList(ID_ACTOR_AI, &aiList);
                 aiPacket->setActorList(&aiList);
                 serverCell->sendToLoaded(aiPacket, &aiList);
+            }
+
+            attackList.count = static_cast<unsigned int>(attackList.baseActors.size());
+            if (attackList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_ATTACK, &attackList);
+                attackPacket->setActorList(&attackList);
+                serverCell->sendToLoaded(attackPacket, &attackList);
             }
         }
     }

@@ -686,6 +686,28 @@ void Cell::readActorList(unsigned char packetID, const mwmp::BaseActorList *newA
                 cellActor->aiShouldRepeat = newActor.aiShouldRepeat;
                 cellActor->aiCoordinates = newActor.aiCoordinates;
                 break;
+
+            case ID_ACTOR_ATTACK:
+
+                if (!mwmp::isActorCombatSequenceAllowed(*cellActor, newActor))
+                    break;
+
+                if (newActor.hasPositionData && isFiniteActorMovementSnapshot(newActor)
+                    && (!cellActor->hasPositionData
+                    || mwmp::isNewerPositionSequence(newActor.positionSequence, cellActor->positionSequence)))
+                {
+                    cellActor->hasPositionData = true;
+                    cellActor->positionSequence = newActor.positionSequence;
+                    cellActor->position = newActor.position;
+                    cellActor->direction = newActor.direction;
+                    cellActor->movementSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(
+                        newActor.movementSampleIntervalSeconds);
+                    cellActor->movementLatencySeconds = mwmp::sanitizeMovementLatencySeconds(newActor.movementLatencySeconds);
+                }
+
+                mwmp::acceptActorCombatSequence(*cellActor, newActor);
+                cellActor->attack = newActor.attack;
+                break;
             }
         }
         else if (packetID == ID_ACTOR_LIST && newActorList->action != mwmp::BaseActorList::REMOVE
