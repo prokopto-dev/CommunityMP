@@ -163,6 +163,23 @@ namespace
         return applySequencedPosition(actor, baseActor);
     }
 
+    bool normalizeSequencedPositionForAi(DedicatedActor& actor, const BaseActor& baseActor)
+    {
+        if (!baseActor.hasPositionData)
+            return true;
+
+        if (!isFinitePosition(baseActor.position) || !isFinitePosition(baseActor.direction))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR, "Ignoring actor AI packet with invalid movement snapshot");
+            return false;
+        }
+
+        if (actor.hasPositionData && !isNewerPositionSequence(baseActor.positionSequence, actor.positionSequence))
+            return true;
+
+        return applySequencedPosition(actor, baseActor);
+    }
+
     bool isActorCombatReplaySequenceAllowed(const DedicatedActor& actor, const BaseActor& baseActor)
     {
         return isActorCombatSequenceAllowed(actor, baseActor);
@@ -650,10 +667,10 @@ void Cell::readAi(ActorList& actorList)
         if (dedicatedActors.count(mapIndex) > 0)
         {
             DedicatedActor *actor = dedicatedActors[mapIndex];
-            if (!applySequencedPosition(*actor, baseActor))
+            if (!normalizeSequencedPositionForAi(*actor, baseActor))
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_ERROR,
-                    "Ignoring ActorAI about %s because its movement snapshot was stale or invalid",
+                    "Ignoring ActorAI about %s because its movement snapshot was invalid",
                     mapIndex.c_str());
                 continue;
             }
