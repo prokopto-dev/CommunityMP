@@ -51,6 +51,16 @@ namespace mwmp
                 return;
             }
 
+            ServerNetworking* networking = ServerNetworking::getPtr();
+            if (networking != nullptr && networking->getServerSimulation().runtime().canOwnActorAuthority())
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                    "Rejected client-authored %s from %s because server simulation owns player death",
+                    strPacketID.c_str(), player.npc.mName.c_str());
+                sendAcceptedStatsDynamicCorrection(player);
+                return;
+            }
+
             if (!player.isClientDeathPacketAllowed())
             {
                 sendAcceptedStatsDynamicCorrection(player);
