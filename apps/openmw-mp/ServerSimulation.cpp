@@ -63,6 +63,8 @@ namespace
     constexpr float serverActorMeleeMinimumDamage = 4.f;
     constexpr float serverActorMeleeMaximumFallbackDamage = 24.f;
     constexpr auto serverActorMeleeInterval = std::chrono::milliseconds(1500);
+    // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
+    constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
     constexpr auto luaObservationFreshnessWindow = std::chrono::seconds(5);
     constexpr float aiCoordinateStopDistance = 64.f;
@@ -3693,8 +3695,10 @@ namespace mwmp
         ActorPacket* equipmentPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_EQUIPMENT);
         ActorPacket* aiPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_AI);
         ActorPacket* attackPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_ATTACK);
+        ActorPacket* deathPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_DEATH);
         if (listPacket == nullptr || cellChangePacket == nullptr || positionPacket == nullptr || animFlagsPacket == nullptr
-            || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr || attackPacket == nullptr)
+            || statsPacket == nullptr || equipmentPacket == nullptr || aiPacket == nullptr || attackPacket == nullptr
+            || deathPacket == nullptr)
             return;
 
         const Clock::time_point now = Clock::now();
@@ -3819,6 +3823,12 @@ namespace mwmp
             attackList.action = BaseActorList::SET;
             attackList.isValid = true;
 
+            BaseActorList deathList;
+            deathList.cell = runtimeList.cell;
+            deathList.guid = unassignedPacketGuid();
+            deathList.action = BaseActorList::SET;
+            deathList.isValid = true;
+
             for (const BaseActor& runtimeActor : runtimeList.baseActors)
             {
                 BaseActor* cachedActor = serverCell->getActor(runtimeActor.refNum, runtimeActor.mpNum);
@@ -3929,6 +3939,9 @@ namespace mwmp
                 {
                     BaseActor statsActor = runtimeActor;
                     statsActor.hasStatsDynamicData = true;
+                    const bool wasDead = cachedActor != nullptr
+                        && (cachedActor->creatureStats.mDead
+                            || cachedActor->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon);
                     if (cachedActor != nullptr && cachedActor->hasStatsDynamicData
                         && mwmp::hasFiniteActorDynamicStats(*cachedActor)
                         && mwmp::hasFiniteActorDynamicStats(statsActor))
@@ -3953,6 +3966,27 @@ namespace mwmp
                         ? cachedActor->statsDynamicSequence + 1
                         : 1;
                     statsList.baseActors.push_back(std::move(statsActor));
+                    const BaseActor& acceptedStatsActor = statsList.baseActors.back();
+                    const bool isDead = acceptedStatsActor.creatureStats.mDead
+                        || acceptedStatsActor.creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
+                    if (isDead && !wasDead)
+                    {
+                        BaseActor deathActor = acceptedStatsActor;
+                        deathActor.creatureStats.mDead = true;
+                        deathActor.creatureStats.mDynamic[0].mCurrent = 0.f;
+                        deathActor.deathState = serverActorDefaultDeathState;
+                        deathActor.isInstantDeath = deathActor.creatureStats.mDeathAnimationFinished;
+                        deathActor.hasPositionData = visualActor.hasPositionData;
+                        if (deathActor.hasPositionData)
+                        {
+                            deathActor.position = visualActor.position;
+                            deathActor.direction = visualActor.direction;
+                            deathActor.positionSequence = nextPositionSequence;
+                            deathActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                            deathActor.movementLatencySeconds = 0.f;
+                        }
+                        deathList.baseActors.push_back(std::move(deathActor));
+                    }
                 }
 
                 if (runtimeActor.hasEquipmentData && hasValidActorEquipment(runtimeActor)
@@ -4107,6 +4141,14 @@ namespace mwmp
                 serverCell->readActorList(ID_ACTOR_ATTACK, &attackList);
                 attackPacket->setActorList(&attackList);
                 serverCell->sendToLoaded(attackPacket, &attackList);
+            }
+
+            deathList.count = static_cast<unsigned int>(deathList.baseActors.size());
+            if (deathList.count != 0)
+            {
+                serverCell->readActorList(ID_ACTOR_DEATH, &deathList);
+                deathPacket->setActorList(&deathList);
+                serverCell->sendToLoaded(deathPacket, &deathList);
             }
         }
     }
