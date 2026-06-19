@@ -1984,9 +1984,69 @@ namespace
         return applyFatigueDamageToPlayer(target, damage);
     }
 
+    bool ensureActorDynamicStatsForDamage(mwmp::BaseActor& target)
+    {
+        if (target.hasStatsDynamicData && mwmp::hasFiniteActorDynamicStats(target))
+            return true;
+
+        if (target.mpNum != 0)
+            return false;
+
+        mwmp::WorldDatabaseStore::get().ensureLoaded();
+        const std::vector<mwmp::WorldCellReferenceRecord> references
+            = mwmp::WorldDatabaseStore::get().findReferencesByCellKey(getWorldDatabaseCellKey(target.cell));
+        for (const mwmp::WorldCellReferenceRecord& reference : references)
+        {
+            if (reference.deleted || reference.tombstone || reference.count == 0)
+                continue;
+
+            if (reference.refNumIndex != target.refNum)
+                continue;
+
+            if (!target.refId.empty()
+                && normalizedWorldLookupKey(reference.refId) != normalizedWorldLookupKey(target.refId))
+                continue;
+
+            if (!reference.baseActorStatsDynamicImported)
+                return false;
+
+            bool seenStats[3] = { false, false, false };
+            ESM::StatState<float> seededStats[3];
+            for (const mwmp::WorldActorStatsDynamicItem& item :
+                mwmp::WorldDatabaseStore::get().findActorStatsDynamicByRecordKey(reference.baseRecordKey))
+            {
+                if (item.statIndex < 0 || item.statIndex > 2)
+                    continue;
+
+                ESM::StatState<float>& stat = seededStats[item.statIndex];
+                stat.mBase = item.base;
+                stat.mMod = item.mod;
+                stat.mCurrent = item.current;
+                stat.mDamage = item.damage;
+                stat.mProgress = item.progress;
+                seenStats[item.statIndex] = mwmp::isFiniteDynamicStat(stat);
+            }
+
+            if (!seenStats[0] || !seenStats[1] || !seenStats[2])
+                return false;
+
+            for (int statIndex = 0; statIndex < 3; ++statIndex)
+                target.creatureStats.mDynamic[statIndex] = seededStats[statIndex];
+
+            target.hasStatsDynamicData = true;
+            if (target.statsDynamicSequence == 0)
+                target.statsDynamicSequence = 1;
+
+            target.creatureStats.mDead = target.creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
+            return true;
+        }
+
+        return false;
+    }
+
     bool applyHealthDamageToActor(mwmp::BaseActor& target, float damage)
     {
-        if (!target.hasStatsDynamicData || !mwmp::hasFiniteActorDynamicStats(target))
+        if (!ensureActorDynamicStatsForDamage(target))
             return false;
 
         float& health = target.creatureStats.mDynamic[0].mCurrent;
@@ -2004,7 +2064,7 @@ namespace
 
     bool applyFatigueDamageToActor(mwmp::BaseActor& target, float damage)
     {
-        if (!target.hasStatsDynamicData || !mwmp::hasFiniteActorDynamicStats(target))
+        if (!ensureActorDynamicStatsForDamage(target))
             return false;
 
         float& fatigue = target.creatureStats.mDynamic[2].mCurrent;
