@@ -3480,6 +3480,13 @@ namespace mwmp
             focus.playerGuid = visitor.guid;
             focus.playerName = visitor.npc.mName;
             focus.hasPlayer = true;
+            focus.playerNpc = visitor.npc;
+            focus.hasPlayerBaseInfo = true;
+            if (!visitor.charClass.mId.empty())
+            {
+                focus.playerClassId = visitor.charClass.mId;
+                focus.hasPlayerClass = true;
+            }
             if (visitor.hasFiniteDynamicStats())
             {
                 focus.playerStats = makeSimpleCreatureStats(visitor.creatureStats);

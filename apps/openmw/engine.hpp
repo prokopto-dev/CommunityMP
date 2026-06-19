@@ -260,6 +260,8 @@ namespace OMW
         void prepareEngine();
 
         void neutralizeServerSimulationPlayer();
+        void applyServerSimulationFocusPlayerIdentity(
+            std::string_view playerName, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId);
         void applyServerSimulationFocusPlayerStats();
         ESM::RefId ensureServerSimulationPlayerActorRecord(
             mwmp::PacketGuid guid, ServerSimulationPlayerActorState& state, const MWWorld::Ptr& proxyPlayer);
@@ -324,14 +326,16 @@ namespace OMW
         /// Move the server-owned OpenMW simulation scene to the requested cell.
         bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr,
             mwmp::PacketGuid playerGuid = mwmp::unassignedPacketGuid(), std::string_view playerName = {},
-            const mwmp::SimpleCreatureStats* playerStats = nullptr,
+            const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
+            const ESM::RefId* playerClassId = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Start native OpenMW combat against the server focus player proxy.
         bool startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
             unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
             mwmp::PacketGuid playerGuid, std::string_view playerName,
-            const mwmp::SimpleCreatureStats* playerStats = nullptr,
+            const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
+            const ESM::RefId* playerClassId = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.

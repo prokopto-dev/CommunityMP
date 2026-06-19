@@ -25,9 +25,13 @@ namespace mwmp
         bool hasPosition = false;
         PacketGuid playerGuid = unassignedPacketGuid();
         std::string playerName;
+        ESM::NPC playerNpc;
+        ESM::RefId playerClassId;
         SimpleCreatureStats playerStats;
         std::array<Item, equipmentSlotCount> playerEquipmentItems = {};
         bool hasPlayer = false;
+        bool hasPlayerBaseInfo = false;
+        bool hasPlayerClass = false;
         bool hasPlayerStats = false;
         bool hasPlayerEquipmentData = false;
     };

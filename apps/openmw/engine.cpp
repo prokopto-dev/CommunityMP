@@ -975,6 +975,41 @@ void OMW::Engine::neutralizeServerSimulationPlayer()
     }
 }
 
+void OMW::Engine::applyServerSimulationFocusPlayerIdentity(
+    std::string_view playerName, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId)
+{
+    if (!mServerSimulationMode || mWorld == nullptr || mMechanicsManager == nullptr || mStateManager == nullptr
+        || mStateManager->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    if (player.isEmpty() || player.get<ESM::NPC>() == nullptr || player.get<ESM::NPC>()->mBase == nullptr)
+        return;
+
+    const ESM::NPC current = *player.get<ESM::NPC>()->mBase;
+    if (!playerName.empty() && current.mName != playerName)
+        mMechanicsManager->setPlayerName(std::string(playerName));
+
+    if (playerNpc != nullptr)
+    {
+        const ESM::RefId& race = playerNpc->mRace;
+        if (!race.empty() && mWorld->getStore().get<ESM::Race>().search(race) != nullptr
+            && (current.mRace != race || current.mHead != playerNpc->mHead || current.mHair != playerNpc->mHair
+                || current.isMale() != playerNpc->isMale()))
+            mMechanicsManager->setPlayerRace(race, playerNpc->isMale(), playerNpc->mHead, playerNpc->mHair);
+    }
+
+    ESM::RefId classId;
+    if (playerClassId != nullptr && !playerClassId->empty())
+        classId = *playerClassId;
+    else if (playerNpc != nullptr && !playerNpc->mClass.empty())
+        classId = playerNpc->mClass;
+
+    if (!classId.empty() && current.mClass != classId
+        && mWorld->getStore().get<ESM::Class>().search(classId) != nullptr)
+        mMechanicsManager->setPlayerClass(classId);
+}
+
 void OMW::Engine::applyServerSimulationFocusPlayerStats()
 {
     if (!mServerSimulationMode || !mServerSimulationFocusPlayerSet || !mServerSimulationFocusPlayerStatsSet
@@ -2376,6 +2411,7 @@ void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::Simula
 
 bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition,
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats,
+    const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mStateManager == nullptr || mStateManager->hasQuitRequest())
@@ -2421,6 +2457,7 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
                 mServerSimulationFocusPosition = position;
                 mServerSimulationFocusPositionSet = true;
             }
+            applyServerSimulationFocusPlayerIdentity(playerName, playerNpc, playerClassId);
             applyServerSimulationFocusPlayerStats();
             if (playerEquipmentItems != nullptr)
                 applyServerSimulationEquipmentToActor(mWorld->getPlayerPtr(), *playerEquipmentItems, playerName);
@@ -2461,6 +2498,7 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
         mServerSimulationFocusPositionSet = false;
 
     neutralizeServerSimulationPlayer();
+    applyServerSimulationFocusPlayerIdentity(playerName, playerNpc, playerClassId);
     applyServerSimulationFocusPlayerStats();
     if (playerEquipmentItems != nullptr)
         applyServerSimulationEquipmentToActor(mWorld->getPlayerPtr(), *playerEquipmentItems, playerName);
@@ -2474,13 +2512,15 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
 bool OMW::Engine::startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
     unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats,
+    const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mMechanicsManager == nullptr
         || !mwmp::isPacketGuidAssigned(playerGuid))
         return false;
 
-    if (!focusServerSimulationCell(cell, &playerPosition, playerGuid, playerName, playerStats, playerEquipmentItems))
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId, playerEquipmentItems))
         return false;
 
     MWWorld::CellStore* cellStore = mWorld->getPlayerPtr().getCell();
