@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <components/esm3/loadcell.hpp>
+#include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 namespace mwmp
@@ -22,7 +23,9 @@ namespace mwmp
         bool hasPosition = false;
         PacketGuid playerGuid = unassignedPacketGuid();
         std::string playerName;
+        SimpleCreatureStats playerStats;
         bool hasPlayer = false;
+        bool hasPlayerStats = false;
     };
 
     struct SimulationActorTarget
@@ -39,7 +42,20 @@ namespace mwmp
         ESM::Position position;
         PacketGuid guid = unassignedPacketGuid();
         std::string name;
+        SimpleCreatureStats creatureStats;
         bool hasPosition = false;
+        bool hasStatsDynamicData = false;
+    };
+
+    struct SimulationPlayerSnapshot
+    {
+        ESM::Cell cell;
+        ESM::Position position;
+        PacketGuid guid = unassignedPacketGuid();
+        std::string name;
+        SimpleCreatureStats creatureStats;
+        bool hasPositionData = false;
+        bool hasStatsDynamicData = false;
     };
 
     struct SimulationRuntimeEventArgument
@@ -167,6 +183,7 @@ namespace mwmp
         virtual void tick(float deltaSeconds);
         virtual void setSimulationCellFocuses(const std::vector<SimulationCellFocus>& focuses);
         virtual bool collectActorSnapshots(std::vector<BaseActorList>& actorLists);
+        virtual bool collectPlayerSnapshots(std::vector<SimulationPlayerSnapshot>& playerSnapshots);
         virtual bool startActorCombatWithPlayer(
             const SimulationActorTarget& actor, const SimulationPlayerTarget& player);
         virtual bool dispatchServerEvent(

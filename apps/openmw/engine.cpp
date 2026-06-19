@@ -70,6 +70,8 @@
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 #include <components/esm/util.hpp>
 
+#include "../openmw-mp/SimulationRuntime.hpp"
+
 #include "mwinput/inputmanagerimp.hpp"
 
 #include "mwgui/windowmanagerimp.hpp"
@@ -437,6 +439,18 @@ namespace
         destination.mMod = source.getModifier();
     }
 
+    bool isFiniteDynamicStatState(const ESM::StatState<float>& stat)
+    {
+        return std::isfinite(stat.mBase) && std::isfinite(stat.mCurrent) && std::isfinite(stat.mMod);
+    }
+
+    bool hasFiniteSimpleCreatureStats(const mwmp::SimpleCreatureStats& stats)
+    {
+        return isFiniteDynamicStatState(stats.mDynamic[0])
+            && isFiniteDynamicStatState(stats.mDynamic[1])
+            && isFiniteDynamicStatState(stats.mDynamic[2]);
+    }
+
     void copyServerSimulationEquipment(mwmp::BaseActor& actor, const MWWorld::Ptr& ptr)
     {
         if (!ptr.getClass().hasInventoryStore(ptr))
@@ -796,6 +810,35 @@ void OMW::Engine::neutralizeServerSimulationPlayer()
         actorStats.getAiSequence().stopCombat(serverFocusDummyTargets);
         actorStats.setHitAttemptActor({});
     }
+}
+
+void OMW::Engine::applyServerSimulationFocusPlayerStats()
+{
+    if (!mServerSimulationMode || !mServerSimulationFocusPlayerSet || !mServerSimulationFocusPlayerStatsSet
+        || mWorld == nullptr || mStateManager == nullptr
+        || mStateManager->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    if (player.isEmpty() || !player.getClass().isActor())
+        return;
+
+    const bool sourceDead = mServerSimulationFocusPlayerStats.mDead
+        || mServerSimulationFocusPlayerStats.mDynamic[0].mCurrent <= 0.001f;
+
+    MWMechanics::CreatureStats& playerStats = player.getClass().getCreatureStats(player);
+    if (!sourceDead && playerStats.isDead())
+        playerStats.resurrect();
+
+    for (int i = 0; i < 3; ++i)
+    {
+        MWMechanics::DynamicStat<float> dynamicStat = playerStats.getDynamic(i);
+        dynamicStat.readState(mServerSimulationFocusPlayerStats.mDynamic[i]);
+        playerStats.setDynamic(i, dynamicStat);
+    }
+
+    playerStats.setDeathAnimationFinished(
+        sourceDead && mServerSimulationFocusPlayerStats.mDeathAnimationFinished);
 }
 
 bool OMW::Engine::frame(unsigned frameNumber, float frametime)
@@ -1780,7 +1823,7 @@ bool OMW::Engine::tickServerSimulation(float simulationDeltaSeconds, float clock
 }
 
 bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition,
-    mwmp::PacketGuid playerGuid, std::string_view playerName)
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mStateManager == nullptr || mStateManager->hasQuitRequest())
         return false;
@@ -1798,12 +1841,20 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
             mServerSimulationFocusPlayerGuid = playerGuid;
             mServerSimulationFocusPlayerName = std::string(playerName);
             mServerSimulationFocusPlayerSet = true;
+            if (playerStats != nullptr && hasFiniteSimpleCreatureStats(*playerStats))
+            {
+                mServerSimulationFocusPlayerStats = *playerStats;
+                mServerSimulationFocusPlayerStatsSet = true;
+            }
+            else
+                mServerSimulationFocusPlayerStatsSet = false;
         }
         else
         {
             mServerSimulationFocusPlayerGuid = mwmp::unassignedPacketGuid();
             mServerSimulationFocusPlayerName.clear();
             mServerSimulationFocusPlayerSet = false;
+            mServerSimulationFocusPlayerStatsSet = false;
         }
 
         if (mServerSimulationFocusCellDescription == cellDescription)
@@ -1817,6 +1868,7 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
                 mServerSimulationFocusPosition = position;
                 mServerSimulationFocusPositionSet = true;
             }
+            applyServerSimulationFocusPlayerStats();
             return true;
         }
 
@@ -1853,6 +1905,7 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
         mServerSimulationFocusPositionSet = false;
 
     neutralizeServerSimulationPlayer();
+    applyServerSimulationFocusPlayerStats();
 
     Log(Debug::Info) << "Focused server OpenMW simulation cell " << cellDescription
                      << (focusPosition != nullptr ? " at player position" : " without player position");
@@ -1861,13 +1914,13 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
 
 bool OMW::Engine::startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
     unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
-    mwmp::PacketGuid playerGuid, std::string_view playerName)
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mMechanicsManager == nullptr
         || !mwmp::isPacketGuidAssigned(playerGuid))
         return false;
 
-    if (!focusServerSimulationCell(cell, &playerPosition, playerGuid, playerName))
+    if (!focusServerSimulationCell(cell, &playerPosition, playerGuid, playerName, playerStats))
         return false;
 
     MWWorld::CellStore* cellStore = mWorld->getPlayerPtr().getCell();
@@ -1922,6 +1975,34 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
         if (actorList.count != 0)
             actorLists.push_back(std::move(actorList));
     }
+}
+
+bool OMW::Engine::exportServerSimulationFocusPlayerSnapshot(mwmp::SimulationPlayerSnapshot& snapshot) const
+{
+    if (!mServerSimulationPrepared || mWorld == nullptr || !mServerSimulationFocusPlayerSet
+        || !mwmp::isPacketGuidAssigned(mServerSimulationFocusPlayerGuid))
+        return false;
+
+    const MWWorld::Ptr player = mWorld->getPlayerPtr();
+    if (player.isEmpty() || !player.getClass().isActor() || player.getCell() == nullptr
+        || player.getCell()->getCell() == nullptr)
+        return false;
+
+    snapshot = mwmp::SimulationPlayerSnapshot{};
+    snapshot.cell = mwmp::makeActorPacketCell(*player.getCell()->getCell());
+    snapshot.position = player.getRefData().getPosition();
+    snapshot.guid = mServerSimulationFocusPlayerGuid;
+    snapshot.name = mServerSimulationFocusPlayerName;
+    snapshot.hasPositionData = true;
+
+    const MWMechanics::CreatureStats& creatureStats = player.getClass().getCreatureStats(player);
+    snapshot.creatureStats.mDead = creatureStats.isDead();
+    snapshot.creatureStats.mDeathAnimationFinished = creatureStats.isDeathAnimationFinished();
+    for (int i = 0; i < 3; ++i)
+        copyDynamicStat(creatureStats.getDynamic(i), snapshot.creatureStats.mDynamic[i]);
+    snapshot.hasStatsDynamicData = true;
+
+    return true;
 }
 
 // Initialise and enter main loop.

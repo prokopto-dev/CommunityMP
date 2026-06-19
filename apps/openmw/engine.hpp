@@ -10,6 +10,7 @@
 #include <components/esm/position.hpp>
 #include <components/esm/refid.hpp>
 #include <components/files/collections.hpp>
+#include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 #include <components/settings/settings.hpp>
 #include <components/translation/translation.hpp>
@@ -115,6 +116,7 @@ namespace MWMechanics
 namespace mwmp
 {
     class BaseActorList;
+    struct SimulationPlayerSnapshot;
 }
 
 namespace MWDialogue
@@ -214,7 +216,9 @@ namespace OMW
         bool mServerSimulationFocusPositionSet = false;
         mwmp::PacketGuid mServerSimulationFocusPlayerGuid = mwmp::unassignedPacketGuid();
         std::string mServerSimulationFocusPlayerName;
+        mwmp::SimpleCreatureStats mServerSimulationFocusPlayerStats;
         bool mServerSimulationFocusPlayerSet = false;
+        bool mServerSimulationFocusPlayerStatsSet = false;
 
         // not implemented
         Engine(const Engine&);
@@ -228,6 +232,7 @@ namespace OMW
         void prepareEngine();
 
         void neutralizeServerSimulationPlayer();
+        void applyServerSimulationFocusPlayerStats();
         void hideServerSimulationWindow();
 
         void createWindow();
@@ -279,15 +284,18 @@ namespace OMW
 
         /// Move the server-owned OpenMW simulation scene to the requested cell.
         bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr,
-            mwmp::PacketGuid playerGuid = mwmp::unassignedPacketGuid(), std::string_view playerName = {});
+            mwmp::PacketGuid playerGuid = mwmp::unassignedPacketGuid(), std::string_view playerName = {},
+            const mwmp::SimpleCreatureStats* playerStats = nullptr);
 
         /// Start native OpenMW combat against the server focus player proxy.
         bool startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
             unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
-            mwmp::PacketGuid playerGuid, std::string_view playerName);
+            mwmp::PacketGuid playerGuid, std::string_view playerName,
+            const mwmp::SimpleCreatureStats* playerStats = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;
+        bool exportServerSimulationFocusPlayerSnapshot(mwmp::SimulationPlayerSnapshot& snapshot) const;
 
         bool isServerSimulationPrepared() const { return mServerSimulationPrepared; }
         bool wasServerSimulationWorldLoadedFromSave() const { return mServerSimulationWorldLoadedFromSave; }

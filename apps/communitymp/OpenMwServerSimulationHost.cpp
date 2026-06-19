@@ -372,6 +372,19 @@ namespace
             return !actorLists.empty();
         }
 
+        bool collectPlayerSnapshots(std::vector<mwmp::SimulationPlayerSnapshot>& playerSnapshots) override
+        {
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared())
+                return false;
+
+            mwmp::SimulationPlayerSnapshot snapshot;
+            if (!mEngine->exportServerSimulationFocusPlayerSnapshot(snapshot))
+                return false;
+
+            playerSnapshots.push_back(std::move(snapshot));
+            return true;
+        }
+
         bool startActorCombatWithPlayer(
             const mwmp::SimulationActorTarget& actor, const mwmp::SimulationPlayerTarget& player) override
         {
@@ -379,7 +392,8 @@ namespace
                 return false;
 
             return mEngine->startServerSimulationActorCombatWithPlayer(
-                actor.cell, actor.refId, actor.refNum, actor.mpNum, player.position, player.guid, player.name);
+                actor.cell, actor.refId, actor.refNum, actor.mpNum, player.position, player.guid, player.name,
+                player.hasStatsDynamicData ? &player.creatureStats : nullptr);
         }
 
         const mwmp::SimulationRuntimeFocusState& focusState() const override
@@ -447,7 +461,8 @@ namespace
             mFocusState.lastFocusSucceeded = mEngine->focusServerSimulationCell(
                 focus.cell, focus.hasPosition ? &focus.position : nullptr,
                 focus.hasPlayer ? focus.playerGuid : mwmp::unassignedPacketGuid(),
-                focus.hasPlayer ? std::string_view(focus.playerName) : std::string_view());
+                focus.hasPlayer ? std::string_view(focus.playerName) : std::string_view(),
+                focus.hasPlayerStats ? &focus.playerStats : nullptr);
             mFocusState.lastQueuedDeltaSeconds = queuedDeltaSeconds;
             if (mFocusState.lastFocusSucceeded)
             {

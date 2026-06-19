@@ -1199,6 +1199,23 @@ namespace
         return std::isfinite(position.pos[0]) && std::isfinite(position.pos[1]) && std::isfinite(position.pos[2]);
     }
 
+    bool hasFiniteSimpleCreatureStats(const mwmp::SimpleCreatureStats& stats)
+    {
+        return mwmp::isFiniteDynamicStat(stats.mDynamic[0])
+            && mwmp::isFiniteDynamicStat(stats.mDynamic[1])
+            && mwmp::isFiniteDynamicStat(stats.mDynamic[2]);
+    }
+
+    mwmp::SimpleCreatureStats makeSimpleCreatureStats(const ESM::CreatureStats& stats)
+    {
+        mwmp::SimpleCreatureStats result;
+        for (int i = 0; i < 3; ++i)
+            result.mDynamic[i] = stats.mDynamic[i];
+        result.mDead = stats.mDead;
+        result.mDeathAnimationFinished = stats.mDeathAnimationFinished;
+        return result;
+    }
+
     bool canApplyServerAttackDamage(const mwmp::Attack& attack)
     {
         return attack.isHit && attack.success && !attack.block && std::isfinite(attack.damage)
@@ -2233,6 +2250,9 @@ namespace mwmp
         const bool exportedRuntimeActorSnapshots = mRuntime->collectActorSnapshots(runtimeActorSnapshots);
         if (exportedRuntimeActorSnapshots)
             applyRuntimeActorSnapshots(runtimeActorSnapshots, deltaSeconds);
+        std::vector<SimulationPlayerSnapshot> runtimePlayerSnapshots;
+        if (mRuntime->collectPlayerSnapshots(runtimePlayerSnapshots))
+            applyRuntimePlayerSnapshots(runtimePlayerSnapshots);
         logRuntimeActorMovementHealthIfNeeded(now);
 
         if (!canAuthoritativelySimulateActors())
@@ -2944,6 +2964,11 @@ namespace mwmp
                 focus.playerGuid = visitor->guid;
                 focus.playerName = visitor->npc.mName;
                 focus.hasPlayer = true;
+                if (visitor->hasFiniteDynamicStats())
+                {
+                    focus.playerStats = makeSimpleCreatureStats(visitor->creatureStats);
+                    focus.hasPlayerStats = true;
+                }
                 break;
             }
 
@@ -3392,6 +3417,93 @@ namespace mwmp
                 attackPacket->setActorList(&attackList);
                 serverCell->sendToLoaded(attackPacket, &attackList);
             }
+        }
+    }
+
+    void ServerSimulation::applyRuntimePlayerSnapshots(const std::vector<SimulationPlayerSnapshot>& playerSnapshots)
+    {
+        if (playerSnapshots.empty())
+            return;
+
+        for (const SimulationPlayerSnapshot& snapshot : playerSnapshots)
+        {
+            if (!mwmp::isPacketGuidAssigned(snapshot.guid) || !snapshot.hasStatsDynamicData
+                || !hasFiniteSimpleCreatureStats(snapshot.creatureStats))
+                continue;
+
+            Player* target = Players::getPlayer(snapshot.guid);
+            if (target == nullptr || target->getLoadState() == Player::KICKED || !target->hasFiniteDynamicStats())
+                continue;
+
+            if (!isSameSimulationCell(target->cell, snapshot.cell))
+                continue;
+
+            const bool wasDead = target->creatureStats.mDead
+                || target->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
+            bool changed = false;
+            std::vector<uint8_t> changedIndexes;
+
+            const auto addChangedIndex = [&](uint8_t index) {
+                if (std::find(changedIndexes.begin(), changedIndexes.end(), index) == changedIndexes.end())
+                    changedIndexes.push_back(index);
+            };
+
+            for (uint8_t statIndex = 0; statIndex < 3; ++statIndex)
+            {
+                float incomingCurrent = snapshot.creatureStats.mDynamic[statIndex].mCurrent;
+                if (statIndex == 0)
+                    incomingCurrent = std::max(0.f, incomingCurrent);
+
+                float& targetCurrent = target->creatureStats.mDynamic[statIndex].mCurrent;
+                if (incomingCurrent + healthDeadEpsilon < targetCurrent)
+                {
+                    targetCurrent = incomingCurrent;
+                    addChangedIndex(statIndex);
+                    changed = true;
+                }
+            }
+
+            const bool snapshotDead = snapshot.creatureStats.mDead
+                || snapshot.creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
+            if (snapshotDead && target->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon)
+            {
+                if (target->creatureStats.mDynamic[0].mCurrent != 0.f)
+                {
+                    target->creatureStats.mDynamic[0].mCurrent = 0.f;
+                    addChangedIndex(0);
+                    changed = true;
+                }
+                if (!target->creatureStats.mDead)
+                {
+                    target->creatureStats.mDead = true;
+                    addChangedIndex(0);
+                    changed = true;
+                }
+                if (snapshot.creatureStats.mDeathAnimationFinished
+                    && !target->creatureStats.mDeathAnimationFinished)
+                {
+                    target->creatureStats.mDeathAnimationFinished = true;
+                    addChangedIndex(0);
+                    changed = true;
+                }
+            }
+
+            if (target->creatureStats.mDynamic[2].mCurrent <= 0.f)
+                target->creatureStats.mKnockdown = true;
+
+            if (!changed || changedIndexes.empty())
+                continue;
+
+            const bool becameDead = !wasDead && target->creatureStats.mDead;
+            ++target->statsDynamicSequence;
+            target->exchangeFullInfo = false;
+            target->statsDynamicIndexChanges = std::move(changedIndexes);
+            target->acceptCurrentStatsDynamicPacket();
+
+            broadcastPlayerStats(*target);
+            notifyPlayerStatsDynamic(*target);
+            if (becameDead)
+                notifyPlayerDeath(*target);
         }
     }
 
@@ -4859,6 +4971,11 @@ namespace mwmp
             runtimePlayer.guid = attacker.guid;
             runtimePlayer.name = attacker.npc.mName;
             runtimePlayer.hasPosition = true;
+            if (attacker.hasFiniteDynamicStats())
+            {
+                runtimePlayer.creatureStats = makeSimpleCreatureStats(attacker.creatureStats);
+                runtimePlayer.hasStatsDynamicData = true;
+            }
 
             static_cast<void>(mRuntime->startActorCombatWithPlayer(runtimeActor, runtimePlayer));
         }

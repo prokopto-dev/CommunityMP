@@ -221,6 +221,7 @@ namespace mwmp
         void reconcileCurrentPlayerSimulationCells(RuntimeFocusSelectionStats& focusSelectionStats);
         void updateRuntimeSimulationCells();
         void applyRuntimeActorSnapshots(const std::vector<BaseActorList>& actorLists, float deltaSeconds);
+        void applyRuntimePlayerSnapshots(const std::vector<SimulationPlayerSnapshot>& playerSnapshots);
         void logRuntimeActorMovementHealthIfNeeded(Clock::time_point now);
         bool isActorInteractionLocked(const ActorMovementKey& actorKey, Clock::time_point now);
         void stopActorForInteraction(Cell& cell, BaseActor& actor, const ActorMovementKey& actorKey);

@@ -329,6 +329,12 @@ namespace mwmp
         return false;
     }
 
+    bool SimulationRuntime::collectPlayerSnapshots(std::vector<SimulationPlayerSnapshot>& playerSnapshots)
+    {
+        static_cast<void>(playerSnapshots);
+        return false;
+    }
+
     bool SimulationRuntime::startActorCombatWithPlayer(
         const SimulationActorTarget& actor, const SimulationPlayerTarget& player)
     {
