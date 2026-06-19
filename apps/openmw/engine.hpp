@@ -350,6 +350,13 @@ namespace OMW
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
+        bool applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell& cell,
+            const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
+            mwmp::PacketGuid targetGuid, const mwmp::Attack& attack, float attackStrength,
+            const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
+            const ESM::RefId* playerClassId = nullptr,
+            const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists);

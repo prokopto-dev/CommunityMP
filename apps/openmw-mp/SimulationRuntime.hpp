@@ -216,6 +216,9 @@ namespace mwmp
         virtual bool applyPlayerMeleeAttackToActor(
             const SimulationPlayerTarget& player, const SimulationActorTarget& actor, const Attack& attack,
             float attackStrength);
+        virtual bool applyPlayerMeleeAttackToPlayer(
+            const SimulationPlayerTarget& attacker, const SimulationPlayerTarget& target, const Attack& attack,
+            float attackStrength);
         virtual bool dispatchServerEvent(
             std::string_view eventName, const SimulationRuntimeEventArguments& arguments);
 

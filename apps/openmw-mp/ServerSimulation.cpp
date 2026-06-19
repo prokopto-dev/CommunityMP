@@ -5859,10 +5859,22 @@ namespace mwmp
         const Attack& attack = attacker.attack;
         if (attack.target.isPlayer)
         {
+            Player* target = Players::getPlayer(attack.target.guid);
+            if (target != nullptr && mRuntime != nullptr && mRuntime->canOwnActorAuthority()
+                && !attack.pressed && attack.type == Attack::MELEE
+                && hasAcceptedLivePlayerBody(attacker, &target->cell)
+                && hasAcceptedLivePlayerBody(*target, &attacker.cell))
+            {
+                SimulationPlayerTarget runtimeAttacker = makeRuntimePlayerTarget(attacker);
+                SimulationPlayerTarget runtimeTarget = makeRuntimePlayerTarget(*target);
+                if (mRuntime->applyPlayerMeleeAttackToPlayer(
+                        runtimeAttacker, runtimeTarget, attack, attack.attackStrength))
+                    return;
+            }
+
             if (!canApplyServerAttackDamage(attack))
                 return;
 
-            Player* target = Players::getPlayer(attack.target.guid);
             bool becameDead = false;
             if (target != nullptr && applyAttackDamageToPlayer(*target, attack, becameDead))
             {

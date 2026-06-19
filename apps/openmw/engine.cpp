@@ -899,6 +899,38 @@ namespace
         return std::clamp(attackStrength, 0.1f, 1.f);
     }
 
+    bool applyServerSimulationPlayerMeleeHit(const MWWorld::Ptr& player, const MWWorld::Ptr& victim,
+        const mwmp::Attack& attack, float attackStrength, MWBase::MechanicsManager& mechanicsManager)
+    {
+        MWWorld::Ptr attacker = player;
+        MWWorld::Ptr target = victim;
+        if (attacker.isEmpty() || target.isEmpty() || !attacker.getClass().isActor() || !target.getClass().isActor())
+            return false;
+
+        MWMechanics::CreatureStats& playerCreatureStats = attacker.getClass().getCreatureStats(attacker);
+        MWMechanics::CreatureStats& victimCreatureStats = target.getClass().getCreatureStats(target);
+        if (playerCreatureStats.isDead() || victimCreatureStats.isDead())
+            return false;
+
+        victimCreatureStats.setAttacked(true);
+        mechanicsManager.startCombat(target, attacker, nullptr);
+
+        const std::string attackTypeName = getServerSimulationMeleeAttackTypeName(attack, playerCreatureStats);
+        const int attackType = getServerSimulationMeleeAttackType(attackTypeName);
+        const float requestedAttackStrength = sanitizeServerSimulationAttackStrength(attackStrength);
+
+        playerCreatureStats.setDrawState(MWMechanics::DrawState::Weapon);
+        playerCreatureStats.setAttackType(attackTypeName);
+        playerCreatureStats.setAttackingOrSpell(true);
+
+        osg::Vec3f hitPosition = attack.hitPosition.asVec3();
+        const bool success = attacker.getClass().evaluateHit(attacker, target, hitPosition);
+        const float resolvedAttackStrength = success ? requestedAttackStrength : 0.f;
+        attacker.getClass().hit(attacker, resolvedAttackStrength, attackType, target, hitPosition, success);
+        playerCreatureStats.setAttackingOrSpell(false);
+        return true;
+    }
+
     void copyServerSimulationAttack(mwmp::BaseActor& actor, const MWMechanics::CreatureStats& creatureStats)
     {
         const std::string_view attackType = creatureStats.getAttackType();
@@ -2759,27 +2791,36 @@ bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToActor(const ESM::Cell&
     if (actor.isEmpty() || !actor.getClass().isActor())
         return false;
 
-    MWMechanics::CreatureStats& playerCreatureStats = player.getClass().getCreatureStats(player);
-    if (playerCreatureStats.isDead())
+    return applyServerSimulationPlayerMeleeHit(player, actor, attack, attackStrength, *mMechanicsManager);
+}
+
+bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell& cell,
+    const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
+    mwmp::PacketGuid targetGuid, const mwmp::Attack& attack, float attackStrength,
+    const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
+    const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
+{
+    if (!mServerSimulationPrepared || mWorld == nullptr || mMechanicsManager == nullptr
+        || attack.type != mwmp::Attack::MELEE || attack.pressed || !mwmp::isPacketGuidAssigned(playerGuid)
+        || !mwmp::isPacketGuidAssigned(targetGuid) || playerGuid == targetGuid)
         return false;
 
-    actor.getClass().getCreatureStats(actor).setAttacked(true);
-    mMechanicsManager->startCombat(actor, player, nullptr);
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
+            playerBaseStats, playerEquipmentItems))
+        return false;
 
-    const std::string attackTypeName = getServerSimulationMeleeAttackTypeName(attack, playerCreatureStats);
-    const int attackType = getServerSimulationMeleeAttackType(attackTypeName);
-    const float requestedAttackStrength = sanitizeServerSimulationAttackStrength(attackStrength);
+    const auto targetIt = mServerSimulationPlayerActors.find(targetGuid);
+    if (targetIt == mServerSimulationPlayerActors.end() || targetIt->second.ptr.isEmpty())
+        return false;
 
-    playerCreatureStats.setDrawState(MWMechanics::DrawState::Weapon);
-    playerCreatureStats.setAttackType(attackTypeName);
-    playerCreatureStats.setAttackingOrSpell(true);
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    MWWorld::Ptr target = targetIt->second.ptr;
+    if (target.getCell() == nullptr || player.getCell() == nullptr || target.getCell() != player.getCell())
+        return false;
 
-    osg::Vec3f hitPosition = attack.hitPosition.asVec3();
-    const bool success = player.getClass().evaluateHit(player, actor, hitPosition);
-    const float resolvedAttackStrength = success ? requestedAttackStrength : 0.f;
-    player.getClass().hit(player, resolvedAttackStrength, attackType, actor, hitPosition, success);
-    playerCreatureStats.setAttackingOrSpell(false);
-    return true;
+    return applyServerSimulationPlayerMeleeHit(player, target, attack, attackStrength, *mMechanicsManager);
 }
 
 void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists)

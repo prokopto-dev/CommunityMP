@@ -491,6 +491,21 @@ namespace
                 player.hasEquipmentData ? &player.equipmentItems : nullptr);
         }
 
+        bool applyPlayerMeleeAttackToPlayer(const mwmp::SimulationPlayerTarget& attacker,
+            const mwmp::SimulationPlayerTarget& target, const mwmp::Attack& attack, float attackStrength) override
+        {
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared() || !attacker.hasPosition)
+                return false;
+
+            return mEngine->applyServerSimulationPlayerMeleeAttackToPlayer(attacker.cell, attacker.position,
+                attacker.guid, attacker.name, target.guid, attack, attackStrength,
+                attacker.hasStatsDynamicData ? &attacker.creatureStats : nullptr,
+                attacker.hasBaseInfo ? &attacker.npc : nullptr,
+                attacker.hasClass ? &attacker.classId : nullptr,
+                attacker.hasBaseStatsData ? &attacker.baseStats : nullptr,
+                attacker.hasEquipmentData ? &attacker.equipmentItems : nullptr);
+        }
+
         const mwmp::SimulationRuntimeFocusState& focusState() const override
         {
             return mFocusState;
