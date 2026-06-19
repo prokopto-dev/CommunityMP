@@ -391,6 +391,50 @@ namespace
         return result;
     }
 
+    float squaredDirectionDelta(const ESM::Position& left, const ESM::Position& right)
+    {
+        float result = 0.f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float positionDelta = left.pos[axis] - right.pos[axis];
+            const float rotationDelta = left.rot[axis] - right.rot[axis];
+            result += positionDelta * positionDelta + rotationDelta * rotationDelta;
+        }
+
+        return result;
+    }
+
+    float normalizedAngleDelta(float left, float right)
+    {
+        if (!std::isfinite(left) || !std::isfinite(right))
+            return std::numeric_limits<float>::infinity();
+
+        float delta = std::fmod(left - right, twoPi);
+        if (delta > twoPi * 0.5f)
+            delta -= twoPi;
+        else if (delta < -twoPi * 0.5f)
+            delta += twoPi;
+
+        return delta;
+    }
+
+    bool hasMeaningfulRotationChange(const ESM::Position& left, const ESM::Position& right)
+    {
+        float rotationDeltaSquared = 0.f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float delta = normalizedAngleDelta(left.rot[axis], right.rot[axis]);
+            if (!std::isfinite(delta))
+                return true;
+
+            rotationDeltaSquared += delta * delta;
+        }
+
+        constexpr float rotationEpsilonSquared
+            = runtimeActorRotationEpsilonRadians * runtimeActorRotationEpsilonRadians;
+        return rotationDeltaSquared > rotationEpsilonSquared;
+    }
+
     void sanitizeFinitePosition(ESM::Position& position)
     {
         for (int axis = 0; axis < 3; ++axis)
@@ -412,6 +456,23 @@ namespace
         return value;
     }
 
+    void clearRuntimeMovementIntent(ESM::Position& direction)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            direction.pos[axis] = 0.f;
+            direction.rot[axis] = 0.f;
+        }
+    }
+
+    float deriveMovementComponentFromDelta(float delta)
+    {
+        if (!std::isfinite(delta) || std::abs(delta) <= runtimeActorRotationEpsilonRadians)
+            return 0.f;
+
+        return delta > 0.f ? 1.f : -1.f;
+    }
+
     enum class RuntimeMovementDirectionAdjustment
     {
         Unchanged,
@@ -425,46 +486,79 @@ namespace
         sanitizeFinitePosition(actor.direction);
         if (!actor.hasPositionData || previousActor == nullptr || !previousActor->hasPositionData)
         {
-            actor.direction.pos[0] = 0.f;
-            actor.direction.pos[1] = 0.f;
+            clearRuntimeMovementIntent(actor.direction);
             return RuntimeMovementDirectionAdjustment::Cleared;
         }
 
         const float deltaX = actor.position.pos[0] - previousActor->position.pos[0];
         const float deltaY = actor.position.pos[1] - previousActor->position.pos[1];
+        const float deltaZ = actor.position.pos[2] - previousActor->position.pos[2];
         const float horizontalDistanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        bool hasDerivedIntent = false;
         if (!std::isfinite(horizontalDistanceSquared) || horizontalDistanceSquared <= runtimeActorMovementEpsilonSquared
             || horizontalDistanceSquared > runtimeActorDerivedDirectionMaximumDistanceSquared)
         {
             actor.direction.pos[0] = 0.f;
             actor.direction.pos[1] = 0.f;
-            return RuntimeMovementDirectionAdjustment::Cleared;
         }
-
-        const float yaw = actor.position.rot[2];
-        if (!std::isfinite(yaw))
+        else
         {
-            actor.direction.pos[0] = 0.f;
-            actor.direction.pos[1] = 0.f;
-            return RuntimeMovementDirectionAdjustment::Cleared;
+            const float yaw = actor.position.rot[2];
+            if (!std::isfinite(yaw))
+            {
+                actor.direction.pos[0] = 0.f;
+                actor.direction.pos[1] = 0.f;
+            }
+            else
+            {
+                const float sinYaw = std::sin(yaw);
+                const float cosYaw = std::cos(yaw);
+                const float localSide = deltaX * cosYaw - deltaY * sinYaw;
+                const float localForward = deltaX * sinYaw + deltaY * cosYaw;
+                const float localDistance = std::sqrt(squaredHorizontalLength(localSide, localForward));
+                if (!std::isfinite(localDistance) || localDistance <= 0.f)
+                {
+                    actor.direction.pos[0] = 0.f;
+                    actor.direction.pos[1] = 0.f;
+                }
+                else
+                {
+                    actor.direction.pos[0] = sanitizeMovementComponent(localSide / localDistance);
+                    actor.direction.pos[1] = sanitizeMovementComponent(localForward / localDistance);
+                    hasDerivedIntent = actor.direction.pos[0] != 0.f || actor.direction.pos[1] != 0.f;
+                }
+            }
         }
 
-        const float sinYaw = std::sin(yaw);
-        const float cosYaw = std::cos(yaw);
-        const float localSide = deltaX * cosYaw - deltaY * sinYaw;
-        const float localForward = deltaX * sinYaw + deltaY * cosYaw;
-        const float localDistance = std::sqrt(squaredHorizontalLength(localSide, localForward));
-        if (!std::isfinite(localDistance) || localDistance <= 0.f)
+        constexpr float runtimeActorVerticalMovementEpsilon = 0.5f;
+        if (!std::isfinite(deltaZ) || std::abs(deltaZ) <= runtimeActorVerticalMovementEpsilon)
+            actor.direction.pos[2] = 0.f;
+        else
         {
-            actor.direction.pos[0] = 0.f;
-            actor.direction.pos[1] = 0.f;
-            return RuntimeMovementDirectionAdjustment::Cleared;
+            actor.direction.pos[2] = sanitizeMovementComponent(actor.direction.pos[2]);
+            if (actor.direction.pos[2] == 0.f)
+                actor.direction.pos[2] = deltaZ > 0.f ? 1.f : -1.f;
+            hasDerivedIntent = true;
         }
 
-        actor.direction.pos[0] = sanitizeMovementComponent(localSide / localDistance);
-        actor.direction.pos[1] = sanitizeMovementComponent(localForward / localDistance);
-        return RuntimeMovementDirectionAdjustment::Derived;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float rotationDelta = normalizedAngleDelta(actor.position.rot[axis], previousActor->position.rot[axis]);
+            if (!std::isfinite(rotationDelta) || std::abs(rotationDelta) <= runtimeActorRotationEpsilonRadians)
+                actor.direction.rot[axis] = 0.f;
+            else
+            {
+                actor.direction.rot[axis] = sanitizeMovementComponent(actor.direction.rot[axis]);
+                if (actor.direction.rot[axis] == 0.f)
+                    actor.direction.rot[axis] = deriveMovementComponentFromDelta(rotationDelta);
+                hasDerivedIntent = true;
+            }
+        }
+
+        return hasDerivedIntent ? RuntimeMovementDirectionAdjustment::Derived
+                                : RuntimeMovementDirectionAdjustment::Cleared;
     }
+
 
     void normalizeHorizontalIntent(float& x, float& y)
     {
@@ -1019,55 +1113,11 @@ namespace
             || direction.rot[0] != 0.f || direction.rot[1] != 0.f || direction.rot[2] != 0.f;
     }
 
-    float squaredDirectionDelta(const ESM::Position& left, const ESM::Position& right)
-    {
-        float result = 0.f;
-        for (int axis = 0; axis < 3; ++axis)
-        {
-            const float positionDelta = left.pos[axis] - right.pos[axis];
-            const float rotationDelta = left.rot[axis] - right.rot[axis];
-            result += positionDelta * positionDelta + rotationDelta * rotationDelta;
-        }
-
-        return result;
-    }
-
     bool hasMeaningfulMovementIntent(const ESM::Position& direction)
     {
         const ESM::Position zero = {};
         const float deltaSquared = squaredDirectionDelta(direction, zero);
         return std::isfinite(deltaSquared) && deltaSquared > runtimeActorDirectionEpsilonSquared;
-    }
-
-    float normalizedAngleDelta(float left, float right)
-    {
-        if (!std::isfinite(left) || !std::isfinite(right))
-            return std::numeric_limits<float>::infinity();
-
-        float delta = std::fmod(left - right, twoPi);
-        if (delta > twoPi * 0.5f)
-            delta -= twoPi;
-        else if (delta < -twoPi * 0.5f)
-            delta += twoPi;
-
-        return delta;
-    }
-
-    bool hasMeaningfulRotationChange(const ESM::Position& left, const ESM::Position& right)
-    {
-        float rotationDeltaSquared = 0.f;
-        for (int axis = 0; axis < 3; ++axis)
-        {
-            const float delta = normalizedAngleDelta(left.rot[axis], right.rot[axis]);
-            if (!std::isfinite(delta))
-                return true;
-
-            rotationDeltaSquared += delta * delta;
-        }
-
-        constexpr float rotationEpsilonSquared
-            = runtimeActorRotationEpsilonRadians * runtimeActorRotationEpsilonRadians;
-        return rotationDeltaSquared > rotationEpsilonSquared;
     }
 
     bool hasMeaningfulRuntimeTransformChange(const mwmp::BaseActor& actor, const mwmp::BaseActor& previousActor)
