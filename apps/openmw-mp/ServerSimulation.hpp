@@ -254,6 +254,7 @@ namespace mwmp
         bool applyServerActorMeleeIfReady(::Cell& cell, const BaseActor& actor, const ActorMovementKey& actorKey,
             const ESM::Position& presentationPosition, std::uint32_t positionSequence, float sampleIntervalSeconds,
             Clock::time_point now, BaseActorList& attackList, const Attack* runtimeAttack = nullptr);
+        bool hasPendingServerActorMeleeRelease(const ActorMovementKey& actorKey) const;
         void applyRuntimeActorSnapshots(const std::vector<BaseActorList>& actorLists, float deltaSeconds);
         void applyRuntimePlayerSnapshots(const std::vector<SimulationPlayerSnapshot>& playerSnapshots);
         void logRuntimeActorMovementHealthIfNeeded(Clock::time_point now);

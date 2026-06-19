@@ -2620,6 +2620,12 @@ namespace mwmp
         return true;
     }
 
+    bool ServerSimulation::hasPendingServerActorMeleeRelease(const ActorMovementKey& actorKey) const
+    {
+        const auto combatStateIt = mServerActorCombatStates.find(actorKey);
+        return combatStateIt != mServerActorCombatStates.end() && combatStateIt->second.hasPendingMeleeRelease;
+    }
+
     void ServerSimulation::clearActorCombatTargetsForPlayer(Player& player, const char* reason)
     {
         if (!mwmp::isPacketGuidAssigned(player.guid))
@@ -4120,15 +4126,26 @@ namespace mwmp
                 }
 
                 bool sentServerAttackSnapshot = false;
-                if (!actorInteractionLocked && cachedActor != nullptr && visualActor.hasPositionData
-                    && actorHasServerCombatTarget(*cachedActor))
+                const bool pendingServerMeleeRelease = hasPendingServerActorMeleeRelease(actorKey);
+                if (pendingServerMeleeRelease || (!actorInteractionLocked && cachedActor != nullptr
+                        && visualActor.hasPositionData && actorHasServerCombatTarget(*cachedActor)))
                 {
-                    BaseActor serverActor = *cachedActor;
-                    serverActor.position = visualActor.position;
-                    serverActor.hasPositionData = true;
-                    serverActor.refId = cachedActor->refId.empty() ? runtimeActor.refId : cachedActor->refId;
+                    BaseActor serverActor = cachedActor != nullptr ? *cachedActor : visualActor;
+                    serverActor.cell = runtimeList.cell;
+                    if (visualActor.hasPositionData)
+                    {
+                        serverActor.position = visualActor.position;
+                        serverActor.direction = visualActor.direction;
+                        serverActor.hasPositionData = true;
+                    }
+                    serverActor.refId = cachedActor != nullptr && !cachedActor->refId.empty()
+                        ? cachedActor->refId
+                        : runtimeActor.refId;
+                    const ESM::Position& attackPresentationPosition = serverActor.hasPositionData
+                        ? serverActor.position
+                        : visualActor.position;
                     sentServerAttackSnapshot = applyServerActorMeleeIfReady(*serverCell, serverActor, actorKey,
-                        visualActor.position, nextPositionSequence, sampleIntervalSeconds, now, attackList,
+                        attackPresentationPosition, nextPositionSequence, sampleIntervalSeconds, now, attackList,
                         runtimeActor.hasCombatData ? &runtimeActor.attack : nullptr);
                 }
                 else
@@ -6037,10 +6054,16 @@ namespace mwmp
 
             for (BaseActor& actor : storedActorList->baseActors)
             {
-                if (!actor.hasPositionData || !isClientActorControlUpdateAllowed(&actor))
-                    continue;
-
                 const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+                if (!actor.hasPositionData || !isClientActorControlUpdateAllowed(&actor))
+                {
+                    if (hasPendingServerActorMeleeRelease(actorKey))
+                        static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
+                            actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
+                            Clock::now(), attackActorList));
+                    continue;
+                }
+
                 if (isActorInteractionLocked(actorKey, Clock::now()))
                 {
                     const bool wasMoving = hasMovementIntent(actor.direction);
@@ -6056,6 +6079,10 @@ namespace mwmp
                         actor.hasPositionData = true;
                         tickActorList.baseActors.push_back(actor);
                     }
+                    if (hasPendingServerActorMeleeRelease(actorKey))
+                        static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
+                            actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
+                            Clock::now(), attackActorList));
                     continue;
                 }
 
