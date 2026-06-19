@@ -761,7 +761,12 @@ void OMW::Engine::neutralizeServerSimulationPlayer()
     if (player.isEmpty() || !player.getClass().isActor())
         return;
 
-    if (!mWorld->getGodModeState())
+    const bool hasFocusPlayer = mServerSimulationFocusPlayerSet
+        && mwmp::isPacketGuidAssigned(mServerSimulationFocusPlayerGuid);
+
+    if (!hasFocusPlayer && !mWorld->getGodModeState())
+        static_cast<void>(mWorld->toggleGodMode());
+    else if (hasFocusPlayer && mWorld->getGodModeState())
         static_cast<void>(mWorld->toggleGodMode());
 
     MWMechanics::CreatureStats& playerStats = player.getClass().getCreatureStats(player);
@@ -777,6 +782,9 @@ void OMW::Engine::neutralizeServerSimulationPlayer()
     }
     playerMovement.mSpeedFactor = 0.f;
     mWorld->setActorCollisionMode(player, false, false);
+
+    if (hasFocusPlayer)
+        return;
 
     const std::vector<MWWorld::Ptr> serverFocusDummyTargets{ player };
     for (const MWWorld::Ptr& actor : mMechanicsManager->getActorsFighting(player))
