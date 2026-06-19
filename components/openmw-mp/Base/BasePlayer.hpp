@@ -329,6 +329,19 @@ namespace mwmp
             movementLatencySeconds = acceptedMovementLatencySeconds;
         }
 
+        void clearAcceptedPositionPacket()
+        {
+            positionSequence = 0;
+            acceptedPositionSequence = 0;
+            acceptedPosition = {};
+            acceptedDirection = {};
+            acceptedMovementSampleIntervalSeconds = 1.f / 60.f;
+            acceptedMovementLatencySeconds = 0.f;
+            movementSampleIntervalSeconds = acceptedMovementSampleIntervalSeconds;
+            movementLatencySeconds = acceptedMovementLatencySeconds;
+            hasAcceptedPositionPacket = false;
+        }
+
         bool acceptAnimFlagsPacket()
         {
             if (hasStaleAnimFlagsPacket())
@@ -366,6 +379,18 @@ namespace mwmp
             hasTcl = acceptedHasTcl;
         }
 
+        void clearAcceptedAnimFlagsPacket()
+        {
+            animFlagsSequence = 0;
+            acceptedAnimFlagsSequence = 0;
+            acceptedMovementFlags = 0;
+            acceptedDrawState = 0;
+            acceptedIsJumping = false;
+            acceptedIsFlying = false;
+            acceptedHasTcl = false;
+            hasAcceptedAnimFlagsPacket = false;
+        }
+
         void acceptCurrentInventoryPacket()
         {
             acceptedInventorySequence = inventorySequence;
@@ -383,6 +408,15 @@ namespace mwmp
                 inventoryChanges.action = InventoryChanges::SET;
                 inventoryChanges.items.clear();
             }
+        }
+
+        void clearAcceptedInventoryPacket()
+        {
+            inventorySequence = 0;
+            acceptedInventorySequence = 0;
+            acceptedInventoryChanges.action = InventoryChanges::SET;
+            acceptedInventoryChanges.items.clear();
+            hasAcceptedInventoryPacket = false;
         }
 
         bool acceptInventoryPacket()
@@ -424,6 +458,16 @@ namespace mwmp
                 equipmentItems[i] = hasAcceptedEquipmentPacket ? acceptedEquipmentItems[i] : Item();
 
             equipmentIndexChanges.clear();
+        }
+
+        void clearAcceptedEquipmentPacket()
+        {
+            equipmentSequence = 0;
+            acceptedEquipmentSequence = 0;
+            for (int i = 0; i < equipmentSlotCount; ++i)
+                acceptedEquipmentItems[i] = Item();
+            equipmentIndexChanges.clear();
+            hasAcceptedEquipmentPacket = false;
         }
 
         bool acceptEquipmentPacket()
@@ -524,6 +568,17 @@ namespace mwmp
             statsDynamicIndexChanges.clear();
         }
 
+        void clearAcceptedStatsDynamicPacket()
+        {
+            statsDynamicSequence = 0;
+            acceptedStatsDynamicSequence = 0;
+            for (int i = 0; i < 3; ++i)
+                acceptedStatsDynamic[i] = ESM::StatState<float>();
+            acceptedStatsDynamicDead = false;
+            hasAcceptedStatsDynamicPacket = false;
+            statsDynamicIndexChanges.clear();
+        }
+
         bool acceptStatsDynamicPacket(bool enforceClientAuthority = false)
         {
             if (!hasFiniteDynamicStats())
@@ -590,6 +645,15 @@ namespace mwmp
             hasAcceptedCombatPacket = true;
         }
 
+        void clearAcceptedCombatPacket()
+        {
+            combatSequence = 0;
+            acceptedCombatSequence = 0;
+            attack = Attack();
+            cast = Cast();
+            hasAcceptedCombatPacket = false;
+        }
+
         bool acceptCombatPacket()
         {
             if (!isCombatPacketSequenceAllowed())
@@ -600,6 +664,34 @@ namespace mwmp
 
             acceptCurrentCombatPacket();
             return true;
+        }
+
+        void clearAcceptedCharacterState()
+        {
+            clearAcceptedPositionPacket();
+            clearAcceptedAnimFlagsPacket();
+            clearAcceptedInventoryPacket();
+            clearAcceptedEquipmentPacket();
+            clearAcceptedStatsDynamicPacket();
+            clearAcceptedCombatPacket();
+
+            position = {};
+            direction = {};
+            movementFlags = 0;
+            drawState = 0;
+            isJumping = false;
+            isFlying = false;
+            hasTcl = false;
+            inventoryChanges.action = InventoryChanges::SET;
+            inventoryChanges.items.clear();
+            for (int i = 0; i < equipmentSlotCount; ++i)
+                equipmentItems[i] = Item();
+            for (int i = 0; i < 3; ++i)
+                creatureStats.mDynamic[i] = ESM::StatState<float>();
+            creatureStats.mDead = false;
+            creatureStats.mDeathAnimationFinished = false;
+            deathState = 0;
+            killer = Target();
         }
 
         PacketGuid guid;

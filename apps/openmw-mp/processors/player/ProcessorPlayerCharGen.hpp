@@ -19,7 +19,10 @@ namespace mwmp
             DEBUG_PRINTF(strPacketID.c_str());
 
             if (player.charGenState.currentStage == player.charGenState.endStage)
+            {
+                player.charGenState.isFinished = true;
                 ServerEvents::playerEndCharGen(player.getId());
+            }
         }
     };
 }

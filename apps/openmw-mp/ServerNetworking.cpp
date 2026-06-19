@@ -318,7 +318,16 @@ void ServerNetworking::processPlayerPacket(ReceivedPacket* packet)
     else if (packet->id() == ID_PLAYER_BASEINFO)
     {
         myPacket->setPlayer(player);
+        const bool resetAcceptedCharacterState = player->charGenState.endStage > 1
+            && !player->charGenState.isFinished;
         myPacket->Read();
+        if (resetAcceptedCharacterState)
+        {
+            player->clearAcceptedCharacterState();
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "Reset accepted character state for %s during server-driven chargen",
+                player->npc.mName.c_str());
+        }
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Received ID_PLAYER_BASEINFO about %s: race=%s, head=%s, hair=%s, birthsign=%s",
             player->npc.mName.c_str(),

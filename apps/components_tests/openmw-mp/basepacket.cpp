@@ -905,6 +905,92 @@ namespace
         EXPECT_FLOAT_EQ(player.direction.pos[0], 0.f);
     }
 
+    TEST(MpBasePacketTest, playerAcceptedCharacterStateResetAllowsNewCharacterSequences)
+    {
+        mwmp::BasePlayer player(testGuid());
+        player.positionSequence = 40;
+        player.position.pos[0] = 100.f;
+        ASSERT_TRUE(player.acceptPositionPacket());
+
+        player.animFlagsSequence = 41;
+        player.movementFlags = 7;
+        player.drawState = 2;
+        ASSERT_TRUE(player.acceptAnimFlagsPacket());
+
+        player.inventorySequence = 42;
+        player.inventoryChanges.action = mwmp::InventoryChanges::ADD;
+        player.inventoryChanges.items.push_back({ "gold_001", 10, -1, -1.f, "" });
+        ASSERT_TRUE(player.acceptInventoryPacket());
+
+        player.equipmentSequence = 43;
+        player.equipmentItems[0].refId = "iron dagger";
+        player.equipmentItems[0].count = 1;
+        ASSERT_TRUE(player.acceptEquipmentPacket());
+
+        player.statsDynamicSequence = 44;
+        for (int statIndex = 0; statIndex < 3; ++statIndex)
+        {
+            player.creatureStats.mDynamic[statIndex].mBase = 100.f;
+            player.creatureStats.mDynamic[statIndex].mCurrent = 0.f;
+            player.creatureStats.mDynamic[statIndex].mMod = 0.f;
+        }
+        player.creatureStats.mDead = true;
+        ASSERT_TRUE(player.acceptStatsDynamicPacket(true));
+
+        player.combatSequence = 45;
+        ASSERT_TRUE(player.acceptCombatPacket());
+
+        player.clearAcceptedCharacterState();
+
+        EXPECT_FALSE(player.hasAcceptedPositionPacket);
+        EXPECT_FALSE(player.hasAcceptedAnimFlagsPacket);
+        EXPECT_FALSE(player.hasAcceptedInventoryPacket);
+        EXPECT_FALSE(player.hasAcceptedEquipmentPacket);
+        EXPECT_FALSE(player.hasAcceptedStatsDynamicPacket);
+        EXPECT_FALSE(player.hasAcceptedCombatPacket);
+        EXPECT_EQ(player.positionSequence, 0u);
+        EXPECT_EQ(player.inventorySequence, 0u);
+        EXPECT_EQ(player.equipmentSequence, 0u);
+        EXPECT_EQ(player.statsDynamicSequence, 0u);
+        EXPECT_EQ(player.combatSequence, 0u);
+        EXPECT_FALSE(player.acceptedStatsDynamicDead);
+        EXPECT_TRUE(player.statsDynamicIndexChanges.empty());
+        EXPECT_TRUE(player.equipmentIndexChanges.empty());
+        EXPECT_EQ(player.inventoryChanges.action, mwmp::InventoryChanges::SET);
+        EXPECT_TRUE(player.inventoryChanges.items.empty());
+        EXPECT_TRUE(player.equipmentItems[0].refId.empty());
+        EXPECT_FLOAT_EQ(player.position.pos[0], 0.f);
+        EXPECT_FLOAT_EQ(player.creatureStats.mDynamic[0].mCurrent, 0.f);
+        EXPECT_FALSE(player.creatureStats.mDead);
+
+        player.positionSequence = 1;
+        player.position.pos[0] = -10.f;
+        EXPECT_TRUE(player.acceptPositionPacket());
+
+        player.statsDynamicSequence = 1;
+        for (int statIndex = 0; statIndex < 3; ++statIndex)
+        {
+            player.creatureStats.mDynamic[statIndex].mBase = 100.f;
+            player.creatureStats.mDynamic[statIndex].mCurrent = 100.f;
+            player.creatureStats.mDynamic[statIndex].mMod = 0.f;
+        }
+        player.creatureStats.mDead = false;
+        EXPECT_TRUE(player.acceptStatsDynamicPacket(true));
+
+        player.equipmentSequence = 1;
+        player.equipmentItems[0].refId = "chitin dagger";
+        player.equipmentItems[0].count = 1;
+        EXPECT_TRUE(player.acceptEquipmentPacket());
+
+        player.inventorySequence = 1;
+        player.inventoryChanges.action = mwmp::InventoryChanges::SET;
+        player.inventoryChanges.items = { { "gold_001", 5, -1, -1.f, "" } };
+        EXPECT_TRUE(player.acceptInventoryPacket());
+
+        player.combatSequence = 1;
+        EXPECT_TRUE(player.acceptCombatPacket());
+    }
+
     TEST(MpBasePacketTest, playerPositionRejectsAndRestoresNonFiniteDecodedPackets)
     {
         mwmp::BasePlayer player(testGuid());

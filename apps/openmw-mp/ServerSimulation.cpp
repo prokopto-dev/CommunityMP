@@ -1539,7 +1539,8 @@ namespace
         if (target.isPlayer)
         {
             Player* player = Players::getPlayer(target.guid);
-            if (player == nullptr || !player->hasFinitePositionPacket())
+            if (player == nullptr || !player->hasAcceptedPositionPacket
+                || !hasFiniteWorldPosition(player->acceptedPosition))
                 return false;
 
             if (!isLivePlayerAiTarget(*player))
@@ -1548,7 +1549,7 @@ namespace
             if (getCellSimulationKey(player->cell) != getCellSimulationKey(cell.getCellData()))
                 return false;
 
-            destination = player->position;
+            destination = player->acceptedPosition;
             return true;
         }
 
@@ -2357,7 +2358,8 @@ namespace
 
     bool applyCombatTargetToActor(Cell& cell, mwmp::BaseActor& targetActor, const Player& attacker)
     {
-        if (!isLivePlayerAiTarget(attacker) || !attacker.hasFinitePositionPacket())
+        if (!isLivePlayerAiTarget(attacker) || !attacker.hasAcceptedPositionPacket
+            || !hasFiniteWorldPosition(attacker.acceptedPosition))
             return false;
 
         if (getCellSimulationKey(attacker.cell) != getCellSimulationKey(cell.getCellData()))
@@ -3522,12 +3524,13 @@ namespace mwmp
                 || player->getLoadState() == Player::KICKED)
                 continue;
 
-            if (!player->hasFinitePositionPacket() || player->cell.getDescription().empty())
+            if (!player->hasAcceptedPositionPacket || !hasFiniteWorldPosition(player->acceptedPosition)
+                || player->cell.getDescription().empty())
                 continue;
 
             SimulationPlayerTarget target;
             target.cell = player->cell;
-            target.position = player->position;
+            target.position = player->acceptedPosition;
             target.guid = player->guid;
             target.name = player->npc.mName;
             target.npc = player->npc;
@@ -3570,12 +3573,13 @@ namespace mwmp
             if (visitor.getLoadState() == Player::KICKED)
                 return std::nullopt;
 
-            if (!visitor.hasFinitePositionPacket() || !isSameSimulationCell(visitor.cell, cell))
+            if (!visitor.hasAcceptedPositionPacket || !hasFiniteWorldPosition(visitor.acceptedPosition)
+                || !isSameSimulationCell(visitor.cell, cell))
                 return std::nullopt;
 
             SimulationCellFocus focus;
             focus.cell = cell;
-            focus.position = visitor.position;
+            focus.position = visitor.acceptedPosition;
             focus.hasPosition = true;
             focus.playerGuid = visitor.guid;
             focus.playerName = visitor.npc.mName;
