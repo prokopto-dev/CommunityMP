@@ -163,6 +163,7 @@ namespace mwmp
         bool itemEquipmentStacks = false;
         int itemEquipmentKind = 0;
         int itemEquipmentValue = 0;
+        float itemEquipmentWeight = 0.f;
         int itemEquipmentHealth = -1;
         int itemEquipmentArmor = 0;
         int itemEquipmentWeaponType = -1;

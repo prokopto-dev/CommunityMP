@@ -72,6 +72,9 @@ namespace
     constexpr float serverFallbackHandToHandHealthMult = 0.1f;
     constexpr float serverFallbackDamageStrengthBase = 0.5f;
     constexpr float serverFallbackDamageStrengthMult = 0.1f;
+    constexpr float serverFallbackFatigueAttackBase = 2.0f;
+    constexpr float serverFallbackFatigueAttackMult = 0.0f;
+    constexpr float serverFallbackWeaponFatigueMult = 0.25f;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
@@ -1459,6 +1462,17 @@ namespace
         return nullptr;
     }
 
+    std::optional<mwmp::WorldRecordWinner> findServerFallbackWeaponRecord(std::string_view weaponId)
+    {
+        std::optional<mwmp::WorldRecordWinner> weapon
+            = mwmp::WorldDatabaseStore::get().findWinningRecordByTypeAndKey("WEAP", weaponId);
+        if (!weapon || weapon->deleted || weapon->tombstone || !weapon->itemEquipmentImported
+            || weapon->itemEquipmentWeaponType == ESM::Weapon::None)
+            return std::nullopt;
+
+        return weapon;
+    }
+
     bool selectWeaponAttackDamage(
         const mwmp::WorldRecordWinner& weapon, std::string_view attackAnimation, int& minDamage, int& maxDamage)
     {
@@ -1518,10 +1532,8 @@ namespace
     float getServerFallbackPlayerWeaponDamage(
         const Player& attacker, const mwmp::Attack& attack, float attackStrength)
     {
-        std::optional<mwmp::WorldRecordWinner> weapon = mwmp::WorldDatabaseStore::get().findWinningRecordByTypeAndKey(
-            "WEAP", attack.rangedWeaponId);
-        if (!weapon || weapon->deleted || weapon->tombstone || !weapon->itemEquipmentImported
-            || weapon->itemEquipmentWeaponType == ESM::Weapon::None)
+        std::optional<mwmp::WorldRecordWinner> weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
+        if (!weapon)
             return getServerAttackDamage(attack);
 
         int minDamage = 0;
@@ -1547,6 +1559,31 @@ namespace
             + (getServerPlayerStrength(attacker) * serverFallbackDamageStrengthMult * 0.1f);
         damage *= std::max(0.f, strengthScale);
         return std::clamp(damage, 0.f, maxServerAttackDamage);
+    }
+
+    float getServerFallbackPlayerAttackFatigueLoss(const mwmp::Attack& attack, float attackStrength)
+    {
+        if (attack.type != mwmp::Attack::MELEE || attack.pressed)
+            return 0.f;
+
+        const float resolvedStrength = sanitizePlayerReleaseMeleeAttackStrength(attackStrength);
+        float fatigueLoss = serverFallbackFatigueAttackBase;
+
+        if (serverFallbackFatigueAttackMult > 0.f)
+        {
+            constexpr float unknownNormalizedEncumbrance = 0.f;
+            fatigueLoss += unknownNormalizedEncumbrance * serverFallbackFatigueAttackMult;
+        }
+
+        if (isWeaponMeleeAttack(attack))
+        {
+            const std::optional<mwmp::WorldRecordWinner> weapon
+                = findServerFallbackWeaponRecord(attack.rangedWeaponId);
+            if (weapon && std::isfinite(weapon->itemEquipmentWeight) && weapon->itemEquipmentWeight > 0.f)
+                fatigueLoss += weapon->itemEquipmentWeight * resolvedStrength * serverFallbackWeaponFatigueMult;
+        }
+
+        return std::clamp(fatigueLoss, 0.f, maxServerAttackDamage);
     }
 
     bool hasValidCastShape(const mwmp::Cast& cast)
@@ -2581,6 +2618,25 @@ namespace
         target.statsDynamicIndexChanges.clear();
         target.statsDynamicIndexChanges.push_back(2);
         target.acceptCurrentStatsDynamicPacket();
+        return true;
+    }
+
+    bool spendPlayerAttackFatigue(Player& attacker, const mwmp::Attack& attack, float attackStrength)
+    {
+        const float fatigueLoss = getServerFallbackPlayerAttackFatigueLoss(attack, attackStrength);
+        if (fatigueLoss <= healthDeadEpsilon || !attacker.hasFiniteDynamicStats() || attacker.creatureStats.mDead)
+            return false;
+
+        float& fatigue = attacker.creatureStats.mDynamic[2].mCurrent;
+        if (!std::isfinite(fatigue))
+            return false;
+
+        fatigue -= fatigueLoss;
+        ++attacker.statsDynamicSequence;
+        attacker.exchangeFullInfo = false;
+        attacker.statsDynamicIndexChanges.clear();
+        attacker.statsDynamicIndexChanges.push_back(2);
+        attacker.acceptCurrentStatsDynamicPacket();
         return true;
     }
 
@@ -6466,6 +6522,12 @@ namespace mwmp
                     return;
             }
 
+            if (spendPlayerAttackFatigue(attacker, attack, serverMeleeAttackStrength))
+            {
+                broadcastPlayerStats(attacker);
+                notifyPlayerStatsDynamic(attacker);
+            }
+
             Attack resolvedAttack = target != nullptr
                 ? makeServerResolvedPlayerAttack(attacker, attack, target->creatureStats, serverMeleeAttackStrength)
                 : attack;
@@ -6536,6 +6598,12 @@ namespace mwmp
 
         if (nativeRuntimeHandledAttack)
             return;
+
+        if (spendPlayerAttackFatigue(attacker, attack, serverMeleeAttackStrength))
+        {
+            broadcastPlayerStats(attacker);
+            notifyPlayerStatsDynamic(attacker);
+        }
 
         Attack resolvedAttack = makeServerResolvedPlayerAttack(
             attacker, attack, *targetActor, serverMeleeAttackStrength);

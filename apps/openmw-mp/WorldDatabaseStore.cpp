@@ -449,6 +449,7 @@ namespace mwmp
                     winner.itemEquipmentStacks = getBool(row, "itemEquipmentStacks");
                     winner.itemEquipmentKind = getInt(row, "itemEquipmentKind");
                     winner.itemEquipmentValue = getInt(row, "itemEquipmentValue");
+                    winner.itemEquipmentWeight = getFloat(row, "itemEquipmentWeight");
                     winner.itemEquipmentHealth = getInt(row, "itemEquipmentHealth", -1);
                     winner.itemEquipmentArmor = getInt(row, "itemEquipmentArmor");
                     winner.itemEquipmentWeaponType = getInt(row, "itemEquipmentWeaponType", -1);

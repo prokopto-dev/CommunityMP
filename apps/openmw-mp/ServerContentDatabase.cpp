@@ -1296,6 +1296,7 @@ namespace
         std::vector<int> slots;
         bool stacks = false;
         int value = 0;
+        float weight = 0.f;
         int health = -1;
         int armor = 0;
         int weaponType = ESM::Weapon::None;
@@ -2210,6 +2211,7 @@ namespace
                 || weapon.mData.mType == ESM::Weapon::Bolt
                 || weapon.mData.mType == ESM::Weapon::MarksmanThrown;
             row.itemEquipment.value = weapon.mData.mValue;
+            row.itemEquipment.weight = weapon.mData.mWeight;
             row.itemEquipment.health = weapon.mData.mHealth;
             row.itemEquipment.weaponType = weapon.mData.mType;
             row.itemEquipment.weaponMaxDamage = std::max<int>(
@@ -2238,6 +2240,7 @@ namespace
             row.itemEquipment.kind = ImportedEquipmentKind::Armor;
             row.itemEquipment.slots = armorEquipmentSlots(armor.mData.mType);
             row.itemEquipment.value = armor.mData.mValue;
+            row.itemEquipment.weight = armor.mData.mWeight;
             row.itemEquipment.health = armor.mData.mHealth;
             row.itemEquipment.armor = armor.mData.mArmor;
             return true;
@@ -2254,6 +2257,7 @@ namespace
             row.itemEquipment.kind = ImportedEquipmentKind::Clothing;
             row.itemEquipment.slots = clothingEquipmentSlots(clothing.mData.mType);
             row.itemEquipment.value = clothing.mData.mValue;
+            row.itemEquipment.weight = clothing.mData.mWeight;
             return true;
         }
 
@@ -2522,6 +2526,8 @@ namespace
         appendJsonNumberField(result, "itemEquipmentKind", static_cast<int>(row.itemEquipment.kind));
         result.push_back(',');
         appendJsonNumberField(result, "itemEquipmentValue", row.itemEquipment.value);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeight", row.itemEquipment.weight);
         result.push_back(',');
         appendJsonNumberField(result, "itemEquipmentHealth", row.itemEquipment.health);
         result.push_back(',');
