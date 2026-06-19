@@ -481,25 +481,48 @@ namespace
         actor.hasEquipmentData = true;
     }
 
-    mwmp::Target makeServerSimulationActorTarget(const MWWorld::Ptr& ptr, const MWWorld::Ptr& player,
-        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+    std::string makeServerSimulationActorIdentityKey(
+        const ESM::Cell& cell, std::string_view actorRefId, unsigned int actorRefNum, unsigned int actorMpNum)
+    {
+        std::string key = cell.getDescription();
+        key.push_back('|');
+        key.append(actorRefId);
+        key.push_back('|');
+        key += std::to_string(actorRefNum);
+        key.push_back('|');
+        key += std::to_string(actorMpNum);
+        return key;
+    }
+
+    mwmp::Target makeServerSimulationPlayerTarget(const std::map<std::string, mwmp::Target>& actorPlayerTargets,
+        const std::string& actorKey, mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+    {
+        if (!actorKey.empty())
+        {
+            const auto cachedTarget = actorPlayerTargets.find(actorKey);
+            if (cachedTarget != actorPlayerTargets.end() && cachedTarget->second.isPlayer
+                && mwmp::isPacketGuidAssigned(cachedTarget->second.guid))
+                return cachedTarget->second;
+        }
+
+        mwmp::Target target;
+        target.guid = mwmp::unassignedPacketGuid();
+        if (!mwmp::isPacketGuidAssigned(focusPlayerGuid))
+            return target;
+
+        target.isPlayer = true;
+        target.guid = focusPlayerGuid;
+        target.name = std::string(focusPlayerName);
+        return target;
+    }
+
+    mwmp::Target makeServerSimulationActorTarget(const MWWorld::Ptr& ptr)
     {
         mwmp::Target target;
         target.guid = mwmp::unassignedPacketGuid();
 
         if (ptr.isEmpty())
             return target;
-
-        if (ptr == player)
-        {
-            if (!mwmp::isPacketGuidAssigned(focusPlayerGuid))
-                return target;
-
-            target.isPlayer = true;
-            target.guid = focusPlayerGuid;
-            target.name = std::string(focusPlayerName);
-            return target;
-        }
 
         const ESM::RefNum refNum = ptr.getCellRef().getRefNum();
         if (refNum.mIndex == 0)
@@ -555,15 +578,29 @@ namespace
     }
 
     void copyServerSimulationAi(mwmp::BaseActor& actor, const MWWorld::Ptr& ptr, const MWWorld::Ptr& player,
-        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+        std::map<std::string, mwmp::Target>& actorPlayerTargets, mwmp::PacketGuid focusPlayerGuid,
+        std::string_view focusPlayerName)
     {
+        const std::string actorKey = makeServerSimulationActorIdentityKey(
+            actor.cell, actor.refId, actor.refNum, actor.mpNum);
+        auto clearCachedPlayerTarget = [&] {
+            if (!actorKey.empty())
+                actorPlayerTargets.erase(actorKey);
+        };
+
         const MWMechanics::AiSequence& aiSequence = ptr.getClass().getCreatureStats(ptr).getAiSequence();
         if (aiSequence.isEmpty())
+        {
+            clearCachedPlayerTarget();
             return;
+        }
 
         const MWMechanics::AiPackage& package = aiSequence.getActivePackage();
         if (!setServerSimulationAiAction(actor, package.getTypeId()))
+        {
+            clearCachedPlayerTarget();
             return;
+        }
 
         actor.hasAiData = true;
         actor.aiShouldRepeat = package.getRepeat();
@@ -585,11 +622,23 @@ namespace
         if (actor.aiAction == mwmp::BaseActorList::ACTIVATE || actor.aiAction == mwmp::BaseActorList::COMBAT
             || actor.aiAction == mwmp::BaseActorList::ESCORT || actor.aiAction == mwmp::BaseActorList::FOLLOW)
         {
-            actor.aiTarget = makeServerSimulationActorTarget(
-                package.getTarget(), player, focusPlayerGuid, focusPlayerName);
+            const bool targetIsServerProxyPlayer = package.getTarget() == player;
+            actor.aiTarget = targetIsServerProxyPlayer
+                ? makeServerSimulationPlayerTarget(actorPlayerTargets, actorKey, focusPlayerGuid, focusPlayerName)
+                : makeServerSimulationActorTarget(package.getTarget());
             actor.hasAiTarget = actor.aiTarget.isPlayer || (actor.aiTarget.refNum != static_cast<unsigned int>(-1)
                 && actor.aiTarget.mpNum != static_cast<unsigned int>(-1));
+            if (!actorKey.empty())
+            {
+                if (targetIsServerProxyPlayer && actor.aiTarget.isPlayer
+                    && mwmp::isPacketGuidAssigned(actor.aiTarget.guid))
+                    actorPlayerTargets[actorKey] = actor.aiTarget;
+                else
+                    actorPlayerTargets.erase(actorKey);
+            }
         }
+        else
+            clearCachedPlayerTarget();
 
         if ((actor.aiAction == mwmp::BaseActorList::ACTIVATE || actor.aiAction == mwmp::BaseActorList::COMBAT
                 || actor.aiAction == mwmp::BaseActorList::ESCORT || actor.aiAction == mwmp::BaseActorList::FOLLOW)
@@ -633,7 +682,8 @@ namespace
     }
 
     bool appendServerSimulationActor(mwmp::BaseActorList& actorList, const MWWorld::Ptr& ptr,
-        const MWWorld::Ptr& player, mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
+        const MWWorld::Ptr& player, std::map<std::string, mwmp::Target>& actorPlayerTargets,
+        mwmp::PacketGuid focusPlayerGuid, std::string_view focusPlayerName)
     {
         if (ptr.isEmpty() || !ptr.getClass().isActor())
             return true;
@@ -660,6 +710,14 @@ namespace
         actor.movementLatencySeconds = 0.f;
 
         const MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
+        if (creatureStats.isDead())
+        {
+            const std::string actorKey = makeServerSimulationActorIdentityKey(
+                actorList.cell, actor.refId, actor.refNum, actor.mpNum);
+            if (!actorKey.empty())
+                actorPlayerTargets.erase(actorKey);
+        }
+
         actor.creatureStats.mDead = creatureStats.isDead();
         actor.creatureStats.mDeathAnimationFinished = creatureStats.isDeathAnimationFinished();
         for (int i = 0; i < 3; ++i)
@@ -681,7 +739,7 @@ namespace
         actor.hasAnimFlagsData = true;
 
         copyServerSimulationEquipment(actor, ptr);
-        copyServerSimulationAi(actor, ptr, player, focusPlayerGuid, focusPlayerName);
+        copyServerSimulationAi(actor, ptr, player, actorPlayerTargets, focusPlayerGuid, focusPlayerName);
         copyServerSimulationAttack(actor, creatureStats);
 
         actorList.baseActors.push_back(std::move(actor));
@@ -1926,13 +1984,23 @@ bool OMW::Engine::startServerSimulationActorCombatWithPlayer(const ESM::Cell& ce
     if (actor.isEmpty())
         return false;
 
+    mwmp::Target target;
+    target.isPlayer = true;
+    target.guid = playerGuid;
+    target.name = std::string(playerName);
+    const ESM::RefNum resolvedRefNum = actor.getCellRef().getRefNum();
+    const std::string actorKey = makeServerSimulationActorIdentityKey(
+        cell, actor.getCellRef().getRefId().serializeText(), resolvedRefNum.mIndex, actorMpNum);
+    if (!actorKey.empty())
+        mServerSimulationActorPlayerTargets[actorKey] = std::move(target);
+
     MWWorld::Ptr player = mWorld->getPlayerPtr();
     actor.getClass().getCreatureStats(actor).setAttacked(true);
     mMechanicsManager->startCombat(actor, player, nullptr);
     return true;
 }
 
-void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const
+void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr)
         return;
@@ -1960,13 +2028,15 @@ void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseAct
             if (ptr == player)
                 return true;
 
-            return appendServerSimulationActor(actorList, ptr, player, focusPlayerGuid, focusPlayerName);
+            return appendServerSimulationActor(
+                actorList, ptr, player, mServerSimulationActorPlayerTargets, focusPlayerGuid, focusPlayerName);
         });
         cellStore->forEachType<ESM::Creature>([&](const MWWorld::Ptr& ptr) {
             if (ptr == player)
                 return true;
 
-            return appendServerSimulationActor(actorList, ptr, player, focusPlayerGuid, focusPlayerName);
+            return appendServerSimulationActor(
+                actorList, ptr, player, mServerSimulationActorPlayerTargets, focusPlayerGuid, focusPlayerName);
         });
 
         actorList.count = static_cast<unsigned int>(actorList.baseActors.size());

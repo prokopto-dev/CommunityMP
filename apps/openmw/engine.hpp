@@ -2,6 +2,7 @@
 #define ENGINE_H
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
 
@@ -219,6 +220,7 @@ namespace OMW
         mwmp::SimpleCreatureStats mServerSimulationFocusPlayerStats;
         bool mServerSimulationFocusPlayerSet = false;
         bool mServerSimulationFocusPlayerStatsSet = false;
+        std::map<std::string, mwmp::Target> mServerSimulationActorPlayerTargets;
 
         // not implemented
         Engine(const Engine&);
@@ -294,7 +296,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
-        void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;
+        void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists);
         bool exportServerSimulationFocusPlayerSnapshot(mwmp::SimulationPlayerSnapshot& snapshot) const;
 
         bool isServerSimulationPrepared() const { return mServerSimulationPrepared; }
