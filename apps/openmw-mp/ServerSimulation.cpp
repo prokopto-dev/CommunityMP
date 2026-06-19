@@ -3410,6 +3410,40 @@ namespace mwmp
         }
     }
 
+    std::vector<SimulationPlayerTarget> ServerSimulation::collectRuntimePlayerActors() const
+    {
+        std::vector<SimulationPlayerTarget> result;
+        TPlayers* players = Players::getPlayers();
+        if (players == nullptr)
+            return result;
+
+        for (const auto& [guid, player] : *players)
+        {
+            static_cast<void>(guid);
+            if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid)
+                || player->getLoadState() == Player::KICKED)
+                continue;
+
+            if (!player->hasFinitePositionPacket() || player->cell.getDescription().empty())
+                continue;
+
+            SimulationPlayerTarget target;
+            target.cell = player->cell;
+            target.position = player->position;
+            target.guid = player->guid;
+            target.name = player->npc.mName;
+            target.hasPosition = true;
+            if (player->hasFiniteDynamicStats())
+            {
+                target.creatureStats = makeSimpleCreatureStats(player->creatureStats);
+                target.hasStatsDynamicData = true;
+            }
+            result.push_back(std::move(target));
+        }
+
+        return result;
+    }
+
     void ServerSimulation::updateRuntimeSimulationCells()
     {
         if (mRuntime == nullptr || !canAuthoritativelySimulateActors())
@@ -3537,6 +3571,7 @@ namespace mwmp
         }
 
         mRuntimeFocusSelectionStats = std::move(focusSelectionStats);
+        mRuntime->setPlayerActors(collectRuntimePlayerActors());
         mRuntime->setSimulationCellFocuses(simulationFocuses);
     }
 
@@ -4594,8 +4629,12 @@ namespace mwmp
         payload += std::to_string(runtimeFocusState.configuredCellCount);
         payload += ",\"openMwRuntimePlayerFocusCount\":";
         payload += std::to_string(runtimeFocusState.configuredPlayerCount);
+        payload += ",\"openMwRuntimePersistentPlayerActorCount\":";
+        payload += std::to_string(runtimeFocusState.persistentPlayerActorCount);
         payload += ",\"openMwRuntimePlayerSnapshotCount\":";
         payload += std::to_string(runtimeFocusState.exportedPlayerSnapshotCount);
+        payload += ",\"openMwRuntimePersistentPlayerActorSnapshotCount\":";
+        payload += std::to_string(runtimeFocusState.persistentPlayerActorSnapshotCount);
         payload += ",\"openMwRuntimeVirtualPlayerSnapshotCount\":";
         payload += std::to_string(runtimeFocusState.virtualPlayerSnapshotCount);
         payload += ",\"openMwRuntimeExportedFocusPlayerSnapshot\":";

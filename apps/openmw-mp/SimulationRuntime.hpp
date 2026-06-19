@@ -140,7 +140,9 @@ namespace mwmp
     {
         std::size_t configuredCellCount = 0;
         std::size_t configuredPlayerCount = 0;
+        std::size_t persistentPlayerActorCount = 0;
         std::size_t exportedPlayerSnapshotCount = 0;
+        std::size_t persistentPlayerActorSnapshotCount = 0;
         std::size_t virtualPlayerSnapshotCount = 0;
         std::uint64_t focusAttemptCount = 0;
         std::uint64_t focusSuccessCount = 0;
@@ -187,6 +189,7 @@ namespace mwmp
         virtual bool canOwnActorAuthority() const;
 
         virtual void tick(float deltaSeconds);
+        virtual void setPlayerActors(const std::vector<SimulationPlayerTarget>& players);
         virtual void setSimulationCellFocuses(const std::vector<SimulationCellFocus>& focuses);
         virtual bool collectActorSnapshots(std::vector<BaseActorList>& actorLists);
         virtual bool collectPlayerSnapshots(std::vector<SimulationPlayerSnapshot>& playerSnapshots);

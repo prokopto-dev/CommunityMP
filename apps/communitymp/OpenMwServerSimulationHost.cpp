@@ -284,7 +284,7 @@ namespace
         topology.hasHeadlessOpenMwEngine = hasPreparedEngine;
         topology.runsOpenMwLua = hasPreparedEngine;
         topology.usesSinglePlayerProxy = hasPreparedEngine;
-        topology.hasPersistentPlayerActors = false;
+        topology.hasPersistentPlayerActors = hasPreparedEngine;
         topology.rendererClientProtocol = false;
         return topology;
     }
@@ -347,6 +347,31 @@ namespace
             pruneQueuedFocusDeltas();
         }
 
+        void setPlayerActors(const std::vector<mwmp::SimulationPlayerTarget>& players) override
+        {
+            mPersistentPlayerActors.clear();
+            for (const mwmp::SimulationPlayerTarget& player : players)
+            {
+                if (!mwmp::isPacketGuidAssigned(player.guid) || !player.hasPosition)
+                    continue;
+
+                mwmp::SimulationPlayerSnapshot snapshot;
+                snapshot.cell = player.cell;
+                snapshot.position = player.position;
+                snapshot.guid = player.guid;
+                snapshot.name = player.name;
+                snapshot.hasPositionData = true;
+                if (player.hasStatsDynamicData)
+                {
+                    snapshot.creatureStats = player.creatureStats;
+                    snapshot.hasStatsDynamicData = true;
+                }
+                mPersistentPlayerActors[player.guid] = std::move(snapshot);
+            }
+
+            mFocusState.persistentPlayerActorCount = mPersistentPlayerActors.size();
+        }
+
         void tick(float deltaSeconds) override
         {
             if (mEngine == nullptr)
@@ -381,6 +406,7 @@ namespace
                 return false;
 
             mFocusState.exportedPlayerSnapshotCount = 0;
+            mFocusState.persistentPlayerActorSnapshotCount = 0;
             mFocusState.virtualPlayerSnapshotCount = 0;
             mFocusState.exportedFocusPlayerSnapshot = false;
 
@@ -402,6 +428,13 @@ namespace
             if (mEngine->exportServerSimulationFocusPlayerSnapshot(focusSnapshot)
                 && appendSnapshot(std::move(focusSnapshot)))
                 mFocusState.exportedFocusPlayerSnapshot = true;
+
+            for (const auto& [guid, snapshot] : mPersistentPlayerActors)
+            {
+                static_cast<void>(guid);
+                if (appendSnapshot(snapshot))
+                    ++mFocusState.persistentPlayerActorSnapshotCount;
+            }
 
             for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
             {
@@ -567,6 +600,7 @@ namespace
         std::unique_ptr<Files::ConfigurationManager> mCfgMgr;
         std::unique_ptr<OMW::Engine> mEngine;
         std::vector<mwmp::SimulationCellFocus> mSimulationFocuses;
+        std::map<mwmp::PacketGuid, mwmp::SimulationPlayerSnapshot> mPersistentPlayerActors;
         std::map<std::string, float> mQueuedFocusDeltaSeconds;
         mwmp::SimulationRuntimeFocusState mFocusState;
         std::size_t mNextSimulationFocus = 0;

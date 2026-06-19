@@ -240,6 +240,7 @@ namespace mwmp
             const ShadowCellAuthorityState& state) const;
         bool ensurePlayerCurrentSimulationCell(Player& player, const char* reason);
         void reconcileCurrentPlayerSimulationCells(RuntimeFocusSelectionStats& focusSelectionStats);
+        std::vector<SimulationPlayerTarget> collectRuntimePlayerActors() const;
         void updateRuntimeSimulationCells();
         bool applyServerActorMeleeIfReady(::Cell& cell, const BaseActor& actor, const ActorMovementKey& actorKey,
             const ESM::Position& presentationPosition, std::uint32_t positionSequence, float sampleIntervalSeconds,

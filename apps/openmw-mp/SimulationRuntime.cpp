@@ -318,6 +318,11 @@ namespace mwmp
         static_cast<void>(deltaSeconds);
     }
 
+    void SimulationRuntime::setPlayerActors(const std::vector<SimulationPlayerTarget>& players)
+    {
+        static_cast<void>(players);
+    }
+
     void SimulationRuntime::setSimulationCellFocuses(const std::vector<SimulationCellFocus>& focuses)
     {
         static_cast<void>(focuses);
