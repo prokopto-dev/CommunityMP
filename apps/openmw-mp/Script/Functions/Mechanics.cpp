@@ -8,6 +8,7 @@
 #include <apps/openmw-mp/Script/ScriptFunctions.hpp>
 #include <apps/openmw-mp/ServerEventDispatcher.hpp>
 #include <apps/openmw-mp/ServerNetworking.hpp>
+#include <apps/openmw-mp/ServerSimulation.hpp>
 
 #include <algorithm>
 #include <iostream>
@@ -347,6 +348,10 @@ void MechanicsFunctions::Resurrect(unsigned short pid, unsigned int type) noexce
     }
     ++player->statsDynamicSequence;
     player->acceptCurrentStatsDynamicPacket();
+
+    if (mwmp::ServerNetworking::getPtr() != nullptr)
+        mwmp::ServerNetworking::getPtr()->getServerSimulation().clearActorCombatTargetsForPlayer(
+            *player, "the player was resurrected");
 
     mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_RESURRECT);
     packet->setPlayer(player);

@@ -227,6 +227,10 @@ config.deathPenaltyJailDays = 5
 -- Whether players' bounties are reset to 0 after dying
 config.bountyResetOnDeath = false
 
+-- Whether death recovery should confiscate all gold server-side and ask the client
+-- to move stolen goods into the nearest stolen_goods evidence chest
+config.deathConfiscatesGoldAndStolenGoods = true
+
 -- Whether players spend time in jail proportional to their bounty after dying
 -- Note: If deathPenaltyJailDays is also enabled, that penalty will be added to
 --       this one

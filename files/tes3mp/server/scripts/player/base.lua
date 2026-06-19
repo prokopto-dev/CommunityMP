@@ -681,6 +681,27 @@ local function getInventoryRefIdCount(inventory, refId)
     return count
 end
 
+local function removeInventoryRefIdCaseInsensitive(inventory, refId)
+    local removedCount = 0
+
+    if type(inventory) ~= "table" or type(refId) ~= "string" then
+        return removedCount
+    end
+
+    local normalizedRefId = string.lower(refId)
+
+    for itemIndex, item in pairs(inventory) do
+        if type(item) == "table" and type(item.refId) == "string" and
+            string.lower(item.refId) == normalizedRefId and item.count ~= nil and item.count > 0 then
+            removedCount = removedCount + item.count
+            inventory[itemIndex] = nil
+        end
+    end
+
+    tableHelper.cleanNils(inventory)
+    return removedCount
+end
+
 local function hasInventoryForEquipmentItem(data, equipmentItem)
     if type(data) ~= "table" or type(data.inventory) ~= "table" or type(equipmentItem) ~= "table" or
         equipmentItem.refId == nil or equipmentItem.refId == "" or equipmentItem.count == nil or
@@ -2177,6 +2198,31 @@ function BasePlayer:SaveIpAddress()
     end
 end
 
+function BasePlayer:ConfiscateDeathGold()
+    if type(self.data.inventory) ~= "table" then
+        return 0
+    end
+
+    local removedGold = removeInventoryRefIdCaseInsensitive(self.data.inventory, "gold_001")
+    if removedGold <= 0 then
+        return 0
+    end
+
+    self:LoadItemChanges({
+        {
+            refId = "Gold_001",
+            count = removedGold,
+            charge = -1,
+            enchantmentCharge = -1,
+            soul = ""
+        }
+    }, enumerations.inventory.REMOVE)
+
+    tes3mp.LogMessage(enumerations.log.INFO, "Confiscated " .. tostring(removedGold) ..
+        " gold from " .. logicHandler.GetChatName(self.pid) .. " during death recovery")
+    return removedGold
+end
+
 function BasePlayer:ProcessDeath()
     self:NormalizeDeathState()
 
@@ -2312,8 +2358,14 @@ function BasePlayer:Resurrect()
         end
     end
 
+    local shouldConfiscateDeathRecovery = config.deathConfiscatesGoldAndStolenGoods == true
+    if shouldConfiscateDeathRecovery then
+        self:ConfiscateDeathGold()
+    end
+
     self:SaveToDrive()
 
+    local sentJailRecoveryPacket = false
     if config.deathPenaltyJailDays > 0 or config.bountyDeathPenalty then
         local jailTime = 0
         local resurrectionText = "You've been revived and brought back here, " ..
@@ -2339,6 +2391,11 @@ function BasePlayer:Resurrect()
 
         resurrectionText = resurrectionText .. ".\n"
         tes3mp.Jail(self.pid, jailTime, true, true, "Recovering", resurrectionText)
+        sentJailRecoveryPacket = true
+    end
+
+    if shouldConfiscateDeathRecovery and not sentJailRecoveryPacket then
+        tes3mp.Jail(self.pid, 0, true, true, "Recovering", "")
     end
 
     if config.bountyResetOnDeath then

@@ -2448,6 +2448,174 @@ namespace mwmp
         return true;
     }
 
+    bool ServerSimulation::applyServerActorMeleeIfReady(Cell& cell, const BaseActor& actor,
+        const ActorMovementKey& actorKey, const ESM::Position& presentationPosition,
+        std::uint32_t positionSequence, float sampleIntervalSeconds, Clock::time_point now,
+        BaseActorList& attackList, const Attack* runtimeAttack)
+    {
+        if (!actor.hasPositionData || !hasFiniteWorldPosition(presentationPosition)
+            || !actorHasServerCombatTarget(actor) || !actor.aiTarget.isPlayer || !isLiveActorForServerMelee(actor))
+        {
+            mServerActorCombatStates.erase(actorKey);
+            return false;
+        }
+
+        ESM::Position targetPosition;
+        if (!getAiTargetPosition(cell, actor.aiTarget, targetPosition))
+        {
+            mServerActorCombatStates.erase(actorKey);
+            return false;
+        }
+
+        const float deltaX = targetPosition.pos[0] - presentationPosition.pos[0];
+        const float deltaY = targetPosition.pos[1] - presentationPosition.pos[1];
+        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        if (!std::isfinite(distanceSquared) || distanceSquared > serverActorMeleeRangeSquared)
+            return false;
+
+        ServerActorCombatState& combatState = mServerActorCombatStates[actorKey];
+        if (!combatState.hasNextMeleeAttack)
+        {
+            combatState.nextMeleeAttack = now;
+            combatState.hasNextMeleeAttack = true;
+        }
+
+        if (now < combatState.nextMeleeAttack)
+            return false;
+
+        combatState.nextMeleeAttack = now + serverActorMeleeInterval;
+        const std::string attackAnimation = runtimeAttack != nullptr ? runtimeAttack->attackAnimation : std::string();
+        Attack serverAttack = makeServerActorMeleeAttack(actor, actor.aiTarget, targetPosition, attackAnimation);
+
+        Player* target = Players::getPlayer(serverAttack.target.guid);
+        bool becameDead = false;
+        if (target != nullptr && applyAttackDamageToPlayer(*target, serverAttack, becameDead))
+        {
+            broadcastPlayerStats(*target);
+            notifyPlayerStatsDynamic(*target);
+            if (becameDead)
+                notifyPlayerDeath(*target);
+        }
+
+        BaseActor attackActor = actor;
+        attackActor.cell = cell.getCellData();
+        attackActor.hasCombatData = true;
+        attackActor.combatSequence = actor.hasCombatData ? actor.combatSequence + 1 : 1;
+        attackActor.attack = std::move(serverAttack);
+        attackActor.hasPositionData = true;
+        attackActor.position = presentationPosition;
+        attackActor.positionSequence = positionSequence;
+        attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+        attackActor.movementLatencySeconds = 0.f;
+        attackList.baseActors.push_back(std::move(attackActor));
+        return true;
+    }
+
+    void ServerSimulation::clearActorCombatTargetsForPlayer(Player& player, const char* reason)
+    {
+        if (!mwmp::isPacketGuidAssigned(player.guid))
+            return;
+
+        CellController* cellController = CellController::get();
+        ServerNetworking* networking = ServerNetworking::getPtr();
+        if (cellController == nullptr || networking == nullptr || networking->getActorPacketController() == nullptr)
+            return;
+
+        ActorPacket* aiPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_AI);
+        ActorPacket* positionPacket = networking->getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+
+        const Target playerTarget = makePlayerAiTarget(player);
+        const float stopSampleIntervalSeconds = mwmp::sanitizeMovementSampleIntervalSeconds(actorTickIntervalSeconds);
+        std::size_t clearedActorCount = 0;
+
+        for (Cell* cell : cellController->getCells())
+        {
+            if (cell == nullptr)
+                continue;
+
+            BaseActorList* actorList = cell->getActorList();
+            if (actorList == nullptr || actorList->baseActors.empty())
+                continue;
+
+            const std::string cellKey = getCellSimulationKey(cell->getCellData());
+            BaseActorList aiList;
+            aiList.cell = cell->getCellData();
+            aiList.guid = unassignedPacketGuid();
+            aiList.action = BaseActorList::SET;
+            aiList.isValid = true;
+
+            BaseActorList positionList;
+            positionList.cell = cell->getCellData();
+            positionList.guid = unassignedPacketGuid();
+            positionList.action = BaseActorList::SET;
+            positionList.isValid = true;
+
+            for (BaseActor& actor : actorList->baseActors)
+            {
+                if (!actorHasServerCombatTarget(actor) || !targetsReferToSameEntity(actor.aiTarget, playerTarget))
+                    continue;
+
+                const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
+                mServerActorCombatStates.erase(actorKey);
+                mActorPathgridRouteStates.erase(actorKey);
+                mActorWanderStates.erase(actorKey);
+                mRuntimeActorMovementStates.erase(actorKey);
+                mRuntimeClientAiPresentedActors.erase(actorKey);
+
+                actor.hasAiData = true;
+                actor.aiAction = BaseActorList::CANCEL;
+                actor.aiDistance = 0;
+                actor.aiDuration = 0;
+                actor.aiShouldRepeat = false;
+                actor.hasAiTarget = false;
+                actor.aiTarget = Target();
+                actor.aiCoordinates = zeroPosition();
+                actor.direction = zeroPosition();
+
+                BaseActor aiActor = actor;
+                aiActor.hasAiData = true;
+                aiActor.hasPositionData = false;
+                aiList.baseActors.push_back(std::move(aiActor));
+
+                if (actor.hasPositionData)
+                {
+                    ++actor.positionSequence;
+                    actor.movementSampleIntervalSeconds = stopSampleIntervalSeconds;
+                    actor.movementLatencySeconds = 0.f;
+
+                    BaseActor positionActor = actor;
+                    positionActor.hasPositionData = true;
+                    positionList.baseActors.push_back(std::move(positionActor));
+                }
+
+                ++clearedActorCount;
+            }
+
+            aiList.count = static_cast<unsigned int>(aiList.baseActors.size());
+            if (aiList.count != 0 && aiPacket != nullptr)
+            {
+                cell->readActorList(ID_ACTOR_AI, &aiList);
+                aiPacket->setActorList(&aiList);
+                cell->sendToLoaded(aiPacket, &aiList);
+            }
+
+            positionList.count = static_cast<unsigned int>(positionList.baseActors.size());
+            if (positionList.count != 0 && positionPacket != nullptr)
+            {
+                cell->readActorList(ID_ACTOR_POSITION, &positionList);
+                positionPacket->setActorList(&positionList);
+                cell->sendToLoaded(positionPacket, &positionList);
+            }
+        }
+
+        if (clearedActorCount != 0)
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                "Cleared %zu actor combat target(s) for player %s because %s",
+                clearedActorCount, player.npc.mName.c_str(), reason != nullptr ? reason : "the player state reset");
+        }
+    }
+
     void ServerSimulation::tick()
     {
         const Clock::time_point now = Clock::now();
@@ -2518,11 +2686,11 @@ namespace mwmp
                     else
                         ++combatIt;
                 }
-                for (auto cancelIt = mRuntimeClientAiCancelledActors.begin();
-                     cancelIt != mRuntimeClientAiCancelledActors.end();)
+                for (auto cancelIt = mRuntimeClientAiPresentedActors.begin();
+                     cancelIt != mRuntimeClientAiPresentedActors.end();)
                 {
                     if (cancelIt->cellKey == cellKey)
-                        cancelIt = mRuntimeClientAiCancelledActors.erase(cancelIt);
+                        cancelIt = mRuntimeClientAiPresentedActors.erase(cancelIt);
                     else
                         ++cancelIt;
                 }
@@ -2621,10 +2789,10 @@ namespace mwmp
         const std::string cellKey = liveCell != nullptr
             ? getCellSimulationKey(liveCell->getCellData())
             : getCellDescriptionSimulationKey(cellDescription);
-        for (auto it = mRuntimeClientAiCancelledActors.begin(); it != mRuntimeClientAiCancelledActors.end();)
+        for (auto it = mRuntimeClientAiPresentedActors.begin(); it != mRuntimeClientAiPresentedActors.end();)
         {
             if (it->cellKey == cellKey)
-                it = mRuntimeClientAiCancelledActors.erase(it);
+                it = mRuntimeClientAiPresentedActors.erase(it);
             else
                 ++it;
         }
@@ -2739,11 +2907,11 @@ namespace mwmp
                 else
                     ++combatIt;
             }
-            for (auto cancelIt = mRuntimeClientAiCancelledActors.begin();
-                 cancelIt != mRuntimeClientAiCancelledActors.end();)
+            for (auto cancelIt = mRuntimeClientAiPresentedActors.begin();
+                 cancelIt != mRuntimeClientAiPresentedActors.end();)
             {
                 if (cancelIt->cellKey == cellKey)
-                    cancelIt = mRuntimeClientAiCancelledActors.erase(cancelIt);
+                    cancelIt = mRuntimeClientAiPresentedActors.erase(cancelIt);
                 else
                     ++cancelIt;
             }
@@ -3637,35 +3805,48 @@ namespace mwmp
 
                 if (runtimeOwnsClientRenderedAi)
                 {
-                    if (!actorInteractionLocked && cachedActor != nullptr && cachedActor->hasAiData
-                        && cachedActor->aiAction != BaseActorList::CANCEL
-                        && mRuntimeClientAiCancelledActors.insert(actorKey).second)
+                    const bool hasPresentedAi = mRuntimeClientAiPresentedActors.find(actorKey)
+                        != mRuntimeClientAiPresentedActors.end();
+                    const bool shouldPresentCombatAi = !actorInteractionLocked && cachedActor != nullptr
+                        && actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor);
+                    const bool shouldPresentCancelAi = !actorInteractionLocked && cachedActor != nullptr
+                        && cachedActor->hasAiData && !shouldPresentCombatAi
+                        && cachedActor->aiAction != BaseActorList::CANCEL;
+                    if ((shouldPresentCombatAi || shouldPresentCancelAi) && !hasPresentedAi)
                     {
                         BaseActor aiActor = visualActor;
                         aiActor.hasAiData = true;
-                        aiActor.hasAiTarget = false;
-                        aiActor.aiTarget = Target();
-                        aiActor.aiAction = BaseActorList::CANCEL;
-                        aiActor.aiDistance = 0;
-                        aiActor.aiDuration = 0;
-                        aiActor.aiShouldRepeat = false;
+                        aiActor.hasPositionData = false;
                         aiActor.aiCoordinates = zeroPosition();
-                        aiActor.direction = zeroPosition();
-                        if (aiActor.hasPositionData)
+                        if (shouldPresentCombatAi)
                         {
-                            aiActor.positionSequence = nextPositionSequence;
-                            aiActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
-                            aiActor.movementLatencySeconds = 0.f;
+                            aiActor.hasAiTarget = true;
+                            aiActor.aiTarget = cachedActor->aiTarget;
+                            aiActor.aiAction = BaseActorList::COMBAT;
+                            aiActor.aiDistance = cachedActor->aiDistance;
+                            aiActor.aiDuration = cachedActor->aiDuration;
+                            aiActor.aiShouldRepeat = cachedActor->aiShouldRepeat;
                         }
+                        else
+                        {
+                            aiActor.hasAiTarget = false;
+                            aiActor.aiTarget = Target();
+                            aiActor.aiAction = BaseActorList::CANCEL;
+                            aiActor.aiDistance = 0;
+                            aiActor.aiDuration = 0;
+                            aiActor.aiShouldRepeat = false;
+                        }
+                        aiActor.direction = zeroPosition();
                         aiList.baseActors.push_back(std::move(aiActor));
+                        mRuntimeClientAiPresentedActors.insert(actorKey);
                     }
                     else if (actorInteractionLocked || cachedActor == nullptr || !cachedActor->hasAiData
                         || cachedActor->aiAction == BaseActorList::CANCEL)
-                        mRuntimeClientAiCancelledActors.erase(actorKey);
+                        mRuntimeClientAiPresentedActors.erase(actorKey);
                 }
                 else
                 {
-                    mRuntimeClientAiCancelledActors.erase(actorKey);
+                    mRuntimeClientAiPresentedActors.erase(actorKey);
                     if (!actorInteractionLocked && runtimeActor.hasAiData && cachedActor != nullptr
                         && !(actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor)
                             && runtimeActor.aiAction != BaseActorList::COMBAT)
@@ -3679,61 +3860,15 @@ namespace mwmp
 
                 bool sentServerAttackSnapshot = false;
                 if (!actorInteractionLocked && cachedActor != nullptr && visualActor.hasPositionData
-                    && actorHasServerCombatTarget(*cachedActor) && cachedActor->aiTarget.isPlayer
-                    && isLiveActorForServerMelee(*cachedActor))
+                    && actorHasServerCombatTarget(*cachedActor))
                 {
-                    ESM::Position targetPosition;
-                    if (getAiTargetPosition(*serverCell, cachedActor->aiTarget, targetPosition))
-                    {
-                        const float deltaX = targetPosition.pos[0] - visualActor.position.pos[0];
-                        const float deltaY = targetPosition.pos[1] - visualActor.position.pos[1];
-                        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
-                        if (std::isfinite(distanceSquared) && distanceSquared <= serverActorMeleeRangeSquared)
-                        {
-                            ServerActorCombatState& combatState = mServerActorCombatStates[actorKey];
-                            if (!combatState.hasNextMeleeAttack)
-                            {
-                                combatState.nextMeleeAttack = now;
-                                combatState.hasNextMeleeAttack = true;
-                            }
-
-                            if (now >= combatState.nextMeleeAttack)
-                            {
-                                combatState.nextMeleeAttack = now + serverActorMeleeInterval;
-                                const std::string attackAnimation = runtimeActor.hasCombatData
-                                    ? runtimeActor.attack.attackAnimation
-                                    : std::string();
-                                Attack serverAttack = makeServerActorMeleeAttack(
-                                    *cachedActor, cachedActor->aiTarget, targetPosition, attackAnimation);
-
-                                Player* target = Players::getPlayer(serverAttack.target.guid);
-                                bool becameDead = false;
-                                if (target != nullptr && applyAttackDamageToPlayer(*target, serverAttack, becameDead))
-                                {
-                                    broadcastPlayerStats(*target);
-                                    notifyPlayerStatsDynamic(*target);
-                                    if (becameDead)
-                                        notifyPlayerDeath(*target);
-                                }
-
-                                BaseActor attackActor = visualActor;
-                                attackActor.refId = cachedActor->refId.empty() ? runtimeActor.refId : cachedActor->refId;
-                                attackActor.hasCombatData = true;
-                                attackActor.combatSequence = cachedActor->hasCombatData
-                                    ? cachedActor->combatSequence + 1
-                                    : 1;
-                                attackActor.attack = std::move(serverAttack);
-                                attackActor.hasPositionData = true;
-                                attackActor.positionSequence = nextPositionSequence;
-                                attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
-                                attackActor.movementLatencySeconds = 0.f;
-                                attackList.baseActors.push_back(std::move(attackActor));
-                                sentServerAttackSnapshot = true;
-                            }
-                        }
-                    }
-                    else
-                        mServerActorCombatStates.erase(actorKey);
+                    BaseActor serverActor = *cachedActor;
+                    serverActor.position = visualActor.position;
+                    serverActor.hasPositionData = true;
+                    serverActor.refId = cachedActor->refId.empty() ? runtimeActor.refId : cachedActor->refId;
+                    sentServerAttackSnapshot = applyServerActorMeleeIfReady(*serverCell, serverActor, actorKey,
+                        visualActor.position, nextPositionSequence, sampleIntervalSeconds, now, attackList,
+                        runtimeActor.hasCombatData ? &runtimeActor.attack : nullptr);
                 }
                 else
                     mServerActorCombatStates.erase(actorKey);
@@ -5367,6 +5502,12 @@ namespace mwmp
             return;
 
         const bool aiChanged = applyCombatTargetToActor(*targetCell, *targetActor, attacker);
+        if (aiChanged)
+        {
+            const ActorMovementKey actorKey{ getCellSimulationKey(targetCell->getCellData()),
+                targetActor->refNum, targetActor->mpNum };
+            mRuntimeClientAiPresentedActors.erase(actorKey);
+        }
         if (mRuntime != nullptr && mRuntime->canOwnActorAuthority() && attacker.hasFinitePositionPacket()
             && getCellSimulationKey(attacker.cell) == getCellSimulationKey(targetCell->getCellData()))
         {
@@ -5556,6 +5697,9 @@ namespace mwmp
             return;
 
         ActorPacket* actorPacket = ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_POSITION);
+        ActorPacket* attackPacket = ServerNetworking::get().getActorPacketController()->GetPacket(ID_ACTOR_ATTACK);
+        if (actorPacket == nullptr || attackPacket == nullptr)
+            return;
 
         for (Cell* cell : cellController->getCells())
         {
@@ -5573,6 +5717,12 @@ namespace mwmp
             BaseActorList tickActorList;
             tickActorList.cell = cell->getCellData();
             tickActorList.guid = unassignedPacketGuid();
+
+            BaseActorList attackActorList;
+            attackActorList.cell = cell->getCellData();
+            attackActorList.guid = unassignedPacketGuid();
+            attackActorList.action = BaseActorList::SET;
+            attackActorList.isValid = true;
 
             for (BaseActor& actor : storedActorList->baseActors)
             {
@@ -5603,7 +5753,12 @@ namespace mwmp
                     const auto runtimeStateIt = mRuntimeActorMovementStates.find(actorKey);
                     if (runtimeStateIt == mRuntimeActorMovementStates.end()
                         || !runtimeStateIt->second.useFallbackMovement)
+                    {
+                        static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
+                            actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
+                            Clock::now(), attackActorList));
                         continue;
+                    }
                 }
 
                 ESM::Position direction = actor.direction;
@@ -5645,6 +5800,9 @@ namespace mwmp
                         actor.hasPositionData = true;
                         tickActorList.baseActors.push_back(actor);
                     }
+                    static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
+                        actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
+                        Clock::now(), attackActorList));
                     continue;
                 }
 
@@ -5656,14 +5814,24 @@ namespace mwmp
                 actor.hasPositionData = true;
 
                 tickActorList.baseActors.push_back(actor);
+                static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
+                    actor.positionSequence, actor.movementSampleIntervalSeconds, Clock::now(), attackActorList));
             }
 
             tickActorList.count = static_cast<unsigned int>(tickActorList.baseActors.size());
-            if (tickActorList.count == 0)
-                continue;
+            if (tickActorList.count != 0)
+            {
+                actorPacket->setActorList(&tickActorList);
+                cell->sendToLoaded(actorPacket, &tickActorList);
+            }
 
-            actorPacket->setActorList(&tickActorList);
-            cell->sendToLoaded(actorPacket, &tickActorList);
+            attackActorList.count = static_cast<unsigned int>(attackActorList.baseActors.size());
+            if (attackActorList.count != 0)
+            {
+                cell->readActorList(ID_ACTOR_ATTACK, &attackActorList);
+                attackPacket->setActorList(&attackActorList);
+                cell->sendToLoaded(attackPacket, &attackActorList);
+            }
         }
     }
 

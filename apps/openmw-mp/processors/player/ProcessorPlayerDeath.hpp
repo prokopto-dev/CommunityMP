@@ -66,6 +66,8 @@ namespace mwmp
                 player.statsDynamicIndexChanges.push_back(0);
             player.acceptCurrentStatsDynamicPacket();
 
+            ServerNetworking::getPtr()->getServerSimulation().clearActorCombatTargetsForPlayer(player, "the player died");
+
             player.sendToLoaded(&packet);
 
             ServerEvents::playerDeath(player.getId());

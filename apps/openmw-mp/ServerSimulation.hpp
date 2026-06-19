@@ -22,6 +22,7 @@ class Player;
 namespace mwmp
 {
     class ActorPacket;
+    class Attack;
     class BaseActor;
     class BaseActorList;
     class BaseObjectList;
@@ -67,6 +68,7 @@ namespace mwmp
         bool rejectClientActorPacketForServerOwnedCell(
             const ::Cell* serverCell, const BaseActorList& actorList, const char* packetName);
         void applyPlayerAttack(::Player& attacker);
+        void clearActorCombatTargetsForPlayer(::Player& player, const char* reason);
         void notePlayerDialogueChoice(::Player& player, const BaseObjectList& objectList);
         bool acceptActorMovementSnapshot(ActorPacket& packet, BaseActorList& actorList, ::Cell& serverCell);
         bool acceptPlayerCellChange(::Player& player, PlayerPacket& packet);
@@ -204,7 +206,7 @@ namespace mwmp
         std::map<ActorMovementKey, ActorPathgridRouteState> mActorPathgridRouteStates;
         std::map<ActorMovementKey, RuntimeActorMovementState> mRuntimeActorMovementStates;
         std::map<ActorMovementKey, ServerActorCombatState> mServerActorCombatStates;
-        std::set<ActorMovementKey> mRuntimeClientAiCancelledActors;
+        std::set<ActorMovementKey> mRuntimeClientAiPresentedActors;
         std::map<ActorMovementKey, ActorInteractionLease> mActorInteractionLeases;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         RuntimeActorSnapshotStats mRuntimeActorSnapshotStats;
@@ -238,6 +240,9 @@ namespace mwmp
         bool ensurePlayerCurrentSimulationCell(Player& player, const char* reason);
         void reconcileCurrentPlayerSimulationCells(RuntimeFocusSelectionStats& focusSelectionStats);
         void updateRuntimeSimulationCells();
+        bool applyServerActorMeleeIfReady(::Cell& cell, const BaseActor& actor, const ActorMovementKey& actorKey,
+            const ESM::Position& presentationPosition, std::uint32_t positionSequence, float sampleIntervalSeconds,
+            Clock::time_point now, BaseActorList& attackList, const Attack* runtimeAttack = nullptr);
         void applyRuntimeActorSnapshots(const std::vector<BaseActorList>& actorLists, float deltaSeconds);
         void applyRuntimePlayerSnapshots(const std::vector<SimulationPlayerSnapshot>& playerSnapshots);
         void logRuntimeActorMovementHealthIfNeeded(Clock::time_point now);
