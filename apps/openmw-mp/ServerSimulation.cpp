@@ -69,7 +69,7 @@ namespace
     constexpr float followerCellChangeBehindDistance = 96.f;
     constexpr float followerCellChangeRowSpacing = 48.f;
     constexpr float followerCellChangeColumnSpacing = 48.f;
-    constexpr float runtimeActorMovementEpsilonSquared = 1.f;
+    constexpr float runtimeActorMovementEpsilonSquared = 4.f * 4.f;
     constexpr float runtimeActorDerivedDirectionMaximumDistanceSquared = 512.f * 512.f;
     constexpr std::uint32_t runtimeActorFallbackSnapshotThreshold = 15;
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
@@ -422,7 +422,11 @@ namespace
     {
         sanitizeFinitePosition(actor.direction);
         if (!actor.hasPositionData || previousActor == nullptr || !previousActor->hasPositionData)
-            return RuntimeMovementDirectionAdjustment::Unchanged;
+        {
+            actor.direction.pos[0] = 0.f;
+            actor.direction.pos[1] = 0.f;
+            return RuntimeMovementDirectionAdjustment::Cleared;
+        }
 
         const float deltaX = actor.position.pos[0] - previousActor->position.pos[0];
         const float deltaY = actor.position.pos[1] - previousActor->position.pos[1];
