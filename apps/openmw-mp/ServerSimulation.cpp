@@ -3476,8 +3476,11 @@ namespace mwmp
             return focus;
         };
 
-        auto buildPlayerFocusesForState = [&](const ShadowCellAuthorityState& state, const ESM::Cell& cell) {
-            std::vector<SimulationCellFocus> focuses;
+        auto selectRepresentativePlayerFocusForState = [&](const ShadowCellAuthorityState& state, const ESM::Cell& cell,
+                                                           Cell* liveCell)
+            -> std::optional<SimulationCellFocus> {
+            std::map<PacketGuid, SimulationCellFocus> focusesByGuid;
+            std::vector<PacketGuid> focusOrder;
             std::set<PacketGuid> seenVisitors;
             for (PacketGuid visitorGuid : state.visitors)
             {
@@ -3489,10 +3492,47 @@ namespace mwmp
                     continue;
 
                 if (std::optional<SimulationCellFocus> focus = buildFocusForVisitor(cell, *visitor))
-                    focuses.push_back(std::move(*focus));
+                {
+                    focusOrder.push_back(visitorGuid);
+                    focusesByGuid[visitorGuid] = std::move(*focus);
+                }
             }
 
-            return focuses;
+            if (focusOrder.empty())
+                return std::nullopt;
+
+            std::map<PacketGuid, std::size_t> combatTargetCounts;
+            if (liveCell != nullptr)
+            {
+                if (BaseActorList* actorList = liveCell->getActorList())
+                {
+                    for (const BaseActor& actor : actorList->baseActors)
+                    {
+                        if (!actor.hasAiData || !actor.hasAiTarget
+                            || actor.aiAction != BaseActorList::COMBAT || !actor.aiTarget.isPlayer
+                            || !mwmp::isPacketGuidAssigned(actor.aiTarget.guid)
+                            || focusesByGuid.find(actor.aiTarget.guid) == focusesByGuid.end())
+                            continue;
+
+                        ++combatTargetCounts[actor.aiTarget.guid];
+                    }
+                }
+            }
+
+            PacketGuid selectedGuid = focusOrder.front();
+            std::size_t selectedCombatTargetCount = 0;
+            for (PacketGuid visitorGuid : focusOrder)
+            {
+                const auto countIt = combatTargetCounts.find(visitorGuid);
+                const std::size_t combatTargetCount = countIt != combatTargetCounts.end() ? countIt->second : 0;
+                if (combatTargetCount > selectedCombatTargetCount)
+                {
+                    selectedGuid = visitorGuid;
+                    selectedCombatTargetCount = combatTargetCount;
+                }
+            }
+
+            return focusesByGuid[selectedGuid];
         };
 
         std::vector<SimulationCellFocus> simulationFocuses;
@@ -3515,15 +3555,15 @@ namespace mwmp
             if (liveCell != nullptr && !liveCell->hasSimulationInterest())
                 liveCell->setSimulationInterest(true);
 
-            std::vector<SimulationCellFocus> playerFocuses = buildPlayerFocusesForState(state, state.cell);
+            std::optional<SimulationCellFocus> playerFocus
+                = selectRepresentativePlayerFocusForState(state, state.cell, liveCell);
             ++focusSelectionStats.candidateCellCount;
-            if (!playerFocuses.empty())
+            if (playerFocus)
             {
-                for (SimulationCellFocus& focus : playerFocuses)
-                    simulationFocuses.push_back(std::move(focus));
+                simulationFocuses.push_back(std::move(*playerFocus));
                 focusedCellKeys.insert(cellKey);
                 ++focusSelectionStats.directFocusCellCount;
-                focusSelectionStats.directFocusPlayerCount += playerFocuses.size();
+                ++focusSelectionStats.directFocusPlayerCount;
             }
             else
             {
