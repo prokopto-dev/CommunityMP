@@ -1070,16 +1070,17 @@ void OMW::Engine::applyServerSimulationPlayerActorStats(ServerSimulationPlayerAc
     stats.setDeathAnimationFinished(sourceDead && state.stats.mDeathAnimationFinished);
 }
 
-void OMW::Engine::applyServerSimulationPlayerActorEquipment(ServerSimulationPlayerActorState& state)
+void OMW::Engine::applyServerSimulationEquipmentToActor(const MWWorld::Ptr& actor,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>& equipmentItems, std::string_view actorName)
 {
-    if (state.ptr.isEmpty() || !state.hasEquipmentData || !state.ptr.getClass().hasInventoryStore(state.ptr))
+    if (actor.isEmpty() || !actor.getClass().hasInventoryStore(actor))
         return;
 
-    MWWorld::InventoryStore& inventoryStore = state.ptr.getClass().getInventoryStore(state.ptr);
-    MWWorld::ContainerStore& containerStore = state.ptr.getClass().getContainerStore(state.ptr);
+    MWWorld::InventoryStore& inventoryStore = actor.getClass().getInventoryStore(actor);
+    MWWorld::ContainerStore& containerStore = actor.getClass().getContainerStore(actor);
     for (int slot = 0; slot < MWWorld::InventoryStore::Slots && slot < mwmp::equipmentSlotCount; ++slot)
     {
-        const mwmp::Item& item = state.equipmentItems[slot];
+        const mwmp::Item& item = equipmentItems[slot];
         if (!mwmp::isValidEquipmentItem(item))
             continue;
 
@@ -1098,7 +1099,7 @@ void OMW::Engine::applyServerSimulationPlayerActorEquipment(ServerSimulationPlay
             catch (const std::exception& e)
             {
                 Log(Debug::Warning) << "Failed to remove stale server simulation player equipment "
-                                    << equippedId << " from " << state.name << ": " << e.what();
+                                    << equippedId << " from " << actorName << ": " << e.what();
             }
         }
 
@@ -1118,14 +1119,22 @@ void OMW::Engine::applyServerSimulationPlayerActorEquipment(ServerSimulationPlay
             added->getCellRef().setEnchantmentCharge(item.enchantmentCharge);
             added->getCellRef().setSoul(ESM::RefId::stringRefId(item.soul));
             std::shared_ptr<MWWorld::Action> action = added->getClass().use(*added);
-            action->execute(state.ptr, true);
+            action->execute(actor, true);
         }
         catch (const std::exception& e)
         {
             Log(Debug::Warning) << "Failed to equip server simulation player item "
-                                << item.refId << " on " << state.name << ": " << e.what();
+                                << item.refId << " on " << actorName << ": " << e.what();
         }
     }
+}
+
+void OMW::Engine::applyServerSimulationPlayerActorEquipment(ServerSimulationPlayerActorState& state)
+{
+    if (!state.hasEquipmentData)
+        return;
+
+    applyServerSimulationEquipmentToActor(state.ptr, state.equipmentItems, state.name);
 }
 
 void OMW::Engine::clearServerSimulationPlayerActorReference(ServerSimulationPlayerActorState& state)
@@ -2366,7 +2375,8 @@ void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::Simula
 }
 
 bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition,
-    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats)
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mStateManager == nullptr || mStateManager->hasQuitRequest())
         return false;
@@ -2412,6 +2422,8 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
                 mServerSimulationFocusPositionSet = true;
             }
             applyServerSimulationFocusPlayerStats();
+            if (playerEquipmentItems != nullptr)
+                applyServerSimulationEquipmentToActor(mWorld->getPlayerPtr(), *playerEquipmentItems, playerName);
             syncServerSimulationPlayerActorReferences();
             return true;
         }
@@ -2450,6 +2462,8 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
 
     neutralizeServerSimulationPlayer();
     applyServerSimulationFocusPlayerStats();
+    if (playerEquipmentItems != nullptr)
+        applyServerSimulationEquipmentToActor(mWorld->getPlayerPtr(), *playerEquipmentItems, playerName);
     syncServerSimulationPlayerActorReferences();
 
     Log(Debug::Info) << "Focused server OpenMW simulation cell " << cellDescription
@@ -2459,13 +2473,14 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
 
 bool OMW::Engine::startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
     unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
-    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats)
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
     if (!mServerSimulationPrepared || mWorld == nullptr || mMechanicsManager == nullptr
         || !mwmp::isPacketGuidAssigned(playerGuid))
         return false;
 
-    if (!focusServerSimulationCell(cell, &playerPosition, playerGuid, playerName, playerStats))
+    if (!focusServerSimulationCell(cell, &playerPosition, playerGuid, playerName, playerStats, playerEquipmentItems))
         return false;
 
     MWWorld::CellStore* cellStore = mWorld->getPlayerPtr().getCell();

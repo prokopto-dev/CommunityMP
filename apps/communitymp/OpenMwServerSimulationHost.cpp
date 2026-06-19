@@ -469,7 +469,8 @@ namespace
 
             return mEngine->startServerSimulationActorCombatWithPlayer(
                 actor.cell, actor.refId, actor.refNum, actor.mpNum, player.position, player.guid, player.name,
-                player.hasStatsDynamicData ? &player.creatureStats : nullptr);
+                player.hasStatsDynamicData ? &player.creatureStats : nullptr,
+                player.hasEquipmentData ? &player.equipmentItems : nullptr);
         }
 
         const mwmp::SimulationRuntimeFocusState& focusState() const override
@@ -584,7 +585,8 @@ namespace
                 focus.cell, focus.hasPosition ? &focus.position : nullptr,
                 focus.hasPlayer ? focus.playerGuid : mwmp::unassignedPacketGuid(),
                 focus.hasPlayer ? std::string_view(focus.playerName) : std::string_view(),
-                focus.hasPlayerStats ? &focus.playerStats : nullptr);
+                focus.hasPlayerStats ? &focus.playerStats : nullptr,
+                focus.hasPlayerEquipmentData ? &focus.playerEquipmentItems : nullptr);
             mFocusState.lastQueuedDeltaSeconds = queuedDeltaSeconds;
             if (mFocusState.lastFocusSucceeded)
             {

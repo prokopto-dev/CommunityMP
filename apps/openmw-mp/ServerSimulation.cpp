@@ -3485,6 +3485,12 @@ namespace mwmp
                 focus.playerStats = makeSimpleCreatureStats(visitor.creatureStats);
                 focus.hasPlayerStats = true;
             }
+            if (visitor.hasAcceptedEquipmentPacket)
+            {
+                for (int slot = 0; slot < equipmentSlotCount; ++slot)
+                    focus.playerEquipmentItems[slot] = visitor.equipmentItems[slot];
+                focus.hasPlayerEquipmentData = true;
+            }
 
             return focus;
         };

@@ -26,8 +26,10 @@ namespace mwmp
         PacketGuid playerGuid = unassignedPacketGuid();
         std::string playerName;
         SimpleCreatureStats playerStats;
+        std::array<Item, equipmentSlotCount> playerEquipmentItems = {};
         bool hasPlayer = false;
         bool hasPlayerStats = false;
+        bool hasPlayerEquipmentData = false;
     };
 
     struct SimulationActorTarget

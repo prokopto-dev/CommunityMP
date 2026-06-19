@@ -264,6 +264,8 @@ namespace OMW
         ESM::RefId ensureServerSimulationPlayerActorRecord(
             mwmp::PacketGuid guid, ServerSimulationPlayerActorState& state, const MWWorld::Ptr& proxyPlayer);
         void applyServerSimulationPlayerActorStats(ServerSimulationPlayerActorState& state);
+        void applyServerSimulationEquipmentToActor(const MWWorld::Ptr& actor,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>& equipmentItems, std::string_view actorName);
         void applyServerSimulationPlayerActorEquipment(ServerSimulationPlayerActorState& state);
         void clearServerSimulationPlayerActorReference(ServerSimulationPlayerActorState& state);
         void clearServerSimulationPlayerActorReferences();
@@ -322,13 +324,15 @@ namespace OMW
         /// Move the server-owned OpenMW simulation scene to the requested cell.
         bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr,
             mwmp::PacketGuid playerGuid = mwmp::unassignedPacketGuid(), std::string_view playerName = {},
-            const mwmp::SimpleCreatureStats* playerStats = nullptr);
+            const mwmp::SimpleCreatureStats* playerStats = nullptr,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Start native OpenMW combat against the server focus player proxy.
         bool startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
             unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
             mwmp::PacketGuid playerGuid, std::string_view playerName,
-            const mwmp::SimpleCreatureStats* playerStats = nullptr);
+            const mwmp::SimpleCreatureStats* playerStats = nullptr,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists);
