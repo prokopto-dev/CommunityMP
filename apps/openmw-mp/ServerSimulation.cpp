@@ -2523,17 +2523,37 @@ namespace mwmp
                 notifyPlayerDeath(*target);
         }
 
-        BaseActor attackActor = actor;
-        attackActor.cell = cell.getCellData();
-        attackActor.hasCombatData = true;
-        attackActor.combatSequence = actor.hasCombatData ? actor.combatSequence + 1 : 1;
-        attackActor.attack = std::move(serverAttack);
-        attackActor.hasPositionData = true;
-        attackActor.position = presentationPosition;
-        attackActor.positionSequence = positionSequence;
-        attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
-        attackActor.movementLatencySeconds = 0.f;
-        attackList.baseActors.push_back(std::move(attackActor));
+        const std::uint32_t baseCombatSequence = actor.hasCombatData ? actor.combatSequence : 0;
+
+        BaseActor startActor = actor;
+        startActor.cell = cell.getCellData();
+        startActor.hasCombatData = true;
+        startActor.combatSequence = baseCombatSequence + 1;
+        startActor.attack = serverAttack;
+        startActor.attack.pressed = true;
+        startActor.attack.success = false;
+        startActor.attack.isHit = false;
+        startActor.attack.block = false;
+        startActor.attack.damage = 0.f;
+        startActor.attack.attackStrength = 0.f;
+        startActor.hasPositionData = true;
+        startActor.position = presentationPosition;
+        startActor.positionSequence = positionSequence;
+        startActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+        startActor.movementLatencySeconds = 0.f;
+        attackList.baseActors.push_back(std::move(startActor));
+
+        BaseActor releaseActor = actor;
+        releaseActor.cell = cell.getCellData();
+        releaseActor.hasCombatData = true;
+        releaseActor.combatSequence = baseCombatSequence + 2;
+        releaseActor.attack = std::move(serverAttack);
+        releaseActor.hasPositionData = true;
+        releaseActor.position = presentationPosition;
+        releaseActor.positionSequence = positionSequence;
+        releaseActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+        releaseActor.movementLatencySeconds = 0.f;
+        attackList.baseActors.push_back(std::move(releaseActor));
         return true;
     }
 
