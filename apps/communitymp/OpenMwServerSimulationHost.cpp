@@ -487,14 +487,7 @@ namespace
 
         static std::string focusScheduleKey(const mwmp::SimulationCellFocus& focus)
         {
-            std::string key = focusDescription(focus);
-            if (key.empty())
-                return key;
-
-            if (focus.hasPlayer && mwmp::isPacketGuidAssigned(focus.playerGuid))
-                key += "#player:" + mwmp::packetGuidToString(focus.playerGuid);
-
-            return key;
+            return focusDescription(focus);
         }
 
         static mwmp::SimulationPlayerSnapshot makeVirtualPlayerSnapshot(const mwmp::SimulationCellFocus& focus)
