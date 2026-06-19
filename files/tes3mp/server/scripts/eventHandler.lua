@@ -844,12 +844,16 @@ eventHandler.InitializeDefaultHandlers = function()
         local debugMessage = nil
 
         for uniqueIndex, object in pairs(objects) do
+            local dialogueChoiceName = tableHelper.getIndexByValue(enumerations.dialogueChoice, object.dialogueChoiceType)
+            if dialogueChoiceName == nil then
+                dialogueChoiceName = "UNKNOWN(" .. tostring(object.dialogueChoiceType) .. ")"
+            end
+
             tes3mp.LogAppend(enumerations.log.INFO, "- Accepting dialogue choice type " ..
-                tableHelper.getIndexByValue(enumerations.dialogueChoice, object.dialogueChoiceType) ..
-                " for " .. object.refId .. " " .. uniqueIndex)
+                dialogueChoiceName .. " for " .. tostring(object.refId) .. " " .. tostring(uniqueIndex))
 
             if object.dialogueChoiceType == enumerations.dialogueChoice.TOPIC then
-                tes3mp.LogAppend(enumerations.log.INFO, "- topic was " .. object.dialogueTopic)
+                tes3mp.LogAppend(enumerations.log.INFO, "- topic was " .. tostring(object.dialogueTopic))
             end
         end
 

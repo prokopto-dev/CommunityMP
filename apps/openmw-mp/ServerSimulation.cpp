@@ -1,6 +1,7 @@
 #include "ServerSimulation.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <limits>
@@ -9,6 +10,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -56,6 +58,12 @@ namespace
     constexpr float cellSpaceTransitionDistanceSquared = cellSpaceTransitionDistance * cellSpaceTransitionDistance;
     constexpr float healthDeadEpsilon = 0.001f;
     constexpr float maxServerAttackDamage = 10000.f;
+    constexpr float serverActorMeleeRange = 192.f;
+    constexpr float serverActorMeleeRangeSquared = serverActorMeleeRange * serverActorMeleeRange;
+    constexpr float serverActorMeleeMinimumDamage = 4.f;
+    constexpr float serverActorMeleeMaximumFallbackDamage = 24.f;
+    constexpr auto serverActorMeleeInterval = std::chrono::milliseconds(1500);
+    constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
     constexpr auto luaObservationFreshnessWindow = std::chrono::seconds(5);
     constexpr float aiCoordinateStopDistance = 64.f;
     constexpr float aiTargetStopDistance = 128.f;
@@ -286,14 +294,76 @@ namespace
         return shadowAuthorityName(guid);
     }
 
+    std::string getCellSimulationKey(const ESM::Cell& cell)
+    {
+        if (cell.isExterior())
+            return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
+
+        return "interior:" + cell.mName;
+    }
+
+    std::string_view trimAsciiWhitespace(std::string_view value)
+    {
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+            value.remove_prefix(1);
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+            value.remove_suffix(1);
+        return value;
+    }
+
+    bool parseInt(std::string_view value, int& result)
+    {
+        value = trimAsciiWhitespace(value);
+        if (value.empty())
+            return false;
+
+        const char* begin = value.data();
+        const char* end = begin + value.size();
+        const std::from_chars_result parsed = std::from_chars(begin, end, result);
+        return parsed.ec == std::errc() && parsed.ptr == end;
+    }
+
+    bool parseExteriorCellDescription(std::string_view description, int& x, int& y)
+    {
+        description = trimAsciiWhitespace(description);
+        if (description.empty() || description.back() != ')')
+            return false;
+
+        const std::size_t open = description.rfind('(');
+        if (open == std::string_view::npos || open + 1 >= description.size())
+            return false;
+
+        const std::string_view coordinates = description.substr(open + 1, description.size() - open - 2);
+        const std::size_t comma = coordinates.find(',');
+        if (comma == std::string_view::npos)
+            return false;
+
+        return parseInt(coordinates.substr(0, comma), x) && parseInt(coordinates.substr(comma + 1), y);
+    }
+
+    std::string getCellDescriptionSimulationKey(std::string_view cellDescription)
+    {
+        if (cellDescription.starts_with("exterior:") || cellDescription.starts_with("interior:"))
+            return std::string(cellDescription);
+
+        int x = 0;
+        int y = 0;
+        if (parseExteriorCellDescription(cellDescription, x, y))
+            return "exterior:" + std::to_string(x) + "," + std::to_string(y);
+
+        return "interior:" + std::string(cellDescription);
+    }
+
     Cell* findLoadedServerCellByDescription(const std::string& cellDescription)
     {
         if (cellDescription.empty())
             return nullptr;
 
+        const std::string cellKey = getCellDescriptionSimulationKey(cellDescription);
         for (Cell* cell : CellController::get()->getCells())
         {
-            if (cell != nullptr && cell->getShortDescription() == cellDescription)
+            if (cell != nullptr && (cell->getShortDescription() == cellDescription
+                    || getCellSimulationKey(cell->getCellData()) == cellKey))
                 return cell;
         }
 
@@ -302,7 +372,8 @@ namespace
 
     bool cellDescriptionMatches(const ESM::Cell& cell, const std::string& cellDescription)
     {
-        return !cellDescription.empty() && cell.getDescription() == cellDescription;
+        return !cellDescription.empty() && (cell.getDescription() == cellDescription
+            || getCellSimulationKey(cell) == getCellDescriptionSimulationKey(cellDescription));
     }
 
     std::string getLuaCellKey(const ESM::Cell& cell)
@@ -690,14 +761,6 @@ namespace
         const float horizontalDistanceSquared = squaredHorizontalLength(deltaX, deltaY);
         return std::isfinite(horizontalDistanceSquared)
             && horizontalDistanceSquared > cellSpaceTransitionDistanceSquared;
-    }
-
-    std::string getCellSimulationKey(const ESM::Cell& cell)
-    {
-        if (cell.isExterior())
-            return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
-
-        return "interior:" + cell.mName;
     }
 
     struct RuntimeActorCellSource
@@ -1466,6 +1529,90 @@ namespace
 
         destination = actor->position;
         return true;
+    }
+
+    bool isLiveActorForServerMelee(const mwmp::BaseActor& actor)
+    {
+        if (actor.creatureStats.mDead)
+            return false;
+
+        if (actor.hasStatsDynamicData && mwmp::hasFiniteActorDynamicStats(actor)
+            && actor.creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon)
+            return false;
+
+        return true;
+    }
+
+    float getActorFatigueDamageScale(const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasStatsDynamicData || !mwmp::hasFiniteActorDynamicStats(actor))
+            return 1.f;
+
+        const ESM::StatState<float>& fatigue = actor.creatureStats.mDynamic[2];
+        if (!std::isfinite(fatigue.mBase) || fatigue.mBase <= healthDeadEpsilon
+            || !std::isfinite(fatigue.mCurrent))
+            return 1.f;
+
+        const float fatigueRatio = std::clamp(fatigue.mCurrent / fatigue.mBase, 0.f, 1.f);
+        return 0.65f + 0.35f * fatigueRatio;
+    }
+
+    float getServerActorMeleeDamage(const mwmp::BaseActor& actor)
+    {
+        if (!actor.refId.empty())
+        {
+            mwmp::WorldDatabaseStore::get().ensureLoaded();
+            if (const std::optional<mwmp::WorldActorProfileRecord> profile
+                = mwmp::WorldDatabaseStore::get().findActorProfileByRecordKey(actor.refId))
+            {
+                int bestAttack = 0;
+                for (const int attack : profile->attacks)
+                    bestAttack = std::max(bestAttack, attack);
+
+                if (bestAttack > 0)
+                    return std::clamp(static_cast<float>(bestAttack) * getActorFatigueDamageScale(actor),
+                        serverActorMeleeMinimumDamage, maxServerAttackDamage);
+
+                if (profile->npc)
+                {
+                    const float combatRating = profile->combat > 0 ? static_cast<float>(profile->combat) : 30.f;
+                    const float level = std::max(1.f, static_cast<float>(profile->level));
+                    const float npcDamage = 3.f + level * 0.5f + combatRating * 0.12f;
+                    return std::clamp(npcDamage * getActorFatigueDamageScale(actor),
+                        serverActorMeleeMinimumDamage, serverActorMeleeMaximumFallbackDamage);
+                }
+            }
+        }
+
+        float fallbackDamage = 8.f;
+        if (actor.hasStatsDynamicData && mwmp::hasFiniteActorDynamicStats(actor))
+        {
+            const ESM::StatState<float>& health = actor.creatureStats.mDynamic[0];
+            const float baseHealth = std::max(health.mBase, health.mCurrent);
+            if (std::isfinite(baseHealth) && baseHealth > healthDeadEpsilon)
+                fallbackDamage = baseHealth * 0.08f;
+        }
+
+        return std::clamp(fallbackDamage * getActorFatigueDamageScale(actor),
+            serverActorMeleeMinimumDamage, serverActorMeleeMaximumFallbackDamage);
+    }
+
+    mwmp::Attack makeServerActorMeleeAttack(const mwmp::BaseActor& actor, const mwmp::Target& target,
+        const ESM::Position& hitPosition, const std::string& runtimeAttackAnimation)
+    {
+        mwmp::Attack attack;
+        attack.target = target;
+        attack.type = mwmp::Attack::MELEE;
+        attack.attackAnimation = runtimeAttackAnimation.empty() ? "chop" : runtimeAttackAnimation;
+        attack.hitPosition = hitPosition;
+        attack.damage = getServerActorMeleeDamage(actor);
+        attack.attackStrength = 1.f;
+        attack.isHit = true;
+        attack.success = true;
+        attack.block = false;
+        attack.pressed = false;
+        attack.instant = true;
+        return attack;
     }
 
     float getAiStopDistance(const mwmp::BaseActor& actor, bool coordinatePackage)
@@ -2238,6 +2385,69 @@ namespace mwmp
             mRuntime->bootstrap().blockedBy.c_str(), worldState.savePath.c_str());
     }
 
+    bool ServerSimulation::isRecentServerCellChange(const Player& player, Clock::time_point now) const
+    {
+        const auto movementStateIt = mPlayerMovementStates.find(player.guid);
+        if (movementStateIt == mPlayerMovementStates.end())
+            return false;
+
+        const PlayerMovementState& movementState = movementStateIt->second;
+        if (!movementState.hasServerCellChangePacket)
+            return false;
+
+        const auto age = now - movementState.lastServerCellChangePacket;
+        return age >= Clock::duration::zero() && age <= runtimePlayerFatalSnapshotCellChangeGrace;
+    }
+
+    bool ServerSimulation::isServerActorCombatTargetingPlayer(const ESM::Cell& cell, const Player& player) const
+    {
+        Cell* liveCell = findLoadedServerCellByDescription(cell.getDescription());
+        if (liveCell == nullptr)
+            return false;
+
+        BaseActorList* actorList = liveCell->getActorList();
+        if (actorList == nullptr)
+            return false;
+
+        const Target playerTarget = makePlayerAiTarget(player);
+        for (const BaseActor& actor : actorList->baseActors)
+        {
+            if (actor.creatureStats.mDead)
+                continue;
+
+            if (actor.hasAiData && actor.hasAiTarget && actor.aiAction == BaseActorList::COMBAT
+                && targetsReferToSameEntity(actor.aiTarget, playerTarget))
+                return true;
+        }
+
+        return false;
+    }
+
+    bool ServerSimulation::shouldSuppressTransientPlayerDeath(const Player& player, const ESM::Cell& cell,
+        bool previousDead, float previousHealth, bool incomingDead, float incomingHealth, Clock::time_point now,
+        const char* source) const
+    {
+        if (!std::isfinite(previousHealth) || !std::isfinite(incomingHealth))
+            return false;
+
+        const bool wasLive = !previousDead && previousHealth > healthDeadEpsilon;
+        const bool incomingFatal = incomingDead || incomingHealth <= healthDeadEpsilon;
+        if (!wasLive || !incomingFatal)
+            return false;
+
+        const bool recentCellChange = isRecentServerCellChange(player, now);
+        const bool serverCombatTarget = isServerActorCombatTargetingPlayer(cell, player);
+        if (!recentCellChange && serverCombatTarget)
+            return false;
+
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+            "Suppressing transient fatal %s player snapshot for %s in %s: previousHealth=%.3f incomingHealth=%.3f "
+            "recentCellChange=%s serverCombatTarget=%s",
+            source, player.npc.mName.c_str(), cell.getDescription().c_str(), previousHealth, incomingHealth,
+            recentCellChange ? "yes" : "no", serverCombatTarget ? "yes" : "no");
+        return true;
+    }
+
     void ServerSimulation::tick()
     {
         const Clock::time_point now = Clock::now();
@@ -2281,9 +2491,14 @@ namespace mwmp
 
         for (auto it = mShadowCellAuthority.begin(); it != mShadowCellAuthority.end();)
         {
+            const std::string cellKey = it->first;
             ShadowCellAuthorityState& state = it->second;
+            const std::string displayDescription = state.hasCell
+                ? state.cell.getDescription()
+                : (state.displayDescription.empty() ? cellKey : state.displayDescription);
             const bool wasAuthority = state.authority == guid;
             const bool wasVisitor = eraseGuid(state.visitors, guid);
+            state.visitorLoadCounts.erase(guid);
 
             if (!wasVisitor && !wasAuthority)
             {
@@ -2293,23 +2508,38 @@ namespace mwmp
 
             if (state.visitors.empty())
             {
-                updateCellSimulationInterest(it->first, state);
+                updateCellSimulationInterest(cellKey, state);
                 state.authority = mwmp::unassignedPacketGuid();
-                clearLiveCellActorAuthority(it->first, "final visitor disconnected");
+                clearLiveCellActorAuthority(cellKey, "final visitor disconnected");
+                for (auto combatIt = mServerActorCombatStates.begin(); combatIt != mServerActorCombatStates.end();)
+                {
+                    if (combatIt->first.cellKey == cellKey)
+                        combatIt = mServerActorCombatStates.erase(combatIt);
+                    else
+                        ++combatIt;
+                }
+                for (auto cancelIt = mRuntimeClientAiCancelledActors.begin();
+                     cancelIt != mRuntimeClientAiCancelledActors.end();)
+                {
+                    if (cancelIt->cellKey == cellKey)
+                        cancelIt = mRuntimeClientAiCancelledActors.erase(cancelIt);
+                    else
+                        ++cancelIt;
+                }
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                     "Cleared C++ snapshot reporter for cell %s because its final visitor disconnected",
-                    it->first.c_str());
+                    displayDescription.c_str());
                 it = mShadowCellAuthority.erase(it);
                 continue;
             }
 
-            updateCellSimulationInterest(it->first, state);
-            broadcastCellActivityEvent(it->first, state);
+            updateCellSimulationInterest(cellKey, state);
+            broadcastCellActivityEvent(displayDescription, state);
 
             if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
-                refreshShadowCellAuthority(it->first, state, "current authority disconnected", unassignedPacketGuid(), guid);
+                refreshShadowCellAuthority(cellKey, state, "current authority disconnected", unassignedPacketGuid(), guid);
             else
-                broadcastShadowCellAuthorityEvent(it->first, state);
+                broadcastShadowCellAuthorityEvent(displayDescription, state);
 
             ++it;
         }
@@ -2387,51 +2617,69 @@ namespace mwmp
         if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid))
             return;
 
-        ShadowCellAuthorityState& state = mShadowCellAuthority[cellDescription];
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        const std::string cellKey = liveCell != nullptr
+            ? getCellSimulationKey(liveCell->getCellData())
+            : getCellDescriptionSimulationKey(cellDescription);
+        for (auto it = mRuntimeClientAiCancelledActors.begin(); it != mRuntimeClientAiCancelledActors.end();)
+        {
+            if (it->cellKey == cellKey)
+                it = mRuntimeClientAiCancelledActors.erase(it);
+            else
+                ++it;
+        }
+        ShadowCellAuthorityState& state = mShadowCellAuthority[cellKey];
+        if (state.displayDescription.empty())
+            state.displayDescription = cellDescription;
         const bool hadVisitors = !state.visitors.empty();
-        const bool wasVisitor = containsGuid(state.visitors, player->guid);
+        std::uint32_t& visitorLoadCount = state.visitorLoadCounts[player->guid];
+        const bool wasVisitor = visitorLoadCount > 0 || containsGuid(state.visitors, player->guid);
+        ++visitorLoadCount;
         const bool previousAuthorityWasCandidate = isShadowCellAuthorityCandidate(state, state.authority);
 
-        if (Cell* liveCell = findLoadedServerCellByDescription(cellDescription))
+        if (liveCell != nullptr)
         {
             state.cell = liveCell->getCellData();
             state.hasCell = true;
+            state.displayDescription = liveCell->getShortDescription();
         }
         else if (cellDescriptionMatches(player->cell, cellDescription))
         {
             state.cell = player->cell;
             state.hasCell = true;
+            state.displayDescription = player->cell.getDescription();
         }
 
-        if (!wasVisitor)
+        if (!containsGuid(state.visitors, player->guid))
             state.visitors.push_back(player->guid);
 
-        updateCellSimulationInterest(cellDescription, state);
+        const std::string displayDescription = state.hasCell ? state.cell.getDescription() : state.displayDescription;
+        updateCellSimulationInterest(cellKey, state);
 
         if (canAuthoritativelySimulateActors())
         {
-            Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+            liveCell = findLoadedServerCellByDescription(cellKey);
             if (liveCell != nullptr)
                 liveCell->seedActorListFromServerWorldState();
 
-            broadcastCellActivityEvent(cellDescription, state);
+            broadcastCellActivityEvent(displayDescription, state);
             state.authority = mwmp::unassignedPacketGuid();
-            clearLiveCellActorAuthority(cellDescription, "server actor authority owns the cell");
-            broadcastShadowCellAuthorityEvent(cellDescription, state);
+            clearLiveCellActorAuthority(cellKey, "server actor authority owns the cell");
+            broadcastShadowCellAuthorityEvent(displayDescription, state);
             return;
         }
 
-        broadcastCellActivityEvent(cellDescription, state);
+        broadcastCellActivityEvent(displayDescription, state);
 
         if (!previousAuthorityWasCandidate)
         {
             const PacketGuid preferredGuid = hadVisitors ? mwmp::unassignedPacketGuid() : player->guid;
-            refreshShadowCellAuthority(cellDescription, state, "cell authority was missing or stale", preferredGuid);
+            refreshShadowCellAuthority(cellKey, state, "cell authority was missing or stale", preferredGuid);
         }
         else if (!wasVisitor)
         {
-            applyShadowCellAuthorityToLiveCell(cellDescription, state, true);
-            sendShadowCellAuthorityEvent(*player, cellDescription, state);
+            applyShadowCellAuthorityToLiveCell(cellKey, state, true);
+            sendShadowCellAuthorityEvent(*player, displayDescription, state);
         }
     }
 
@@ -2444,6 +2692,32 @@ namespace mwmp
         if (player == nullptr || !mwmp::isPacketGuidAssigned(player->guid))
             return;
 
+        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        const std::string cellKey = liveCell != nullptr
+            ? getCellSimulationKey(liveCell->getCellData())
+            : getCellDescriptionSimulationKey(cellDescription);
+        auto stateIt = mShadowCellAuthority.find(cellKey);
+        if (stateIt == mShadowCellAuthority.end())
+            return;
+
+        ShadowCellAuthorityState& state = stateIt->second;
+        const std::string displayDescription = state.hasCell
+            ? state.cell.getDescription()
+            : (state.displayDescription.empty() ? cellDescription : state.displayDescription);
+        const bool wasAuthority = state.authority == player->guid;
+        auto loadCountIt = state.visitorLoadCounts.find(player->guid);
+        if (loadCountIt != state.visitorLoadCounts.end() && loadCountIt->second > 1)
+        {
+            --loadCountIt->second;
+            return;
+        }
+        if (loadCountIt != state.visitorLoadCounts.end())
+            state.visitorLoadCounts.erase(loadCountIt);
+        const bool wasVisitor = eraseGuid(state.visitors, player->guid);
+
+        if (!wasVisitor)
+            return;
+
         for (auto it = mActorInteractionLeases.begin(); it != mActorInteractionLeases.end();)
         {
             if (it->second.playerGuid == player->guid)
@@ -2452,37 +2726,42 @@ namespace mwmp
                 ++it;
         }
 
-        auto stateIt = mShadowCellAuthority.find(cellDescription);
-        if (stateIt == mShadowCellAuthority.end())
-            return;
-
-        ShadowCellAuthorityState& state = stateIt->second;
-        const bool wasAuthority = state.authority == player->guid;
-        const bool wasVisitor = eraseGuid(state.visitors, player->guid);
-
-        if (!wasVisitor)
-            return;
-
         if (state.visitors.empty())
         {
-            updateCellSimulationInterest(cellDescription, state);
+            updateCellSimulationInterest(cellKey, state);
             state.authority = mwmp::unassignedPacketGuid();
-            clearLiveCellActorAuthority(cellDescription, "no valid visitors remain");
-            sendCellActivityEvent(*player, cellDescription, state, false);
+            clearLiveCellActorAuthority(cellKey, "no valid visitors remain");
+            sendCellActivityEvent(*player, displayDescription, state, false);
+            for (auto combatIt = mServerActorCombatStates.begin(); combatIt != mServerActorCombatStates.end();)
+            {
+                if (combatIt->first.cellKey == cellKey)
+                    combatIt = mServerActorCombatStates.erase(combatIt);
+                else
+                    ++combatIt;
+            }
+            for (auto cancelIt = mRuntimeClientAiCancelledActors.begin();
+                 cancelIt != mRuntimeClientAiCancelledActors.end();)
+            {
+                if (cancelIt->cellKey == cellKey)
+                    cancelIt = mRuntimeClientAiCancelledActors.erase(cancelIt);
+                else
+                    ++cancelIt;
+            }
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
-                "Cleared C++ snapshot reporter for cell %s because no valid visitors remain", cellDescription.c_str());
+                "Cleared C++ snapshot reporter for cell %s because no valid visitors remain",
+                displayDescription.c_str());
             mShadowCellAuthority.erase(stateIt);
             return;
         }
 
-        updateCellSimulationInterest(cellDescription, state);
-        sendCellActivityEvent(*player, cellDescription, state, false);
-        broadcastCellActivityEvent(cellDescription, state);
+        updateCellSimulationInterest(cellKey, state);
+        sendCellActivityEvent(*player, displayDescription, state, false);
+        broadcastCellActivityEvent(displayDescription, state);
 
         if (wasAuthority || !isShadowCellAuthorityCandidate(state, state.authority))
-            refreshShadowCellAuthority(cellDescription, state, "current authority left", unassignedPacketGuid(), player->guid);
+            refreshShadowCellAuthority(cellKey, state, "current authority left", unassignedPacketGuid(), player->guid);
         else
-            broadcastShadowCellAuthorityEvent(cellDescription, state);
+            broadcastShadowCellAuthorityEvent(displayDescription, state);
     }
 
     void ServerSimulation::auditShadowCellAuthority(const std::string& cellDescription, const char* context) const
@@ -2522,7 +2801,7 @@ namespace mwmp
 
     std::optional<PacketGuid> ServerSimulation::getShadowCellAuthority(const std::string& cellDescription) const
     {
-        const auto stateIt = mShadowCellAuthority.find(cellDescription);
+        const auto stateIt = mShadowCellAuthority.find(getCellDescriptionSimulationKey(cellDescription));
         if (stateIt == mShadowCellAuthority.end()
             || !mwmp::isPacketGuidAssigned(stateIt->second.authority))
             return std::nullopt;
@@ -2532,7 +2811,7 @@ namespace mwmp
 
     std::size_t ServerSimulation::getShadowCellVisitorCount(const std::string& cellDescription) const
     {
-        const auto stateIt = mShadowCellAuthority.find(cellDescription);
+        const auto stateIt = mShadowCellAuthority.find(getCellDescriptionSimulationKey(cellDescription));
         if (stateIt == mShadowCellAuthority.end())
             return 0;
 
@@ -2543,11 +2822,14 @@ namespace mwmp
     {
         sendRuntimeStatusEvent(player);
 
-        for (const auto& [cellDescription, state] : mShadowCellAuthority)
+        for (const auto& [cellKey, state] : mShadowCellAuthority)
         {
             if (!containsGuid(state.visitors, player.guid))
                 continue;
 
+            const std::string cellDescription = state.hasCell
+                ? state.cell.getDescription()
+                : (state.displayDescription.empty() ? cellKey : state.displayDescription);
             sendCellActivityEvent(player, cellDescription, state, true);
             sendShadowCellAuthorityEvent(player, cellDescription, state);
         }
@@ -2609,16 +2891,19 @@ namespace mwmp
         return bestGuid;
     }
 
-    PacketGuid ServerSimulation::refreshShadowCellAuthority(const std::string& cellDescription,
+    PacketGuid ServerSimulation::refreshShadowCellAuthority(const std::string& cellKey,
         ShadowCellAuthorityState& state, const char* reason, PacketGuid preferredGuid, PacketGuid excludedGuid)
     {
+        const std::string displayDescription = state.hasCell
+            ? state.cell.getDescription()
+            : (state.displayDescription.empty() ? cellKey : state.displayDescription);
         if (canAuthoritativelySimulateActors())
         {
             const bool wasAssigned = mwmp::isPacketGuidAssigned(state.authority);
             state.authority = mwmp::unassignedPacketGuid();
-            const bool liveCleared = clearLiveCellActorAuthority(cellDescription, "server actor authority owns the cell");
+            const bool liveCleared = clearLiveCellActorAuthority(cellKey, "server actor authority owns the cell");
             if (wasAssigned || liveCleared)
-                broadcastShadowCellAuthorityEvent(cellDescription, state);
+                broadcastShadowCellAuthorityEvent(displayDescription, state);
             return state.authority;
         }
 
@@ -2635,12 +2920,12 @@ namespace mwmp
             {
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                     "Cleared C++ snapshot reporter for cell %s because no valid visitors remain",
-                    cellDescription.c_str());
+                    displayDescription.c_str());
             }
             state.authority = mwmp::unassignedPacketGuid();
-            const bool liveCleared = clearLiveCellActorAuthority(cellDescription, "no valid authority candidate remains");
+            const bool liveCleared = clearLiveCellActorAuthority(cellKey, "no valid authority candidate remains");
             if (wasAssigned || liveCleared)
-                broadcastShadowCellAuthorityEvent(cellDescription, state);
+                broadcastShadowCellAuthorityEvent(displayDescription, state);
             return state.authority;
         }
 
@@ -2649,15 +2934,15 @@ namespace mwmp
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                 "Assigning C++ snapshot reporter for cell %s to %s because %s",
-                cellDescription.c_str(), shadowAuthorityName(newAuthority).c_str(),
+                displayDescription.c_str(), shadowAuthorityName(newAuthority).c_str(),
                 reason != nullptr ? reason : "authority was refreshed");
         }
 
         state.authority = newAuthority;
         if (authorityChanged)
         {
-            applyShadowCellAuthorityToLiveCell(cellDescription, state);
-            broadcastShadowCellAuthorityEvent(cellDescription, state);
+            applyShadowCellAuthorityToLiveCell(cellKey, state);
+            broadcastShadowCellAuthorityEvent(displayDescription, state);
         }
         return state.authority;
     }
@@ -2675,7 +2960,7 @@ namespace mwmp
         liveCell->setAuthority(mwmp::unassignedPacketGuid());
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Cleared live actor authority of cell %s from %s because %s",
-            cellDescription.c_str(), shadowAuthorityName(previousAuthority).c_str(),
+            liveCell->getShortDescription().c_str(), shadowAuthorityName(previousAuthority).c_str(),
             reason != nullptr ? reason : "authority was cleared");
         return true;
     }
@@ -2722,7 +3007,7 @@ namespace mwmp
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Applied C++ client snapshot reporter for cell %s to %s%s",
-            cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
+            liveCell->getShortDescription().c_str(), shadowAuthorityName(state.authority).c_str(),
             forceBroadcast && !authorityChanged ? " for joining visitor" : "");
 
         if (authorityChanged)
@@ -2772,7 +3057,7 @@ namespace mwmp
 
         LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
             "Requested C++ actor list snapshot for cell %s from snapshot reporter %s because %s",
-            cellDescription.c_str(), shadowAuthorityName(state.authority).c_str(),
+            liveCell.getShortDescription().c_str(), shadowAuthorityName(state.authority).c_str(),
             reason != nullptr ? reason : "the authority needs to refresh server state");
         return true;
     }
@@ -2852,6 +3137,9 @@ namespace mwmp
     {
         const bool enabled = canAuthoritativelySimulateActors() && !state.visitors.empty();
         Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        const std::string displayDescription = state.hasCell
+            ? state.cell.getDescription()
+            : (state.displayDescription.empty() ? cellDescription : state.displayDescription);
         if (liveCell == nullptr && enabled && state.hasCell)
         {
             CellController* cellController = CellController::get();
@@ -2866,7 +3154,7 @@ namespace mwmp
             liveCell->setSimulationInterest(enabled);
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
                 "C++ %s server simulation interest for cell %s with %zu active visitor(s)",
-                enabled ? "enabled" : "disabled", cellDescription.c_str(), state.visitors.size());
+                enabled ? "enabled" : "disabled", displayDescription.c_str(), state.visitors.size());
         }
 
         return liveCell->hasSimulationInterest();
@@ -2881,18 +3169,19 @@ namespace mwmp
         const std::string cellDescription = player.cell.getDescription();
         if (cellDescription.empty())
             return false;
+        const std::string cellKey = getCellSimulationKey(player.cell);
 
         CellController* cellController = CellController::get();
         if (cellController == nullptr)
             return false;
 
-        Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+        Cell* liveCell = findLoadedServerCellByDescription(cellKey);
         if (liveCell == nullptr)
             liveCell = cellController->addCell(player.cell);
         if (liveCell == nullptr)
             return false;
 
-        const auto stateIt = mShadowCellAuthority.find(cellDescription);
+        const auto stateIt = mShadowCellAuthority.find(cellKey);
         const bool stateTracksPlayer = stateIt != mShadowCellAuthority.end()
             && containsGuid(stateIt->second.visitors, player.guid);
         if (liveCell->hasPlayer(&player) && stateTracksPlayer)
@@ -2931,7 +3220,7 @@ namespace mwmp
             if (ensurePlayerCurrentSimulationCell(*player, "runtime focus reconciliation"))
             {
                 ++focusSelectionStats.repairedCurrentPlayerCellCount;
-                focusSelectionStats.lastRepairedCurrentPlayerCellDescription = cellDescription;
+                focusSelectionStats.lastRepairedCurrentPlayerCellDescription = player->cell.getDescription();
             }
         }
     }
@@ -2945,7 +3234,7 @@ namespace mwmp
         if (cellController == nullptr)
             return;
 
-        auto buildFocusForState = [&](const std::string& cellDescription, const ShadowCellAuthorityState& state,
+        auto buildFocusForState = [&](const std::string& cellKey, const ShadowCellAuthorityState& state,
                                       const ESM::Cell& cell) {
             SimulationCellFocus focus;
             focus.cell = cell;
@@ -2972,41 +3261,45 @@ namespace mwmp
                 break;
             }
 
-            static_cast<void>(cellDescription);
+            static_cast<void>(cellKey);
             return focus;
         };
 
         std::vector<SimulationCellFocus> simulationFocuses;
-        std::set<std::string> focusedCellDescriptions;
-        std::set<std::string> authorityOnlyCellDescriptions;
+        std::set<std::string> focusedCellKeys;
+        std::set<std::string> authorityOnlyCellKeys;
         RuntimeFocusSelectionStats focusSelectionStats;
         reconcileCurrentPlayerSimulationCells(focusSelectionStats);
-        for (const auto& [cellDescription, state] : mShadowCellAuthority)
+        for (const auto& [cellKey, state] : mShadowCellAuthority)
         {
             if (state.visitors.empty() || !state.hasCell)
                 continue;
 
-            Cell* liveCell = findLoadedServerCellByDescription(cellDescription);
+            const std::string displayDescription = state.hasCell
+                ? state.cell.getDescription()
+                : (state.displayDescription.empty() ? cellKey : state.displayDescription);
+
+            Cell* liveCell = findLoadedServerCellByDescription(cellKey);
             if (liveCell == nullptr)
                 liveCell = cellController->addCell(state.cell);
             if (liveCell != nullptr && !liveCell->hasSimulationInterest())
                 liveCell->setSimulationInterest(true);
 
-            SimulationCellFocus focus = buildFocusForState(cellDescription, state, state.cell);
+            SimulationCellFocus focus = buildFocusForState(cellKey, state, state.cell);
             ++focusSelectionStats.candidateCellCount;
             if (focus.hasPosition)
             {
                 simulationFocuses.push_back(std::move(focus));
-                focusedCellDescriptions.insert(cellDescription);
+                focusedCellKeys.insert(cellKey);
                 ++focusSelectionStats.directFocusCellCount;
             }
             else
             {
-                authorityOnlyCellDescriptions.insert(cellDescription);
+                authorityOnlyCellKeys.insert(cellKey);
                 ++focusSelectionStats.authorityOnlyCellCount;
                 ++focusSelectionStats.deferredLoadedCellCount;
-                focusSelectionStats.lastAuthorityOnlyCellDescription = cellDescription;
-                focusSelectionStats.lastDeferredLoadedCellDescription = cellDescription;
+                focusSelectionStats.lastAuthorityOnlyCellDescription = displayDescription;
+                focusSelectionStats.lastDeferredLoadedCellDescription = displayDescription;
             }
         }
 
@@ -3014,13 +3307,14 @@ namespace mwmp
         {
             if (cell == nullptr || !cell->hasSimulationInterest())
                 continue;
-            if (focusedCellDescriptions.find(cell->getShortDescription()) != focusedCellDescriptions.end())
+            const std::string cellKey = getCellSimulationKey(cell->getCellData());
+            if (focusedCellKeys.find(cellKey) != focusedCellKeys.end())
                 continue;
             const std::string cellDescription = cell->getShortDescription();
-            if (authorityOnlyCellDescriptions.find(cellDescription) != authorityOnlyCellDescriptions.end())
+            if (authorityOnlyCellKeys.find(cellKey) != authorityOnlyCellKeys.end())
                 continue;
 
-            const auto stateIt = mShadowCellAuthority.find(cellDescription);
+            const auto stateIt = mShadowCellAuthority.find(cellKey);
             if (stateIt != mShadowCellAuthority.end())
             {
                 if (!stateIt->second.visitors.empty())
@@ -3092,6 +3386,8 @@ namespace mwmp
             mRuntimeActorSnapshotStats.lastSnapshotCellDescription = serverCell->getShortDescription();
             mRuntimeActorSnapshotStats.lastSnapshotActorCount = runtimeList.baseActors.size();
             const std::string runtimeCellKey = getCellSimulationKey(runtimeList.cell);
+            const bool runtimeOwnsClientRenderedAi = canAuthoritativelySimulateActors()
+                && mRuntime != nullptr && mRuntime->hasOpenMwWorld();
 
             const bool hadActorListSnapshot = serverCell->hasActorListSnapshot();
             std::map<ActorIdentityPair, BaseActor> cachedActorsBeforeIdentity;
@@ -3339,17 +3635,110 @@ namespace mwmp
                     equipmentList.baseActors.push_back(std::move(equipmentActor));
                 }
 
-                if (!actorInteractionLocked && runtimeActor.hasAiData && cachedActor != nullptr
-                    && !(actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor)
-                        && runtimeActor.aiAction != BaseActorList::COMBAT)
-                    && hasValidActorAiSnapshot(*serverCell, runtimeActor))
+                if (runtimeOwnsClientRenderedAi)
                 {
-                    BaseActor aiActor = buildServerAcceptedAiActor(*serverCell, runtimeActor, *cachedActor);
-                    if (previousActor == nullptr || !sameActorAi(*previousActor, aiActor))
+                    if (!actorInteractionLocked && cachedActor != nullptr && cachedActor->hasAiData
+                        && cachedActor->aiAction != BaseActorList::CANCEL
+                        && mRuntimeClientAiCancelledActors.insert(actorKey).second)
+                    {
+                        BaseActor aiActor = visualActor;
+                        aiActor.hasAiData = true;
+                        aiActor.hasAiTarget = false;
+                        aiActor.aiTarget = Target();
+                        aiActor.aiAction = BaseActorList::CANCEL;
+                        aiActor.aiDistance = 0;
+                        aiActor.aiDuration = 0;
+                        aiActor.aiShouldRepeat = false;
+                        aiActor.aiCoordinates = zeroPosition();
+                        aiActor.direction = zeroPosition();
+                        if (aiActor.hasPositionData)
+                        {
+                            aiActor.positionSequence = nextPositionSequence;
+                            aiActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                            aiActor.movementLatencySeconds = 0.f;
+                        }
                         aiList.baseActors.push_back(std::move(aiActor));
+                    }
+                    else if (actorInteractionLocked || cachedActor == nullptr || !cachedActor->hasAiData
+                        || cachedActor->aiAction == BaseActorList::CANCEL)
+                        mRuntimeClientAiCancelledActors.erase(actorKey);
+                }
+                else
+                {
+                    mRuntimeClientAiCancelledActors.erase(actorKey);
+                    if (!actorInteractionLocked && runtimeActor.hasAiData && cachedActor != nullptr
+                        && !(actorHasServerCombatTarget(*cachedActor) && hasValidAiTarget(*serverCell, *cachedActor)
+                            && runtimeActor.aiAction != BaseActorList::COMBAT)
+                        && hasValidActorAiSnapshot(*serverCell, runtimeActor))
+                    {
+                        BaseActor aiActor = buildServerAcceptedAiActor(*serverCell, runtimeActor, *cachedActor);
+                        if (previousActor == nullptr || !sameActorAi(*previousActor, aiActor))
+                            aiList.baseActors.push_back(std::move(aiActor));
+                    }
                 }
 
-                if (!actorInteractionLocked && visualActor.hasPositionData
+                bool sentServerAttackSnapshot = false;
+                if (!actorInteractionLocked && cachedActor != nullptr && visualActor.hasPositionData
+                    && actorHasServerCombatTarget(*cachedActor) && cachedActor->aiTarget.isPlayer
+                    && isLiveActorForServerMelee(*cachedActor))
+                {
+                    ESM::Position targetPosition;
+                    if (getAiTargetPosition(*serverCell, cachedActor->aiTarget, targetPosition))
+                    {
+                        const float deltaX = targetPosition.pos[0] - visualActor.position.pos[0];
+                        const float deltaY = targetPosition.pos[1] - visualActor.position.pos[1];
+                        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+                        if (std::isfinite(distanceSquared) && distanceSquared <= serverActorMeleeRangeSquared)
+                        {
+                            ServerActorCombatState& combatState = mServerActorCombatStates[actorKey];
+                            if (!combatState.hasNextMeleeAttack)
+                            {
+                                combatState.nextMeleeAttack = now;
+                                combatState.hasNextMeleeAttack = true;
+                            }
+
+                            if (now >= combatState.nextMeleeAttack)
+                            {
+                                combatState.nextMeleeAttack = now + serverActorMeleeInterval;
+                                const std::string attackAnimation = runtimeActor.hasCombatData
+                                    ? runtimeActor.attack.attackAnimation
+                                    : std::string();
+                                Attack serverAttack = makeServerActorMeleeAttack(
+                                    *cachedActor, cachedActor->aiTarget, targetPosition, attackAnimation);
+
+                                Player* target = Players::getPlayer(serverAttack.target.guid);
+                                bool becameDead = false;
+                                if (target != nullptr && applyAttackDamageToPlayer(*target, serverAttack, becameDead))
+                                {
+                                    broadcastPlayerStats(*target);
+                                    notifyPlayerStatsDynamic(*target);
+                                    if (becameDead)
+                                        notifyPlayerDeath(*target);
+                                }
+
+                                BaseActor attackActor = visualActor;
+                                attackActor.refId = cachedActor->refId.empty() ? runtimeActor.refId : cachedActor->refId;
+                                attackActor.hasCombatData = true;
+                                attackActor.combatSequence = cachedActor->hasCombatData
+                                    ? cachedActor->combatSequence + 1
+                                    : 1;
+                                attackActor.attack = std::move(serverAttack);
+                                attackActor.hasPositionData = true;
+                                attackActor.positionSequence = nextPositionSequence;
+                                attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                                attackActor.movementLatencySeconds = 0.f;
+                                attackList.baseActors.push_back(std::move(attackActor));
+                                sentServerAttackSnapshot = true;
+                            }
+                        }
+                    }
+                    else
+                        mServerActorCombatStates.erase(actorKey);
+                }
+                else
+                    mServerActorCombatStates.erase(actorKey);
+
+                if (!sentServerAttackSnapshot && !actorInteractionLocked && visualActor.hasPositionData
                     && shouldSendRuntimeAttackSnapshot(previousActor, runtimeActor))
                 {
                     BaseActor attackActor = visualActor;
@@ -3405,7 +3794,8 @@ namespace mwmp
             aiList.count = static_cast<unsigned int>(aiList.baseActors.size());
             if (aiList.count != 0)
             {
-                serverCell->readActorList(ID_ACTOR_AI, &aiList);
+                if (!runtimeOwnsClientRenderedAi)
+                    serverCell->readActorList(ID_ACTOR_AI, &aiList);
                 aiPacket->setActorList(&aiList);
                 serverCell->sendToLoaded(aiPacket, &aiList);
             }
@@ -3425,6 +3815,7 @@ namespace mwmp
         if (playerSnapshots.empty())
             return;
 
+        const Clock::time_point now = Clock::now();
         for (const SimulationPlayerSnapshot& snapshot : playerSnapshots)
         {
             if (!mwmp::isPacketGuidAssigned(snapshot.guid) || !snapshot.hasStatsDynamicData
@@ -3438,8 +3829,16 @@ namespace mwmp
             if (!isSameSimulationCell(target->cell, snapshot.cell))
                 continue;
 
+            const float currentHealth = target->creatureStats.mDynamic[0].mCurrent;
+            const float incomingHealth = snapshot.creatureStats.mDynamic[0].mCurrent;
             const bool wasDead = target->creatureStats.mDead
-                || target->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
+                || currentHealth <= healthDeadEpsilon;
+            const bool snapshotDead = snapshot.creatureStats.mDead
+                || incomingHealth <= healthDeadEpsilon;
+            if (shouldSuppressTransientPlayerDeath(*target, snapshot.cell, wasDead, currentHealth, snapshotDead,
+                    incomingHealth, now, "OpenMW runtime"))
+                continue;
+
             bool changed = false;
             std::vector<uint8_t> changedIndexes;
 
@@ -3463,8 +3862,6 @@ namespace mwmp
                 }
             }
 
-            const bool snapshotDead = snapshot.creatureStats.mDead
-                || snapshot.creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
             if (snapshotDead && target->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon)
             {
                 if (target->creatureStats.mDynamic[0].mCurrent != 0.f)
@@ -4708,6 +5105,20 @@ namespace mwmp
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                 "Failed to send CommunityMP Lua ready event to %s", player.npc.mName.c_str());
         }
+    }
+
+    bool ServerSimulation::acceptPlayerStatsDynamic(Player& player)
+    {
+        if (player.hasAcceptedStatsDynamicPacket && player.hasFiniteDynamicStats()
+            && shouldSuppressTransientPlayerDeath(player, player.cell, player.acceptedStatsDynamicDead,
+                player.acceptedStatsDynamic[0].mCurrent, player.creatureStats.mDead,
+                player.creatureStats.mDynamic[0].mCurrent, Clock::now(), "client stats-dynamic"))
+        {
+            player.restoreAcceptedStatsDynamicPacket();
+            return false;
+        }
+
+        return player.acceptStatsDynamicPacket(true);
     }
 
     bool ServerSimulation::acceptServerAuthoredPlayerState(Player& player, bool cellChangePacket)

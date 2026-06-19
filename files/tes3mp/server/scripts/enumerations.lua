@@ -10,7 +10,7 @@ enumerations.container = { SET = 0, ADD = 1, REMOVE = 2, REQUEST = 3 }
 enumerations.containerSub = { NONE = 0, DRAG = 1, DROP = 2, TAKE_ALL = 3, REPLY_TO_REQUEST = 4, RESTOCK_RESULT = 5, BARTER = 6,
     LOCK_REQUEST = 7, LOCK_RELEASE = 8 }
 enumerations.dialogueChoice = { TOPIC = 0, PERSUASION = 1, COMPANION_SHARE = 2, BARTER = 3, SPELLS = 4, TRAVEL = 5,
-    SPELLMAKING = 6, ENCHANTING = 7, TRAINING = 8, REPAIR = 9 }
+    SPELLMAKING = 6, ENCHANTING = 7, TRAINING = 8, REPAIR = 9, DIALOGUE_START = 10, DIALOGUE_END = 11 }
 enumerations.doorstate = { OPEN = 1, CLOSED = 2 }
 enumerations.drawstate = { NONE = 0, WEAPON = 1, SPELL = 2 }
 enumerations.effects = { WATER_BREATHING = 0, SWIFT_SWIM = 1, WATER_WALKING = 2, SHIELD = 3, FIRE_SHIELD = 4,

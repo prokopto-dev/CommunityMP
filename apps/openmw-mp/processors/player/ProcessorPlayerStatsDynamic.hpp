@@ -3,6 +3,7 @@
 
 #include "../PlayerProcessor.hpp"
 #include "apps/openmw-mp/ServerEventDispatcher.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
 
 namespace mwmp
 {
@@ -18,7 +19,7 @@ namespace mwmp
         {
             DEBUG_PRINTF(strPacketID.c_str());
 
-            if (!player.acceptStatsDynamicPacket(true))
+            if (!ServerNetworking::getPtr()->getServerSimulation().acceptPlayerStatsDynamic(player))
             {
                 if (player.hasAcceptedStatsDynamicPacket)
                 {

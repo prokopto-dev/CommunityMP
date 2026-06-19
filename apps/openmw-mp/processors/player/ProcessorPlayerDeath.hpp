@@ -42,6 +42,15 @@ namespace mwmp
         {
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "Received %s from %s", strPacketID.c_str(), player.npc.mName.c_str());
 
+            if (player.getLoadState() != Player::POSTLOADED)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                    "Rejected %s from %s before the player finished loading",
+                    strPacketID.c_str(), player.npc.mName.c_str());
+                sendAcceptedStatsDynamicCorrection(player);
+                return;
+            }
+
             if (!player.isClientDeathPacketAllowed())
             {
                 sendAcceptedStatsDynamicCorrection(player);

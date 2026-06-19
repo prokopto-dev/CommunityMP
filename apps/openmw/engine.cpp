@@ -778,9 +778,7 @@ void OMW::Engine::neutralizeServerSimulationPlayer()
     const bool hasFocusPlayer = mServerSimulationFocusPlayerSet
         && mwmp::isPacketGuidAssigned(mServerSimulationFocusPlayerGuid);
 
-    if (!hasFocusPlayer && !mWorld->getGodModeState())
-        static_cast<void>(mWorld->toggleGodMode());
-    else if (hasFocusPlayer && mWorld->getGodModeState())
+    if (!mWorld->getGodModeState())
         static_cast<void>(mWorld->toggleGodMode());
 
     MWMechanics::CreatureStats& playerStats = player.getClass().getCreatureStats(player);

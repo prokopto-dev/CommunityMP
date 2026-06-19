@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -70,6 +71,7 @@ namespace mwmp
         bool acceptActorMovementSnapshot(ActorPacket& packet, BaseActorList& actorList, ::Cell& serverCell);
         bool acceptPlayerCellChange(::Player& player, PlayerPacket& packet);
         bool acceptPlayerMovementSnapshot(::Player& player, PlayerPacket& packet);
+        bool acceptPlayerStatsDynamic(::Player& player);
         bool acceptServerAuthoredPlayerState(::Player& player, bool cellChangePacket = false);
         bool isRedundantServerAuthoredPosition(const ::Player& player) const;
         void sendPlayerVisualStateToLoaded(::Player& player, PlayerPacket& packet);
@@ -92,6 +94,12 @@ namespace mwmp
             bool hasVisualPosition = false;
         };
 
+        bool isRecentServerCellChange(const ::Player& player, Clock::time_point now) const;
+        bool isServerActorCombatTargetingPlayer(const ESM::Cell& cell, const ::Player& player) const;
+        bool shouldSuppressTransientPlayerDeath(const ::Player& player, const ESM::Cell& cell, bool previousDead,
+            float previousHealth, bool incomingDead, float incomingHealth, Clock::time_point now,
+            const char* source) const;
+
         struct ActorMovementKey
         {
             std::string cellKey;
@@ -113,8 +121,10 @@ namespace mwmp
         struct ShadowCellAuthorityState
         {
             std::vector<PacketGuid> visitors;
+            std::map<PacketGuid, std::uint32_t> visitorLoadCounts;
             PacketGuid authority = unassignedPacketGuid();
             ESM::Cell cell;
+            std::string displayDescription;
             bool hasCell = false;
         };
 
@@ -158,6 +168,12 @@ namespace mwmp
             bool useFallbackMovement = false;
         };
 
+        struct ServerActorCombatState
+        {
+            Clock::time_point nextMeleeAttack;
+            bool hasNextMeleeAttack = false;
+        };
+
         struct ActorInteractionLease
         {
             PacketGuid playerGuid = unassignedPacketGuid();
@@ -187,6 +203,8 @@ namespace mwmp
         std::map<ActorMovementKey, ActorWanderState> mActorWanderStates;
         std::map<ActorMovementKey, ActorPathgridRouteState> mActorPathgridRouteStates;
         std::map<ActorMovementKey, RuntimeActorMovementState> mRuntimeActorMovementStates;
+        std::map<ActorMovementKey, ServerActorCombatState> mServerActorCombatStates;
+        std::set<ActorMovementKey> mRuntimeClientAiCancelledActors;
         std::map<ActorMovementKey, ActorInteractionLease> mActorInteractionLeases;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         RuntimeActorSnapshotStats mRuntimeActorSnapshotStats;
@@ -203,7 +221,7 @@ namespace mwmp
         bool isShadowCellAuthorityCandidate(const ShadowCellAuthorityState& state, PacketGuid guid) const;
         PacketGuid getLowestPingShadowCellAuthority(
             const ShadowCellAuthorityState& state, PacketGuid excludedGuid = unassignedPacketGuid()) const;
-        PacketGuid refreshShadowCellAuthority(const std::string& cellDescription, ShadowCellAuthorityState& state,
+        PacketGuid refreshShadowCellAuthority(const std::string& cellKey, ShadowCellAuthorityState& state,
             const char* reason, PacketGuid preferredGuid = unassignedPacketGuid(),
             PacketGuid excludedGuid = unassignedPacketGuid());
         bool clearLiveCellActorAuthority(const std::string& cellDescription, const char* reason) const;
