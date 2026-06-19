@@ -22,6 +22,7 @@
 #include <components/openmw-mp/Packets/Player/PlayerPacket.hpp>
 #include <components/openmw-mp/TimedLog.hpp>
 #include <components/openmw-mp/Transport/PacketDelivery.hpp>
+#include <components/esm3/loadweap.hpp>
 
 #include "Script/Script.hpp"
 #include "Cell.hpp"
@@ -69,6 +70,8 @@ namespace
     constexpr float serverFallbackMinHandToHandMult = 0.1f;
     constexpr float serverFallbackMaxHandToHandMult = 0.5f;
     constexpr float serverFallbackHandToHandHealthMult = 0.1f;
+    constexpr float serverFallbackDamageStrengthBase = 0.5f;
+    constexpr float serverFallbackDamageStrengthMult = 0.1f;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
@@ -1409,15 +1412,84 @@ namespace
         return getModifiedStatValue(attacker.npcStats.mSkills[handToHandIndex]);
     }
 
+    float getServerPlayerStrength(const Player& attacker)
+    {
+        static const int strengthIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Strength);
+        if (strengthIndex < 0 || strengthIndex >= ESM::Attribute::Length)
+            return 0.f;
+
+        return getModifiedStatValue(attacker.creatureStats.mAttributes[strengthIndex]);
+    }
+
     bool isUnarmedMeleeAttack(const mwmp::Attack& attack)
     {
         return attack.type == mwmp::Attack::MELEE && attack.rangedWeaponId.empty();
+    }
+
+    bool isWeaponMeleeAttack(const mwmp::Attack& attack)
+    {
+        return attack.type == mwmp::Attack::MELEE && !attack.rangedWeaponId.empty();
     }
 
     bool shouldUseServerFallbackUnarmedDamage(const mwmp::Attack& attack)
     {
         return attack.type == mwmp::Attack::MELEE && !attack.pressed && attack.isHit && attack.success
             && !attack.block && isUnarmedMeleeAttack(attack);
+    }
+
+    bool shouldUseServerFallbackWeaponDamage(const mwmp::Attack& attack)
+    {
+        return attack.type == mwmp::Attack::MELEE && !attack.pressed && attack.isHit && attack.success
+            && !attack.block && isWeaponMeleeAttack(attack);
+    }
+
+    const mwmp::Item* findPlayerEquippedItemByRefId(const Player& player, std::string_view refId)
+    {
+        if (refId.empty())
+            return nullptr;
+
+        const std::string normalizedRefId = normalizedWorldLookupKey(refId);
+        for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
+        {
+            const mwmp::Item& item = player.equipmentItems[slot];
+            if (!item.refId.empty() && item.count > 0 && normalizedWorldLookupKey(item.refId) == normalizedRefId)
+                return &item;
+        }
+
+        return nullptr;
+    }
+
+    bool selectWeaponAttackDamage(
+        const mwmp::WorldRecordWinner& weapon, std::string_view attackAnimation, int& minDamage, int& maxDamage)
+    {
+        if (attackAnimation == "slash")
+        {
+            minDamage = weapon.itemEquipmentWeaponSlashMinDamage;
+            maxDamage = weapon.itemEquipmentWeaponSlashMaxDamage;
+        }
+        else if (attackAnimation == "thrust")
+        {
+            minDamage = weapon.itemEquipmentWeaponThrustMinDamage;
+            maxDamage = weapon.itemEquipmentWeaponThrustMaxDamage;
+        }
+        else
+        {
+            minDamage = weapon.itemEquipmentWeaponChopMinDamage;
+            maxDamage = weapon.itemEquipmentWeaponChopMaxDamage;
+        }
+
+        if (maxDamage <= 0 && weapon.itemEquipmentWeaponMaxDamage > 0)
+        {
+            minDamage = 0;
+            maxDamage = weapon.itemEquipmentWeaponMaxDamage;
+        }
+
+        if (maxDamage <= 0)
+            return false;
+
+        minDamage = std::max(0, minDamage);
+        maxDamage = std::max(minDamage, maxDamage);
+        return true;
     }
 
     float getServerFallbackPlayerUnarmedDamage(
@@ -1435,6 +1507,45 @@ namespace
         if (targetTakesHealthDamage)
             damage *= serverFallbackHandToHandHealthMult;
 
+        return std::clamp(damage, 0.f, maxServerAttackDamage);
+    }
+
+    float getServerAttackDamage(const mwmp::Attack& attack)
+    {
+        return std::clamp(attack.damage, 0.f, maxServerAttackDamage);
+    }
+
+    float getServerFallbackPlayerWeaponDamage(
+        const Player& attacker, const mwmp::Attack& attack, float attackStrength)
+    {
+        std::optional<mwmp::WorldRecordWinner> weapon = mwmp::WorldDatabaseStore::get().findWinningRecordByTypeAndKey(
+            "WEAP", attack.rangedWeaponId);
+        if (!weapon || weapon->deleted || weapon->tombstone || !weapon->itemEquipmentImported
+            || weapon->itemEquipmentWeaponType == ESM::Weapon::None)
+            return getServerAttackDamage(attack);
+
+        int minDamage = 0;
+        int maxDamage = 0;
+        if (!selectWeaponAttackDamage(*weapon, attack.attackAnimation, minDamage, maxDamage))
+            return getServerAttackDamage(attack);
+
+        const float resolvedStrength = sanitizePlayerReleaseMeleeAttackStrength(attackStrength);
+        float damage = static_cast<float>(minDamage) + (static_cast<float>(maxDamage - minDamage) * resolvedStrength);
+
+        if (const mwmp::Item* equippedWeapon = findPlayerEquippedItemByRefId(attacker, attack.rangedWeaponId))
+        {
+            if (equippedWeapon->charge >= 0 && weapon->itemEquipmentHealth > 0)
+            {
+                const float normalizedHealth = std::clamp(
+                    static_cast<float>(equippedWeapon->charge) / static_cast<float>(weapon->itemEquipmentHealth),
+                    0.f, 1.f);
+                damage *= normalizedHealth;
+            }
+        }
+
+        const float strengthScale = serverFallbackDamageStrengthBase
+            + (getServerPlayerStrength(attacker) * serverFallbackDamageStrengthMult * 0.1f);
+        damage *= std::max(0.f, strengthScale);
         return std::clamp(damage, 0.f, maxServerAttackDamage);
     }
 
@@ -1465,11 +1576,6 @@ namespace
 
     bool isAcceptedCastTarget(const mwmp::Cast& cast, const ESM::Cell& casterCell, Player* playerCaster,
         Cell* serverCell);
-
-    float getServerAttackDamage(const mwmp::Attack& attack)
-    {
-        return std::clamp(attack.damage, 0.f, maxServerAttackDamage);
-    }
 
     bool shouldApplyUnarmedHealthDamage(bool isKnockedDown, float fatigue)
     {
@@ -2553,6 +2659,14 @@ namespace
         float meleeAttackStrength)
     {
         mwmp::Attack resolvedAttack = attack;
+        if (shouldUseServerFallbackWeaponDamage(resolvedAttack))
+        {
+            resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+            resolvedAttack.damage = getServerFallbackPlayerWeaponDamage(
+                attacker, resolvedAttack, resolvedAttack.attackStrength);
+            return resolvedAttack;
+        }
+
         if (!shouldUseServerFallbackUnarmedDamage(resolvedAttack))
             return resolvedAttack;
 
@@ -2567,6 +2681,14 @@ namespace
         const Player& attacker, const mwmp::Attack& attack, mwmp::BaseActor& target, float meleeAttackStrength)
     {
         mwmp::Attack resolvedAttack = attack;
+        if (shouldUseServerFallbackWeaponDamage(resolvedAttack))
+        {
+            resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+            resolvedAttack.damage = getServerFallbackPlayerWeaponDamage(
+                attacker, resolvedAttack, resolvedAttack.attackStrength);
+            return resolvedAttack;
+        }
+
         if (!shouldUseServerFallbackUnarmedDamage(resolvedAttack))
             return resolvedAttack;
 

@@ -1300,6 +1300,12 @@ namespace
         int armor = 0;
         int weaponType = ESM::Weapon::None;
         int weaponMaxDamage = 0;
+        int weaponChopMinDamage = 0;
+        int weaponChopMaxDamage = 0;
+        int weaponSlashMinDamage = 0;
+        int weaponSlashMaxDamage = 0;
+        int weaponThrustMinDamage = 0;
+        int weaponThrustMaxDamage = 0;
         int weaponAmmoType = ESM::Weapon::None;
     };
 
@@ -2208,6 +2214,12 @@ namespace
             row.itemEquipment.weaponType = weapon.mData.mType;
             row.itemEquipment.weaponMaxDamage = std::max<int>(
                 { weapon.mData.mChop[1], weapon.mData.mSlash[1], weapon.mData.mThrust[1] });
+            row.itemEquipment.weaponChopMinDamage = weapon.mData.mChop[0];
+            row.itemEquipment.weaponChopMaxDamage = weapon.mData.mChop[1];
+            row.itemEquipment.weaponSlashMinDamage = weapon.mData.mSlash[0];
+            row.itemEquipment.weaponSlashMaxDamage = weapon.mData.mSlash[1];
+            row.itemEquipment.weaponThrustMinDamage = weapon.mData.mThrust[0];
+            row.itemEquipment.weaponThrustMaxDamage = weapon.mData.mThrust[1];
             row.itemEquipment.weaponAmmoType = weapon.mData.mType == ESM::Weapon::Arrow
                 || weapon.mData.mType == ESM::Weapon::Bolt
                 ? weapon.mData.mType
@@ -2518,6 +2530,18 @@ namespace
         appendJsonNumberField(result, "itemEquipmentWeaponType", row.itemEquipment.weaponType);
         result.push_back(',');
         appendJsonNumberField(result, "itemEquipmentWeaponMaxDamage", row.itemEquipment.weaponMaxDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponChopMinDamage", row.itemEquipment.weaponChopMinDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponChopMaxDamage", row.itemEquipment.weaponChopMaxDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponSlashMinDamage", row.itemEquipment.weaponSlashMinDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponSlashMaxDamage", row.itemEquipment.weaponSlashMaxDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponThrustMinDamage", row.itemEquipment.weaponThrustMinDamage);
+        result.push_back(',');
+        appendJsonNumberField(result, "itemEquipmentWeaponThrustMaxDamage", row.itemEquipment.weaponThrustMaxDamage);
         result.push_back(',');
         appendJsonNumberField(result, "itemEquipmentWeaponAmmoType", row.itemEquipment.weaponAmmoType);
         result.push_back(',');
