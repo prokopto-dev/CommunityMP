@@ -339,6 +339,7 @@ namespace
         {
             mSimulationFocuses = focuses;
             mFocusState.configuredCellCount = mSimulationFocuses.size();
+            mFocusState.configuredPlayerCount = countConfiguredPlayerFocuses();
             if (mNextSimulationFocus >= mSimulationFocuses.size())
                 mNextSimulationFocus = 0;
             pruneQueuedFocusDeltas();
@@ -377,12 +378,38 @@ namespace
             if (mEngine == nullptr || !mEngine->isServerSimulationPrepared())
                 return false;
 
-            mwmp::SimulationPlayerSnapshot snapshot;
-            if (!mEngine->exportServerSimulationFocusPlayerSnapshot(snapshot))
-                return false;
+            mFocusState.exportedPlayerSnapshotCount = 0;
+            mFocusState.virtualPlayerSnapshotCount = 0;
+            mFocusState.exportedFocusPlayerSnapshot = false;
 
-            playerSnapshots.push_back(std::move(snapshot));
-            return true;
+            const std::size_t initialSnapshotCount = playerSnapshots.size();
+            std::vector<mwmp::PacketGuid> exportedGuids;
+            auto appendSnapshot = [&](mwmp::SimulationPlayerSnapshot snapshot) {
+                if (!mwmp::isPacketGuidAssigned(snapshot.guid))
+                    return false;
+
+                if (std::find(exportedGuids.begin(), exportedGuids.end(), snapshot.guid) != exportedGuids.end())
+                    return false;
+
+                exportedGuids.push_back(snapshot.guid);
+                playerSnapshots.push_back(std::move(snapshot));
+                return true;
+            };
+
+            mwmp::SimulationPlayerSnapshot focusSnapshot;
+            if (mEngine->exportServerSimulationFocusPlayerSnapshot(focusSnapshot)
+                && appendSnapshot(std::move(focusSnapshot)))
+                mFocusState.exportedFocusPlayerSnapshot = true;
+
+            for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
+            {
+                mwmp::SimulationPlayerSnapshot virtualSnapshot = makeVirtualPlayerSnapshot(focus);
+                if (appendSnapshot(std::move(virtualSnapshot)))
+                    ++mFocusState.virtualPlayerSnapshotCount;
+            }
+
+            mFocusState.exportedPlayerSnapshotCount = playerSnapshots.size() - initialSnapshotCount;
+            return mFocusState.exportedPlayerSnapshotCount != 0;
         }
 
         bool startActorCombatWithPlayer(
@@ -407,6 +434,46 @@ namespace
         static std::string focusDescription(const mwmp::SimulationCellFocus& focus)
         {
             return focus.cell.getDescription();
+        }
+
+        static mwmp::SimulationPlayerSnapshot makeVirtualPlayerSnapshot(const mwmp::SimulationCellFocus& focus)
+        {
+            mwmp::SimulationPlayerSnapshot snapshot;
+            if (!focus.hasPlayer || !focus.hasPosition)
+                return snapshot;
+
+            snapshot.cell = focus.cell;
+            snapshot.position = focus.position;
+            snapshot.guid = focus.playerGuid;
+            snapshot.name = focus.playerName;
+            snapshot.hasPositionData = true;
+
+            if (focus.hasPlayerStats)
+            {
+                snapshot.creatureStats = focus.playerStats;
+                snapshot.hasStatsDynamicData = true;
+            }
+
+            return snapshot;
+        }
+
+        std::size_t countConfiguredPlayerFocuses() const
+        {
+            std::vector<mwmp::PacketGuid> countedGuids;
+            std::size_t result = 0;
+            for (const mwmp::SimulationCellFocus& focus : mSimulationFocuses)
+            {
+                if (!focus.hasPlayer || !focus.hasPosition || !mwmp::isPacketGuidAssigned(focus.playerGuid))
+                    continue;
+
+                if (std::find(countedGuids.begin(), countedGuids.end(), focus.playerGuid) != countedGuids.end())
+                    continue;
+
+                countedGuids.push_back(focus.playerGuid);
+                ++result;
+            }
+
+            return result;
         }
 
         void pruneQueuedFocusDeltas()

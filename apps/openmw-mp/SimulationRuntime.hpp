@@ -137,6 +137,9 @@ namespace mwmp
     struct SimulationRuntimeFocusState
     {
         std::size_t configuredCellCount = 0;
+        std::size_t configuredPlayerCount = 0;
+        std::size_t exportedPlayerSnapshotCount = 0;
+        std::size_t virtualPlayerSnapshotCount = 0;
         std::uint64_t focusAttemptCount = 0;
         std::uint64_t focusSuccessCount = 0;
         std::uint64_t focusFailureCount = 0;
@@ -147,6 +150,7 @@ namespace mwmp
         float lastQueuedDeltaSeconds = 0.f;
         bool lastFocusHadPosition = false;
         bool lastFocusSucceeded = false;
+        bool exportedFocusPlayerSnapshot = false;
     };
 
     class SimulationRuntime

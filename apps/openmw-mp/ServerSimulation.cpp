@@ -4551,6 +4551,14 @@ namespace mwmp
         payload += std::to_string(playerTrackedCellCount);
         payload += ",\"openMwRuntimeFocusCellCount\":";
         payload += std::to_string(runtimeFocusState.configuredCellCount);
+        payload += ",\"openMwRuntimePlayerFocusCount\":";
+        payload += std::to_string(runtimeFocusState.configuredPlayerCount);
+        payload += ",\"openMwRuntimePlayerSnapshotCount\":";
+        payload += std::to_string(runtimeFocusState.exportedPlayerSnapshotCount);
+        payload += ",\"openMwRuntimeVirtualPlayerSnapshotCount\":";
+        payload += std::to_string(runtimeFocusState.virtualPlayerSnapshotCount);
+        payload += ",\"openMwRuntimeExportedFocusPlayerSnapshot\":";
+        payload += jsonBool(runtimeFocusState.exportedFocusPlayerSnapshot);
         payload += ",\"openMwRuntimeFocusCandidateCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.candidateCellCount);
         payload += ",\"openMwRuntimeDirectFocusCellCount\":";
