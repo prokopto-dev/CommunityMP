@@ -1393,6 +1393,11 @@ namespace
             && attack.damage > healthDeadEpsilon;
     }
 
+    bool isReleasedRangedAttack(const mwmp::Attack& attack)
+    {
+        return attack.type == mwmp::Attack::RANGED && !attack.pressed;
+    }
+
     float makeServerObservedMeleeAttackStrength(std::chrono::steady_clock::duration elapsed)
     {
         if (elapsed <= std::chrono::steady_clock::duration::zero())
@@ -7141,6 +7146,9 @@ namespace mwmp
                 notifyPlayerStatsDynamic(attacker);
             }
 
+            if (isReleasedRangedAttack(attack))
+                return;
+
             Attack resolvedAttack = target != nullptr
                 ? makeServerResolvedPlayerAttack(
                     attacker, attack, *target, serverMeleeAttackStrength, attacker.combatSequence)
@@ -7218,6 +7226,9 @@ namespace mwmp
             broadcastPlayerStats(attacker);
             notifyPlayerStatsDynamic(attacker);
         }
+
+        if (isReleasedRangedAttack(attack))
+            return;
 
         Attack resolvedAttack = makeServerResolvedPlayerAttack(
             attacker, attack, *targetActor, serverMeleeAttackStrength, attacker.combatSequence);
