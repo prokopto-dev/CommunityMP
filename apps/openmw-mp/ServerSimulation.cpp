@@ -118,6 +118,7 @@ namespace
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
     constexpr auto runtimeActorMovementHealthLogInterval = std::chrono::seconds(10);
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
+    constexpr auto objectInteractionLeaseDuration = std::chrono::seconds(90);
 
     bool containsGuid(const std::vector<mwmp::PacketGuid>& guids, mwmp::PacketGuid guid)
     {
@@ -349,6 +350,23 @@ namespace
             return "exterior:" + std::to_string(cell.mData.mX) + "," + std::to_string(cell.mData.mY);
 
         return "interior:" + cell.mName;
+    }
+
+    bool hasObjectInteractionIdentity(const mwmp::BaseObject& object)
+    {
+        return !object.refId.empty() || object.refNum != 0 || object.mpNum != 0;
+    }
+
+    std::string getObjectInteractionLeaseKey(const ESM::Cell& cell, const mwmp::BaseObject& object)
+    {
+        std::string key = getCellSimulationKey(cell);
+        key += '\n';
+        key += std::to_string(object.refNum);
+        key += '-';
+        key += std::to_string(object.mpNum);
+        key += '\n';
+        key += object.refId;
+        return key;
     }
 
     std::string_view trimAsciiWhitespace(std::string_view value)
@@ -3954,6 +3972,14 @@ namespace mwmp
                 ++it;
         }
 
+        for (auto it = mObjectInteractionLeases.begin(); it != mObjectInteractionLeases.end();)
+        {
+            if (it->second.playerGuid == guid)
+                it = mObjectInteractionLeases.erase(it);
+            else
+                ++it;
+        }
+
         for (auto it = mShadowCellAuthority.begin(); it != mShadowCellAuthority.end();)
         {
             const std::string cellKey = it->first;
@@ -4015,6 +4041,52 @@ namespace mwmp
         if (!mwmp::isPacketGuidAssigned(player.guid))
             return;
 
+        const Clock::time_point now = Clock::now();
+        const std::string cellKey = getCellSimulationKey(objectList.cell);
+        std::set<std::string> busyObjectInteractionLeases;
+
+        for (const BaseObject& object : objectList.baseObjects)
+        {
+            if (object.isPlayer || !hasObjectInteractionIdentity(object))
+                continue;
+
+            const bool isDialogueEnd = object.dialogueChoiceType == DialogueChoiceType::DIALOGUE_END;
+            const bool isBarter = object.dialogueChoiceType == DialogueChoiceType::BARTER;
+            if (!isDialogueEnd && !isBarter)
+                continue;
+
+            const std::string objectLeaseKey = getObjectInteractionLeaseKey(objectList.cell, object);
+            auto objectLeaseIt = mObjectInteractionLeases.find(objectLeaseKey);
+            if (objectLeaseIt != mObjectInteractionLeases.end() && objectLeaseIt->second.expiresAt <= now)
+                objectLeaseIt = mObjectInteractionLeases.erase(objectLeaseIt);
+
+            if (isDialogueEnd)
+            {
+                if (objectLeaseIt != mObjectInteractionLeases.end()
+                    && (!mwmp::isPacketGuidAssigned(objectLeaseIt->second.playerGuid)
+                        || objectLeaseIt->second.playerGuid == player.guid))
+                    mObjectInteractionLeases.erase(objectLeaseIt);
+                continue;
+            }
+
+            if (objectLeaseIt != mObjectInteractionLeases.end() && objectLeaseIt->second.playerGuid != player.guid)
+            {
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+                    "Ignoring barter interaction from %s for busy merchant %s %u-%u in %s because %s owns it",
+                    player.npc.mName.c_str(), object.refId.c_str(), object.refNum, object.mpNum, cellKey.c_str(),
+                    objectLeaseIt->second.ownerName.c_str());
+                busyObjectInteractionLeases.insert(objectLeaseKey);
+                continue;
+            }
+
+            ObjectInteractionLease& objectLease = mObjectInteractionLeases[objectLeaseKey];
+            objectLease.playerGuid = player.guid;
+            objectLease.expiresAt = now + objectInteractionLeaseDuration;
+            objectLease.ownerName = player.npc.mName.empty() ? mwmp::packetGuidToString(player.guid) : player.npc.mName;
+            objectLease.cellKey = cellKey;
+            objectLease.barterSession = true;
+        }
+
         CellController* cellController = CellController::get();
         if (cellController == nullptr)
             return;
@@ -4024,11 +4096,9 @@ namespace mwmp
         if (serverCell == nullptr)
             return;
 
-        const Clock::time_point now = Clock::now();
-        const std::string cellKey = getCellSimulationKey(objectList.cell);
         for (const BaseObject& object : objectList.baseObjects)
         {
-            if (object.isPlayer)
+            if (object.isPlayer || !hasObjectInteractionIdentity(object))
                 continue;
 
             const ActorMovementKey actorKey{ cellKey, object.refNum, object.mpNum };
@@ -4044,6 +4114,10 @@ namespace mwmp
                     mActorInteractionLeases.erase(leaseIt);
                 continue;
             }
+
+            const std::string objectLeaseKey = getObjectInteractionLeaseKey(objectList.cell, object);
+            if (busyObjectInteractionLeases.find(objectLeaseKey) != busyObjectInteractionLeases.end())
+                continue;
 
             BaseActor* actor = serverCell->getActor(object.refNum, object.mpNum);
             if (actor == nullptr)
@@ -4071,6 +4145,123 @@ namespace mwmp
 
             stopActorForInteraction(*serverCell, *actor, actorKey);
         }
+    }
+
+    bool ServerSimulation::acceptContainerInteraction(Player& player, BaseObjectList& objectList)
+    {
+        if (!mwmp::isPacketGuidAssigned(player.guid))
+            return false;
+
+        const bool isProtectedOrigin = objectList.packetOrigin == mwmp::CLIENT_GAMEPLAY
+            || objectList.packetOrigin == mwmp::CLIENT_DIALOGUE;
+        if (!isProtectedOrigin)
+            return true;
+
+        const bool isLockRequest = objectList.action == BaseObjectList::REQUEST
+            && objectList.containerSubAction == BaseObjectList::LOCK_REQUEST;
+        const bool isLockRelease = objectList.action == BaseObjectList::REQUEST
+            && objectList.containerSubAction == BaseObjectList::LOCK_RELEASE;
+        const bool isMutation = objectList.action == BaseObjectList::ADD
+            || objectList.action == BaseObjectList::REMOVE;
+        const bool isDialogueBarterTransfer = isMutation
+            && objectList.packetOrigin == mwmp::CLIENT_DIALOGUE
+            && objectList.containerSubAction == BaseObjectList::BARTER;
+
+        if (!isLockRequest && !isLockRelease && !isMutation)
+            return true;
+
+        if (objectList.baseObjects.empty())
+        {
+            if (isMutation)
+                LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                    "Rejected empty container mutation from %s in %s",
+                    player.npc.mName.c_str(), objectList.cell.getDescription().c_str());
+
+            return !isMutation;
+        }
+
+        const Clock::time_point now = Clock::now();
+        const std::string cellKey = getCellSimulationKey(objectList.cell);
+        if (isDialogueBarterTransfer && !hasObjectInteractionBarterSession(player.guid, cellKey, now))
+        {
+            LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                "Rejected dialogue barter mutation from %s in %s because there is no accepted barter session",
+                player.npc.mName.c_str(), objectList.cell.getDescription().c_str());
+            return false;
+        }
+
+        std::vector<std::string> newlyAcquiredKeys;
+        bool accepted = true;
+
+        for (const BaseObject& object : objectList.baseObjects)
+        {
+            if (!hasObjectInteractionIdentity(object))
+            {
+                if (isMutation)
+                {
+                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                        "Rejected container mutation from %s with no object identity in %s",
+                        player.npc.mName.c_str(), objectList.cell.getDescription().c_str());
+                    accepted = false;
+                }
+                continue;
+            }
+
+            const std::string leaseKey = getObjectInteractionLeaseKey(objectList.cell, object);
+            auto leaseIt = mObjectInteractionLeases.find(leaseKey);
+            if (leaseIt != mObjectInteractionLeases.end() && leaseIt->second.expiresAt <= now)
+                leaseIt = mObjectInteractionLeases.erase(leaseIt);
+
+            if (isLockRelease)
+            {
+                if (leaseIt != mObjectInteractionLeases.end() && leaseIt->second.playerGuid == player.guid)
+                    mObjectInteractionLeases.erase(leaseIt);
+                continue;
+            }
+
+            if (leaseIt != mObjectInteractionLeases.end() && leaseIt->second.playerGuid != player.guid)
+            {
+                if (isMutation)
+                {
+                    LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
+                        "Rejected container mutation from %s for %s %u-%u in %s because %s owns the interaction",
+                        player.npc.mName.c_str(), object.refId.c_str(), object.refNum, object.mpNum,
+                        objectList.cell.getDescription().c_str(), leaseIt->second.ownerName.c_str());
+                    accepted = false;
+                }
+                continue;
+            }
+
+            if (isDialogueBarterTransfer)
+            {
+                if (leaseIt != mObjectInteractionLeases.end())
+                    leaseIt->second.expiresAt = now + objectInteractionLeaseDuration;
+                continue;
+            }
+
+            const bool hadLease = leaseIt != mObjectInteractionLeases.end();
+            ObjectInteractionLease& lease = mObjectInteractionLeases[leaseKey];
+            lease.playerGuid = player.guid;
+            lease.expiresAt = now + objectInteractionLeaseDuration;
+            lease.ownerName = player.npc.mName.empty() ? mwmp::packetGuidToString(player.guid) : player.npc.mName;
+            lease.cellKey = cellKey;
+            lease.barterSession = false;
+
+            if (!hadLease)
+                newlyAcquiredKeys.push_back(leaseKey);
+        }
+
+        if (!accepted)
+        {
+            for (const std::string& leaseKey : newlyAcquiredKeys)
+            {
+                const auto leaseIt = mObjectInteractionLeases.find(leaseKey);
+                if (leaseIt != mObjectInteractionLeases.end() && leaseIt->second.playerGuid == player.guid)
+                    mObjectInteractionLeases.erase(leaseIt);
+            }
+        }
+
+        return accepted;
     }
 
     void ServerSimulation::noteCellLoadedByPlayer(unsigned short playerId, std::string cellDescription)
@@ -5614,6 +5805,30 @@ namespace mwmp
         }
 
         return true;
+    }
+
+    bool ServerSimulation::hasObjectInteractionBarterSession(
+        PacketGuid playerGuid, const std::string& cellKey, Clock::time_point now)
+    {
+        for (auto leaseIt = mObjectInteractionLeases.begin(); leaseIt != mObjectInteractionLeases.end();)
+        {
+            if (leaseIt->second.expiresAt <= now || Players::getPlayer(leaseIt->second.playerGuid) == nullptr)
+            {
+                leaseIt = mObjectInteractionLeases.erase(leaseIt);
+                continue;
+            }
+
+            if (leaseIt->second.playerGuid == playerGuid && leaseIt->second.cellKey == cellKey
+                && leaseIt->second.barterSession)
+            {
+                leaseIt->second.expiresAt = now + objectInteractionLeaseDuration;
+                return true;
+            }
+
+            ++leaseIt;
+        }
+
+        return false;
     }
 
     void ServerSimulation::stopActorForInteraction(Cell& cell, BaseActor& actor, const ActorMovementKey& actorKey)

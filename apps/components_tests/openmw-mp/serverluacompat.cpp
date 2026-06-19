@@ -12810,6 +12810,42 @@ namespace
         )lua");
     }
 
+    TEST(Tes3mpServerLuaCompatibilityTest, CellBaseItemInteractionLocksCoverContainerAndBarter)
+    {
+        LuaStatePtr lua = createServerLuaState();
+        loadLegacyCellBase(lua.get());
+
+        runLua(lua.get(), R"lua(
+            local cell = BaseCell("Balmora")
+
+            local accepted, ownerPid = cell:AcquireObjectInteractionLock(1, "10-0", "crate_01", "container")
+            assert(accepted == true)
+            assert(ownerPid == 1)
+
+            local lockedByOther, lockOwnerPid = cell:IsObjectInteractionLockedByOther(2, "10-0", "barter")
+            assert(lockedByOther == true)
+            assert(lockOwnerPid == 1)
+            assert(cell:HasObjectInteractionLockForPid(1, "barter") == false)
+
+            accepted, ownerPid = cell:AcquireObjectInteractionLock(2, "10-0", "crate_01", "barter")
+            assert(accepted == false)
+            assert(ownerPid == 1)
+
+            assert(cell:ReleaseObjectInteractionLock(1, "10-0", "barter") == 1)
+
+            accepted, ownerPid = cell:AcquireObjectInteractionLock(2, "10-0", "crate_01", "barter")
+            assert(accepted == true)
+            assert(ownerPid == 2)
+            assert(cell:HasObjectInteractionLockForPid(2, "barter") == true)
+
+            lockedByOther, lockOwnerPid = cell:IsObjectInteractionLockedByOther(1, "10-0", "container")
+            assert(lockedByOther == true)
+            assert(lockOwnerPid == 2)
+
+            assert(cell:ReleaseObjectInteractionLock(2, "10-0", "container") == 1)
+        )lua");
+    }
+
     TEST(Tes3mpServerLuaCompatibilityTest, CellBaseLoadsActorAITargetsByCharacterStorageKey)
     {
         LuaStatePtr lua = createServerLuaState();
@@ -13622,6 +13658,100 @@ namespace
         )lua");
     }
 
+    TEST(Tes3mpServerLuaCompatibilityTest, CellBaseDialogueBarterRequiresAcceptedSession)
+    {
+        LuaStatePtr lua = createServerLuaState();
+        loadLegacyCellBase(lua.get());
+
+        runLua(lua.get(), R"lua(
+            local calls = {}
+            local currentItems = {
+                {
+                    refId = "iron_sword",
+                    count = 1,
+                    charge = -1,
+                    enchantmentCharge = -1,
+                    soul = "",
+                    actionCount = 1
+                }
+            }
+
+            local function recordCall(name, ...)
+                local args = {}
+                for index = 1, select("#", ...) do
+                    table.insert(args, tostring(select(index, ...)))
+                end
+                table.insert(calls, name .. ":" .. table.concat(args, ":"))
+            end
+
+            local function hasCall(text)
+                return table.concat(calls, "|"):find(text, 1, true) ~= nil
+            end
+
+            tes3mp = {
+                ReadReceivedObjectList = function() recordCall("ReadReceivedObjectList") end,
+                CopyReceivedObjectListToStore = function() recordCall("CopyReceivedObjectListToStore") end,
+                LogMessage = function(logLevel, message) recordCall("LogMessage", logLevel, message) end,
+                LogAppend = function(logLevel, message) recordCall("LogAppend", logLevel, message) end,
+                GetObjectListOrigin = function() return enumerations.packetOrigin.CLIENT_DIALOGUE end,
+                GetObjectListAction = function() return enumerations.container.REMOVE end,
+                GetObjectListContainerSubAction = function() return enumerations.containerSub.BARTER end,
+                GetObjectListSize = function() return 1 end,
+                GetObjectRefNum = function(objectIndex) assert(objectIndex == 0); return 331473 end,
+                GetObjectMpNum = function(objectIndex) assert(objectIndex == 0); return 0 end,
+                GetObjectRefId = function(objectIndex) assert(objectIndex == 0); return "arrille" end,
+                GetContainerChangesSize = function(objectIndex) assert(objectIndex == 0); return #currentItems end,
+                GetContainerItemRefId = function(objectIndex, itemIndex)
+                    assert(objectIndex == 0); return currentItems[itemIndex + 1].refId
+                end,
+                GetContainerItemCount = function(objectIndex, itemIndex)
+                    assert(objectIndex == 0); return currentItems[itemIndex + 1].count
+                end,
+                GetContainerItemCharge = function(objectIndex, itemIndex)
+                    assert(objectIndex == 0); return currentItems[itemIndex + 1].charge
+                end,
+                GetContainerItemEnchantmentCharge = function(objectIndex, itemIndex)
+                    assert(objectIndex == 0); return currentItems[itemIndex + 1].enchantmentCharge
+                end,
+                GetContainerItemSoul = function(objectIndex, itemIndex)
+                    assert(objectIndex == 0); return currentItems[itemIndex + 1].soul
+                end,
+                GetContainerItemActionCount = function(objectIndex, itemIndex)
+                    assert(objectIndex == 0); return currentItems[itemIndex + 1].actionCount
+                end,
+                SendContainer = function(sendToOtherPlayers, skipAttachedPlayer)
+                    recordCall("SendContainer", sendToOtherPlayers, skipAttachedPlayer)
+                end
+            }
+
+            logicHandler = {
+                GetChatName = function(pid)
+                    assert(pid == 1)
+                    return "Account"
+                end
+            }
+
+            Players = {
+                [1] = {
+                    Message = function(self, message)
+                        recordCall("Message", message)
+                    end
+                }
+            }
+
+            local cell = BaseCell("Seyda Neen, Arrille's Tradehouse")
+            local saved = cell:SaveContainers(1)
+
+            assert(saved == false)
+            assert(Players[1].failedDialogueBarterTransaction ~= nil)
+            assert(Players[1].failedDialogueBarterTransaction.reason == "missingBarterSession")
+            assert(Players[1].failedDialogueBarterTransaction.uniqueIndexes["331473-0"] == true)
+            assert(cell.data.objectData["331473-0"] == nil)
+            assert(hasCall("Message:That barter could not be completed because the merchant is already in use.") == true)
+            assert(hasCall("SendContainer:") == false)
+        )lua");
+    }
+
     TEST(Tes3mpServerLuaCompatibilityTest, CellBaseDialogueBarterContainersMirrorPlayerInventory)
     {
         LuaStatePtr lua = createServerLuaState();
@@ -13784,6 +13914,8 @@ namespace
             cell.QuicksaveToDrive = function(self)
                 recordCall("Cell:Quicksave")
             end
+            local acceptedSession = cell:AcquireObjectInteractionLock(1, "331473-0", "arrille", "barter")
+            assert(acceptedSession == true)
 
             currentAction = enumerations.container.REMOVE
             currentItems = {

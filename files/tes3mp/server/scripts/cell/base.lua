@@ -131,7 +131,11 @@ local objectInteractionLockTtlSeconds = 90
 local failedDialogueBarterTransactionTtlSeconds = 30
 
 local function getObjectInteractionLockKind(lockKind)
-    return lockKind or "container"
+    if lockKind == nil or lockKind == "container" or lockKind == "barter" then
+        return "container"
+    end
+
+    return lockKind
 end
 
 local function getObjectInteractionLockKey(cellDescription, uniqueIndex, lockKind)
@@ -675,12 +679,15 @@ function BaseCell:AcquireObjectInteractionLock(pid, uniqueIndex, refId, lockKind
         return false, lock.pid
     end
 
+    local existingBarterSession = lock ~= nil and lock.barterSession == true
+
     objectInteractionLocks[lockKey] = {
         pid = pid,
         refId = refId or "",
         uniqueIndex = uniqueIndex,
         cellDescription = self.description,
         lockKind = getObjectInteractionLockKind(lockKind),
+        barterSession = existingBarterSession or lockKind == "barter",
         expiresAt = now + objectInteractionLockTtlSeconds
     }
 
@@ -725,6 +732,30 @@ function BaseCell:IsObjectInteractionLockedByOther(pid, uniqueIndex, lockKind)
     end
 
     return false, lock ~= nil and lock.pid or nil
+end
+
+function BaseCell:HasObjectInteractionLockForPid(pid, lockKind)
+    pid = tonumber(pid)
+
+    if pid == nil then
+        return false
+    end
+
+    purgeExpiredObjectInteractionLocks()
+
+    local normalizedLockKind = getObjectInteractionLockKind(lockKind)
+    local requiresBarterSession = lockKind == "barter"
+
+    for _, lock in pairs(objectInteractionLocks) do
+        if lock.pid == pid and lock.cellDescription == self.description and
+            lock.lockKind == normalizedLockKind and
+            (not requiresBarterSession or lock.barterSession == true) then
+            lock.expiresAt = os.time() + objectInteractionLockTtlSeconds
+            return true
+        end
+    end
+
+    return false
 end
 
 function BaseCell:ReleaseObjectInteractionLock(pid, uniqueIndex, lockKind)
@@ -1650,6 +1681,22 @@ function BaseCell:SaveContainers(pid)
             self.data.objectData[uniqueIndex].inventory ~= nil then
             self:LoadContainers(pid, self.data.objectData, { uniqueIndex })
         end
+    end
+
+    local function rejectDialogueBarterWithoutSession()
+        rememberFailedDialogueBarterTransaction("missingBarterSession")
+        tes3mp.LogAppend(enumerations.log.WARN,
+            "- Rejected dialogue barter transfer because the player does not have an accepted barter session")
+
+        if type(Players) == "table" and Players[pid] ~= nil and
+            type(Players[pid].Message) == "function" then
+            Players[pid]:Message("That barter could not be completed because the merchant is already in use.\n")
+        end
+    end
+
+    if isDialogueBarterContainerTransfer and not self:HasObjectInteractionLockForPid(pid, "barter") then
+        rejectDialogueBarterWithoutSession()
+        return false
     end
 
     if action ~= enumerations.container.REQUEST and subAction ~= enumerations.containerSub.REPLY_TO_REQUEST and

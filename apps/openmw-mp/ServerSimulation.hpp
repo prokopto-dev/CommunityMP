@@ -75,6 +75,7 @@ namespace mwmp
         bool acceptPlayerCellChange(::Player& player, PlayerPacket& packet);
         bool acceptPlayerMovementSnapshot(::Player& player, PlayerPacket& packet);
         bool acceptPlayerStatsDynamic(::Player& player);
+        bool acceptContainerInteraction(::Player& player, BaseObjectList& objectList);
         bool acceptServerAuthoredPlayerState(::Player& player, bool cellChangePacket = false);
         bool isRedundantServerAuthoredPosition(const ::Player& player) const;
         void sendPlayerVisualStateToLoaded(::Player& player, PlayerPacket& packet);
@@ -198,6 +199,15 @@ namespace mwmp
             Clock::time_point expiresAt;
         };
 
+        struct ObjectInteractionLease
+        {
+            PacketGuid playerGuid = unassignedPacketGuid();
+            Clock::time_point expiresAt;
+            std::string ownerName;
+            std::string cellKey;
+            bool barterSession = false;
+        };
+
         struct RuntimeFocusSelectionStats
         {
             std::size_t candidateCellCount = 0;
@@ -227,6 +237,7 @@ namespace mwmp
         std::map<PacketGuid, SpellsActiveChanges> mRuntimePlayerSpellsActiveSnapshots;
         std::set<ActorMovementKey> mRuntimeClientAiPresentedActors;
         std::map<ActorMovementKey, ActorInteractionLease> mActorInteractionLeases;
+        std::map<std::string, ObjectInteractionLease> mObjectInteractionLeases;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;
         RuntimeActorSnapshotStats mRuntimeActorSnapshotStats;
         RuntimeFocusSelectionStats mRuntimeFocusSelectionStats;
@@ -268,6 +279,8 @@ namespace mwmp
         void applyRuntimePlayerSnapshots(const std::vector<SimulationPlayerSnapshot>& playerSnapshots);
         void logRuntimeActorMovementHealthIfNeeded(Clock::time_point now);
         bool isActorInteractionLocked(const ActorMovementKey& actorKey, Clock::time_point now);
+        bool hasObjectInteractionBarterSession(
+            PacketGuid playerGuid, const std::string& cellKey, Clock::time_point now);
         void stopActorForInteraction(Cell& cell, BaseActor& actor, const ActorMovementKey& actorKey);
         bool shouldUseRuntimeFallbackMovement(const ActorMovementKey& actorKey,
             const BaseActor& runtimeActor, const BaseActor* cachedActor);

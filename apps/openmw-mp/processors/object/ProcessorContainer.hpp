@@ -2,6 +2,8 @@
 #define OPENMW_PROCESSORCONTAINER_HPP
 
 #include "../ObjectProcessor.hpp"
+#include <apps/openmw-mp/ServerNetworking.hpp>
+#include <apps/openmw-mp/ServerSimulation.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 
 namespace mwmp
@@ -24,6 +26,14 @@ namespace mwmp
                 LOG_MESSAGE_SIMPLE(TimedLog::LOG_WARN,
                     "Rejected untrusted container packet from %s with origin %u, action %u and subaction %u",
                     player.npc.mName.c_str(), objectList.packetOrigin, objectList.action, objectList.containerSubAction);
+                objectList.isValid = false;
+                return;
+            }
+
+            ServerNetworking* networking = ServerNetworking::getPtr();
+            if (networking != nullptr
+                && !networking->getServerSimulation().acceptContainerInteraction(player, objectList))
+            {
                 objectList.isValid = false;
                 return;
             }
