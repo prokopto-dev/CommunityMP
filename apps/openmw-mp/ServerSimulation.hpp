@@ -185,6 +185,12 @@ namespace mwmp
             bool hasPendingMeleeRelease = false;
         };
 
+        struct PlayerMeleeWindupState
+        {
+            Clock::time_point startedAt;
+            bool active = false;
+        };
+
         struct ActorInteractionLease
         {
             PacketGuid playerGuid = unassignedPacketGuid();
@@ -216,6 +222,7 @@ namespace mwmp
         std::map<ActorMovementKey, ActorPathgridRouteState> mActorPathgridRouteStates;
         std::map<ActorMovementKey, RuntimeActorMovementState> mRuntimeActorMovementStates;
         std::map<ActorMovementKey, ServerActorCombatState> mServerActorCombatStates;
+        std::map<PacketGuid, PlayerMeleeWindupState> mPlayerMeleeWindups;
         std::set<ActorMovementKey> mRuntimeClientAiPresentedActors;
         std::map<ActorMovementKey, ActorInteractionLease> mActorInteractionLeases;
         std::map<std::string, ShadowCellAuthorityState> mShadowCellAuthority;

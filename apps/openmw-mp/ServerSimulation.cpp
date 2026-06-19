@@ -64,6 +64,8 @@ namespace
     constexpr float serverActorMeleeMaximumFallbackDamage = 24.f;
     constexpr auto serverActorMeleeWindup = std::chrono::milliseconds(350);
     constexpr auto serverActorMeleeInterval = std::chrono::milliseconds(1500);
+    constexpr auto serverPlayerMeleeFullWindup = std::chrono::milliseconds(900);
+    constexpr float serverPlayerMeleeMinimumStrength = 0.1f;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
@@ -1343,6 +1345,20 @@ namespace
     {
         return attack.isHit && attack.success && !attack.block && std::isfinite(attack.damage)
             && attack.damage > healthDeadEpsilon;
+    }
+
+    float makeServerObservedMeleeAttackStrength(std::chrono::steady_clock::duration elapsed)
+    {
+        if (elapsed <= std::chrono::steady_clock::duration::zero())
+            return serverPlayerMeleeMinimumStrength;
+
+        const float elapsedSeconds = std::chrono::duration<float>(elapsed).count();
+        const float fullWindupSeconds = std::chrono::duration<float>(serverPlayerMeleeFullWindup).count();
+        if (fullWindupSeconds <= 0.f)
+            return 1.f;
+
+        const float windup = std::clamp(elapsedSeconds / fullWindupSeconds, 0.f, 1.f);
+        return serverPlayerMeleeMinimumStrength + windup * (1.f - serverPlayerMeleeMinimumStrength);
     }
 
     bool hasValidCastShape(const mwmp::Cast& cast)
@@ -2864,6 +2880,7 @@ namespace mwmp
     {
         mPlayerMovementStates.erase(guid);
         mPlayerAcceptedCells.erase(guid);
+        mPlayerMeleeWindups.erase(guid);
         for (auto it = mActorInteractionLeases.begin(); it != mActorInteractionLeases.end();)
         {
             if (it->second.playerGuid == guid)
@@ -5857,6 +5874,31 @@ namespace mwmp
     void ServerSimulation::applyPlayerAttack(Player& attacker)
     {
         const Attack& attack = attacker.attack;
+        const Clock::time_point now = Clock::now();
+        float serverMeleeAttackStrength = attack.attackStrength;
+        if (attack.type == Attack::MELEE)
+        {
+            if (attack.pressed)
+            {
+                PlayerMeleeWindupState& windup = mPlayerMeleeWindups[attacker.guid];
+                windup.startedAt = now;
+                windup.active = true;
+            }
+            else
+            {
+                const auto windup = mPlayerMeleeWindups.find(attacker.guid);
+                if (windup != mPlayerMeleeWindups.end() && windup->second.active)
+                {
+                    serverMeleeAttackStrength = makeServerObservedMeleeAttackStrength(now - windup->second.startedAt);
+                    mPlayerMeleeWindups.erase(windup);
+                }
+                else
+                    serverMeleeAttackStrength = serverPlayerMeleeMinimumStrength;
+            }
+        }
+        else
+            mPlayerMeleeWindups.erase(attacker.guid);
+
         if (attack.target.isPlayer)
         {
             Player* target = Players::getPlayer(attack.target.guid);
@@ -5868,7 +5910,7 @@ namespace mwmp
                 SimulationPlayerTarget runtimeAttacker = makeRuntimePlayerTarget(attacker);
                 SimulationPlayerTarget runtimeTarget = makeRuntimePlayerTarget(*target);
                 if (mRuntime->applyPlayerMeleeAttackToPlayer(
-                        runtimeAttacker, runtimeTarget, attack, attack.attackStrength))
+                        runtimeAttacker, runtimeTarget, attack, serverMeleeAttackStrength))
                     return;
             }
 
@@ -5918,7 +5960,7 @@ namespace mwmp
             if (!attack.pressed && attack.type == Attack::MELEE)
             {
                 nativeRuntimeHandledMelee = mRuntime->applyPlayerMeleeAttackToActor(
-                    runtimePlayer, runtimeActor, attack, attack.attackStrength);
+                    runtimePlayer, runtimeActor, attack, serverMeleeAttackStrength);
             }
         }
 
