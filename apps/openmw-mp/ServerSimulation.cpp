@@ -70,6 +70,7 @@ namespace
     constexpr float followerCellChangeRowSpacing = 48.f;
     constexpr float followerCellChangeColumnSpacing = 48.f;
     constexpr float runtimeActorMovementEpsilonSquared = 1.f;
+    constexpr float runtimeActorDerivedDirectionMaximumDistanceSquared = 512.f * 512.f;
     constexpr std::uint32_t runtimeActorFallbackSnapshotThreshold = 15;
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
@@ -398,6 +399,65 @@ namespace
             if (!std::isfinite(position.rot[axis]))
                 position.rot[axis] = 0.f;
         }
+    }
+
+    float sanitizeMovementComponent(float value)
+    {
+        constexpr float movementEpsilon = 0.0001f;
+        if (!std::isfinite(value) || std::abs(value) <= movementEpsilon)
+            return 0.f;
+
+        return value;
+    }
+
+    enum class RuntimeMovementDirectionAdjustment
+    {
+        Unchanged,
+        Cleared,
+        Derived
+    };
+
+    RuntimeMovementDirectionAdjustment applyActualRuntimeMovementDirection(
+        mwmp::BaseActor& actor, const mwmp::BaseActor* previousActor)
+    {
+        sanitizeFinitePosition(actor.direction);
+        if (!actor.hasPositionData || previousActor == nullptr || !previousActor->hasPositionData)
+            return RuntimeMovementDirectionAdjustment::Unchanged;
+
+        const float deltaX = actor.position.pos[0] - previousActor->position.pos[0];
+        const float deltaY = actor.position.pos[1] - previousActor->position.pos[1];
+        const float horizontalDistanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        if (!std::isfinite(horizontalDistanceSquared) || horizontalDistanceSquared <= runtimeActorMovementEpsilonSquared
+            || horizontalDistanceSquared > runtimeActorDerivedDirectionMaximumDistanceSquared)
+        {
+            actor.direction.pos[0] = 0.f;
+            actor.direction.pos[1] = 0.f;
+            return RuntimeMovementDirectionAdjustment::Cleared;
+        }
+
+        const float yaw = actor.position.rot[2];
+        if (!std::isfinite(yaw))
+        {
+            actor.direction.pos[0] = 0.f;
+            actor.direction.pos[1] = 0.f;
+            return RuntimeMovementDirectionAdjustment::Cleared;
+        }
+
+        const float sinYaw = std::sin(yaw);
+        const float cosYaw = std::cos(yaw);
+        const float localSide = deltaX * cosYaw - deltaY * sinYaw;
+        const float localForward = deltaX * sinYaw + deltaY * cosYaw;
+        const float localDistance = std::sqrt(squaredHorizontalLength(localSide, localForward));
+        if (!std::isfinite(localDistance) || localDistance <= 0.f)
+        {
+            actor.direction.pos[0] = 0.f;
+            actor.direction.pos[1] = 0.f;
+            return RuntimeMovementDirectionAdjustment::Cleared;
+        }
+
+        actor.direction.pos[0] = sanitizeMovementComponent(localSide / localDistance);
+        actor.direction.pos[1] = sanitizeMovementComponent(localForward / localDistance);
+        return RuntimeMovementDirectionAdjustment::Derived;
     }
 
     void normalizeHorizontalIntent(float& x, float& y)
@@ -2665,6 +2725,7 @@ namespace mwmp
                     : 1;
                 movedActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
                 movedActor.movementLatencySeconds = 0.f;
+                movedActor.direction = zeroMovementDirectionLike(movedActor.position);
 
                 BaseActorList cellChangeList;
                 cellChangeList.cell = source->cell->getCellData();
@@ -2733,6 +2794,18 @@ namespace mwmp
                 const ActorMovementKey actorKey{ runtimeCellKey, runtimeActor.refNum, runtimeActor.mpNum };
                 const bool useRuntimeFallbackMovement = shouldUseRuntimeFallbackMovement(
                     actorKey, runtimeActor, cachedActor);
+                BaseActor visualActor = runtimeActor;
+                switch (applyActualRuntimeMovementDirection(visualActor, previousActor))
+                {
+                    case RuntimeMovementDirectionAdjustment::Cleared:
+                        ++mRuntimeActorSnapshotStats.visualDirectionClearedCount;
+                        break;
+                    case RuntimeMovementDirectionAdjustment::Derived:
+                        ++mRuntimeActorSnapshotStats.visualDirectionDerivedCount;
+                        break;
+                    case RuntimeMovementDirectionAdjustment::Unchanged:
+                        break;
+                }
                 if (useRuntimeFallbackMovement && cachedActor != nullptr)
                 {
                     cachedActor->direction = runtimeActor.direction;
@@ -2741,7 +2814,7 @@ namespace mwmp
 
                 if (runtimeActor.hasPositionData && !useRuntimeFallbackMovement)
                 {
-                    BaseActor positionActor = runtimeActor;
+                    BaseActor positionActor = visualActor;
                     positionActor.hasPositionData = true;
                     positionActor.positionSequence = nextPositionSequence;
                     positionActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
@@ -2751,7 +2824,7 @@ namespace mwmp
 
                 if (runtimeActor.hasAnimFlagsData)
                 {
-                    BaseActor animFlagsActor = runtimeActor;
+                    BaseActor animFlagsActor = visualActor;
                     animFlagsActor.hasAnimFlagsData = true;
                     animFlagsActor.animFlagsSequence = cachedActor != nullptr && cachedActor->hasAnimFlagsData
                         ? cachedActor->animFlagsSequence + 1
@@ -3344,6 +3417,10 @@ namespace mwmp
         payload += std::to_string(mRuntimeActorSnapshotStats.fallbackMovementResumeCount);
         payload += ",\"openMwRuntimeFallbackMovementSuppressedSnapshotCount\":";
         payload += std::to_string(mRuntimeActorSnapshotStats.fallbackMovementSuppressedSnapshotCount);
+        payload += ",\"openMwRuntimeVisualDirectionClearedCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.visualDirectionClearedCount);
+        payload += ",\"openMwRuntimeVisualDirectionDerivedCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.visualDirectionDerivedCount);
         payload += ",\"openMwRuntimeLastFallbackMovementCellKey\":";
         payload += jsonString(mRuntimeActorSnapshotStats.lastFallbackMovementCellKey);
         payload += ",\"openMwRuntimeLastFallbackMovementRefNum\":";
