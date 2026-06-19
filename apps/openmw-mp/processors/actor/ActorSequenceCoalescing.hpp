@@ -11,10 +11,21 @@
 #include <components/openmw-mp/Base/BaseActor.hpp>
 
 #include "../../Cell.hpp"
+#include "../../ServerNetworking.hpp"
+#include "../../ServerSimulation.hpp"
 
 namespace mwmp
 {
     using ActorIdentityKey = std::pair<unsigned int, unsigned int>;
+
+    inline bool rejectClientActorPacketForServerOwnedCell(
+        Cell* serverCell, const BaseActorList& actorList, const char* packetName)
+    {
+        ServerNetworking* networking = ServerNetworking::getPtr();
+        return networking != nullptr
+            && networking->getServerSimulation().rejectClientActorPacketForServerOwnedCell(
+                serverCell, actorList, packetName);
+    }
 
     inline bool isFiniteActorPosition(const ESM::Position& position)
     {

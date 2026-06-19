@@ -18,6 +18,8 @@ namespace mwmp
         {
             // Send only to players who have the cell loaded
             Cell *serverCell = CellController::get()->getCell(&actorList.cell);
+            if (rejectClientActorPacketForServerOwnedCell(serverCell, actorList, "ID_ACTOR_ANIM_PLAY"))
+                return;
 
             if (serverCell != nullptr && serverCell->hasAuthority(actorList.guid))
             {

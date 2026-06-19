@@ -2,6 +2,7 @@
 #define OPENMW_PROCESSORACTORLIST_HPP
 
 #include "../ActorProcessor.hpp"
+#include "ActorSequenceCoalescing.hpp"
 
 namespace mwmp
 {
@@ -19,6 +20,8 @@ namespace mwmp
             
             // Send only to players who have the cell loaded
             Cell *serverCell = CellController::get()->getCell(&actorList.cell);
+            if (rejectClientActorPacketForServerOwnedCell(serverCell, actorList, "ID_ACTOR_LIST"))
+                return;
 
             if (serverCell == nullptr || !serverCell->hasAuthority(actorList.guid))
                 return;

@@ -45,6 +45,9 @@ namespace mwmp
 
             if (serverCell != nullptr)
             {
+                if (rejectClientActorPacketForServerOwnedCell(serverCell, actorList, "ID_ACTOR_CELL_CHANGE"))
+                    return;
+
                 std::vector<BaseActor> liveActors;
                 liveActors.reserve(actorList.baseActors.size());
 
