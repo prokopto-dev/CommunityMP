@@ -3394,6 +3394,35 @@ namespace
         cell.sendToLoaded(statsPacket, &statsList);
     }
 
+    void broadcastActorDeath(Cell& cell, const mwmp::BaseActor& target, const mwmp::Target& killer,
+        unsigned short sourcePlayerId)
+    {
+        mwmp::BaseActor deathActor = target;
+        deathActor.creatureStats.mDead = true;
+        deathActor.creatureStats.mDynamic[0].mCurrent = 0.f;
+        deathActor.deathState = deathActor.deathState == 0 ? serverActorDefaultDeathState : deathActor.deathState;
+        deathActor.isInstantDeath = deathActor.creatureStats.mDeathAnimationFinished;
+        deathActor.killer = killer;
+
+        mwmp::BaseActorList deathList;
+        deathList.cell = cell.getCellData();
+        deathList.guid = mwmp::unassignedPacketGuid();
+        deathList.action = mwmp::BaseActorList::SET;
+        deathList.isValid = true;
+        deathList.baseActors.push_back(std::move(deathActor));
+        deathList.count = static_cast<unsigned int>(deathList.baseActors.size());
+
+        mwmp::ActorPacket* deathPacket = mwmp::ServerNetworking::get().getActorPacketController()->GetPacket(
+            ID_ACTOR_DEATH);
+        if (deathPacket == nullptr)
+            return;
+
+        cell.readActorList(ID_ACTOR_DEATH, &deathList);
+        deathPacket->setActorList(&deathList);
+        cell.sendToLoaded(deathPacket, &deathList);
+        mwmp::ServerEvents::actorEvent("OnActorDeath", sourcePlayerId, cell.getCellData().getDescription().c_str());
+    }
+
     void broadcastActorAi(Cell& cell, const mwmp::BaseActor& target)
     {
         mwmp::BaseActorList aiList;
@@ -7207,6 +7236,8 @@ namespace mwmp
         if (!canApplyServerAttackDamage(resolvedAttack))
             return;
 
+        const bool wasDead = targetActor->creatureStats.mDead
+            || targetActor->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon;
         if (applyAttackDamageToActor(*targetActor, resolvedAttack))
         {
             if (shouldUseServerFallbackUnarmedDamage(resolvedAttack)
@@ -7215,7 +7246,18 @@ namespace mwmp
                 resolvedAttack.knockdown = true;
                 attacker.attack = resolvedAttack;
             }
+            const bool becameDead = !wasDead
+                && (targetActor->creatureStats.mDead
+                    || targetActor->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon);
+            if (becameDead)
+            {
+                targetActor->creatureStats.mDead = true;
+                targetActor->creatureStats.mDynamic[0].mCurrent = 0.f;
+                targetActor->killer = makePlayerAiTarget(attacker);
+            }
             broadcastActorStats(*targetCell, *targetActor);
+            if (becameDead)
+                broadcastActorDeath(*targetCell, *targetActor, targetActor->killer, attacker.getId());
             notifyActorStatsDynamic(attacker, *targetCell);
         }
     }
