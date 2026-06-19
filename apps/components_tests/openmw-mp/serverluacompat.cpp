@@ -19686,6 +19686,10 @@ namespace
             }
             player.data.topics = { "legacy topic" }
             player.data.customVariables = { questFlag = "legacy" }
+            player.data.death = {
+                isDead = true,
+                timestamp = 12345
+            }
 
             local entries = player:EnsureCharacterSlots(false)
             assert(#entries == 1)
@@ -19694,6 +19698,8 @@ namespace
             assert(entries[1].journal[1].quest == "legacy_quest")
             assert(entries[1].topics[1] == "legacy topic")
             assert(entries[1].customVariables.questFlag == "legacy")
+            assert(entries[1].death.isDead == true)
+            assert(entries[1].death.timestamp == 12345)
             assert(player:GetCharacterSlotName(1) == "LegacyCharacter")
             assert(player:GetCharacterSlotSummary(1).race == "dark elf")
             assert(player:GetCharacterSlotSummary(1).class == "warrior")
@@ -19728,6 +19734,8 @@ namespace
             assert(player.data.settings.staffRank == 2)
             assert(#player.data.characters.entries == 1)
             assert(player.data.character.name == "")
+            assert(player.data.death.isDead == false)
+            assert(player.data.death.timestamp == 0)
 
             player.data.character = {
                 name = "NewCharacter",
@@ -19768,6 +19776,8 @@ namespace
             assert(player.data.characters.entries[2].journal[1].quest == "new_quest")
             assert(player.data.characters.entries[2].topics[1] == "new topic")
             assert(player.data.characters.entries[2].customVariables.questFlag == "new")
+            assert(player.data.characters.entries[2].death.isDead == false)
+            assert(player.data.characters.entries[2].death.timestamp == 0)
             assert(player:GetCharacterSlotListLabel(1) == "  LegacyCharacter | Level 1 | dark elf warrior | Caldera")
             assert(player:GetCharacterSlotListLabel(2) == "* NewCharacter | Level 7 | breton mage | Ald-ruhn")
             firstPreviewMetadata = player:GetCharacterSlotPreviewMetadata(1)
@@ -19790,6 +19800,8 @@ namespace
             assert(player.data.journal[1].quest == "legacy_quest")
             assert(player.data.topics[1] == "legacy topic")
             assert(player.data.customVariables.questFlag == "legacy")
+            assert(player.data.death.isDead == true)
+            assert(player.data.death.timestamp == 12345)
             assert(player:GetCharacterSlotListLabel(1) == "* LegacyCharacter | Level 1 | dark elf warrior | Caldera")
 
             assert(player:SelectCharacterSlot(2) == true)
@@ -19800,6 +19812,8 @@ namespace
             assert(player.data.journal[1].quest == "new_quest")
             assert(player.data.topics[1] == "new topic")
             assert(player.data.customVariables.questFlag == "new")
+            assert(player.data.death.isDead == false)
+            assert(player.data.death.timestamp == 0)
             assert(player:GetCharacterSlotListLabel(2) == "* NewCharacter | Level 7 | breton mage | Ald-ruhn")
 
             player.data.equipment[enumerations.equipment.BOOTS] = {

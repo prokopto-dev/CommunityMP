@@ -1614,7 +1614,7 @@ void LocalPlayer::setDynamicStats()
             applyDynamicStat(statsDynamicIndex);
     }
 
-    if (ptrCreatureStats->isDead())
+    if (ptrCreatureStats->isDead() || creatureStats.mDynamic[0].mCurrent > 0)
         MWBase::Environment::get().getMechanicsManager()->resurrect(ptrPlayer);
 }
 

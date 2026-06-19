@@ -1929,10 +1929,9 @@ namespace MWMechanics
     {
         CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
         if (stats.isDead())
-        {
             stats.resurrect();
-            mActors.resurrect(ptr);
-        }
+
+        mActors.resurrect(ptr);
     }
 
     bool MechanicsManager::isCastingSpell(const MWWorld::Ptr& ptr) const
