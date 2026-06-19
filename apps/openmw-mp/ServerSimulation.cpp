@@ -1433,13 +1433,18 @@ namespace
         return getModifiedStatValue(attacker.npcStats.mSkills[handToHandIndex]);
     }
 
-    float getServerPlayerStrength(const Player& attacker)
+    float getServerPlayerAttribute(const Player& attacker, ESM::RefId attributeId)
     {
-        static const int strengthIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Strength);
-        if (strengthIndex < 0 || strengthIndex >= ESM::Attribute::Length)
+        const int attributeIndex = ESM::Attribute::refIdToIndex(attributeId);
+        if (attributeIndex < 0 || attributeIndex >= ESM::Attribute::Length)
             return 0.f;
 
-        return getModifiedStatValue(attacker.creatureStats.mAttributes[strengthIndex]);
+        return getModifiedStatValue(attacker.creatureStats.mAttributes[attributeIndex]);
+    }
+
+    float getServerPlayerStrength(const Player& attacker)
+    {
+        return getServerPlayerAttribute(attacker, ESM::Attribute::Strength);
     }
 
     bool isUnarmedMeleeAttack(const mwmp::Attack& attack)
@@ -2226,6 +2231,80 @@ namespace
             return 0.f;
 
         return getModifiedStatValue(player.npcStats.mSkills[skillIndex]);
+    }
+
+    std::uint32_t getServerPlayerCombatRoll0To99(const Player& player, const mwmp::Attack& attack,
+        std::uint32_t combatSequence, std::string_view rollKind)
+    {
+        std::uint64_t hash = 14695981039346656037ull;
+        mixCombatRollHash(hash, rollKind);
+        mixCombatRollHash(hash, player.cell.getDescription());
+        mixCombatRollHash(hash, mwmp::packetGuidValue(player.guid));
+        mixCombatRollHash(hash, player.npc.mName);
+        mixCombatRollHash(hash, combatSequence);
+        mixCombatRollHash(hash, attack.target.refId);
+        mixCombatRollHash(hash, attack.target.refNum);
+        mixCombatRollHash(hash, attack.target.mpNum);
+        mixCombatRollHash(hash, mwmp::packetGuidValue(attack.target.guid));
+        return static_cast<std::uint32_t>(hash % 100u);
+    }
+
+    float getServerActorEvasion(const mwmp::BaseActor& target,
+        const std::optional<mwmp::WorldActorProfileRecord>& profile)
+    {
+        if (target.creatureStats.mDead)
+            return 0.f;
+
+        const float agility = getActorProfileAttribute(profile, ESM::Attribute::Agility, 50.f);
+        const float luck = getActorProfileAttribute(profile, ESM::Attribute::Luck, 50.f);
+        float evasion = agility / 5.f + luck / 10.f;
+        if (target.hasStatsDynamicData && mwmp::hasFiniteActorDynamicStats(target))
+        {
+            const ESM::StatState<float>& fatigue = target.creatureStats.mDynamic[2];
+            if (std::isfinite(fatigue.mCurrent) && fatigue.mCurrent < 0.f)
+                return 0.f;
+
+            evasion *= getServerFatigueTerm(fatigue);
+        }
+
+        return std::max(0.f, evasion);
+    }
+
+    bool serverPlayerMeleeHitSucceeds(const Player& attacker, const mwmp::BaseActor& target,
+        const mwmp::Attack& attack, std::uint32_t combatSequence)
+    {
+        std::optional<mwmp::WorldRecordWinner> weapon;
+        if (isWeaponMeleeAttack(attack))
+        {
+            weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
+            if (!weapon)
+                return attack.success;
+        }
+
+        std::optional<mwmp::WorldActorProfileRecord> profile;
+        if (!target.refId.empty())
+        {
+            mwmp::WorldDatabaseStore::get().ensureLoaded();
+            profile = mwmp::WorldDatabaseStore::get().findActorProfileByRecordKey(target.refId);
+        }
+
+        const int skillIndex = weapon ? getWeaponSkillIndex(weapon->itemEquipmentWeaponType)
+                                      : getSkillIndex(ESM::Skill::HandToHand);
+        const float attackSkill = skillIndex >= 0 ? getModifiedStatValue(attacker.npcStats.mSkills[skillIndex]) : 0.f;
+        float attackTerm = attackSkill
+            + getServerPlayerAttribute(attacker, ESM::Attribute::Agility) / 5.f
+            + getServerPlayerAttribute(attacker, ESM::Attribute::Luck) / 10.f;
+        if (attacker.hasFiniteDynamicStats())
+            attackTerm *= getServerFatigueTerm(attacker.creatureStats.mDynamic[2]);
+
+        const float hitChance = std::round(attackTerm - getServerActorEvasion(target, profile));
+        if (hitChance >= 100.f)
+            return true;
+        if (hitChance <= 0.f)
+            return false;
+
+        return getServerPlayerCombatRoll0To99(attacker, attack, combatSequence, "hit")
+            < static_cast<std::uint32_t>(std::clamp(hitChance, 0.f, 100.f));
     }
 
     std::optional<mwmp::WorldRecordWinner> findServerPlayerShield(const Player& player)
@@ -3137,12 +3216,21 @@ namespace
     }
 
     mwmp::Attack makeServerResolvedPlayerAttack(
-        const Player& attacker, const mwmp::Attack& attack, mwmp::BaseActor& target, float meleeAttackStrength)
+        const Player& attacker, const mwmp::Attack& attack, mwmp::BaseActor& target, float meleeAttackStrength,
+        std::uint32_t combatSequence)
     {
         mwmp::Attack resolvedAttack = attack;
         if (shouldUseServerFallbackWeaponDamage(resolvedAttack))
         {
             resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+            if (!serverPlayerMeleeHitSucceeds(attacker, target, resolvedAttack, combatSequence))
+            {
+                resolvedAttack.success = false;
+                resolvedAttack.block = false;
+                resolvedAttack.knockdown = false;
+                resolvedAttack.damage = 0.f;
+                return resolvedAttack;
+            }
             resolvedAttack.damage = getServerFallbackPlayerWeaponDamage(
                 attacker, resolvedAttack, resolvedAttack.attackStrength);
             return resolvedAttack;
@@ -3155,6 +3243,14 @@ namespace
             return resolvedAttack;
 
         resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+        if (!serverPlayerMeleeHitSucceeds(attacker, target, resolvedAttack, combatSequence))
+        {
+            resolvedAttack.success = false;
+            resolvedAttack.block = false;
+            resolvedAttack.knockdown = false;
+            resolvedAttack.damage = 0.f;
+            return resolvedAttack;
+        }
         const bool targetTakesHealthDamage = shouldApplyAttackHealthDamage(resolvedAttack, target.creatureStats);
         resolvedAttack.damage = getServerFallbackPlayerUnarmedDamage(
             attacker, targetTakesHealthDamage, resolvedAttack.attackStrength);
@@ -7059,7 +7155,7 @@ namespace mwmp
         }
 
         Attack resolvedAttack = makeServerResolvedPlayerAttack(
-            attacker, attack, *targetActor, serverMeleeAttackStrength);
+            attacker, attack, *targetActor, serverMeleeAttackStrength, attacker.combatSequence);
         attacker.attack = resolvedAttack;
 
         if (!canApplyServerAttackDamage(resolvedAttack))
