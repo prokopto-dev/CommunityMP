@@ -2510,7 +2510,10 @@ namespace mwmp
                     broadcastPlayerStats(*target);
                     notifyPlayerStatsDynamic(*target);
                     if (becameDead)
+                    {
+                        clearActorCombatTargetsForPlayer(*target, "server actor melee killed the player");
                         notifyPlayerDeath(*target);
+                    }
                 }
                 else
                 {
@@ -4325,7 +4328,10 @@ namespace mwmp
             broadcastPlayerStats(*target);
             notifyPlayerStatsDynamic(*target);
             if (becameDead)
+            {
+                clearActorCombatTargetsForPlayer(*target, "runtime simulation killed the player");
                 notifyPlayerDeath(*target);
+            }
         }
     }
 
@@ -5775,7 +5781,10 @@ namespace mwmp
                     broadcastPlayerStats(*target);
                     notifyPlayerStatsDynamic(*target);
                     if (becameDead)
+                    {
+                        clearActorCombatTargetsForPlayer(*target, "server accepted actor attack killed the player");
                         notifyPlayerDeath(*target);
+                    }
                 }
                 continue;
             }
@@ -5809,7 +5818,10 @@ namespace mwmp
                 broadcastPlayerStats(*target);
                 notifyPlayerStatsDynamic(*target);
                 if (becameDead)
+                {
+                    clearActorCombatTargetsForPlayer(*target, "server accepted player attack killed the player");
                     notifyPlayerDeath(*target);
+                }
             }
             return;
         }
