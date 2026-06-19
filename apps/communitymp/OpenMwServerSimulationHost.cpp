@@ -372,6 +372,16 @@ namespace
             return !actorLists.empty();
         }
 
+        bool startActorCombatWithPlayer(
+            const mwmp::SimulationActorTarget& actor, const mwmp::SimulationPlayerTarget& player) override
+        {
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared() || !player.hasPosition)
+                return false;
+
+            return mEngine->startServerSimulationActorCombatWithPlayer(
+                actor.cell, actor.refId, actor.refNum, actor.mpNum, player.position, player.guid, player.name);
+        }
+
         const mwmp::SimulationRuntimeFocusState& focusState() const override
         {
             return mFocusState;
@@ -435,7 +445,9 @@ namespace
             mFocusState.lastCellDescription = description;
             mFocusState.lastFocusHadPosition = focus.hasPosition;
             mFocusState.lastFocusSucceeded = mEngine->focusServerSimulationCell(
-                focus.cell, focus.hasPosition ? &focus.position : nullptr);
+                focus.cell, focus.hasPosition ? &focus.position : nullptr,
+                focus.hasPlayer ? focus.playerGuid : mwmp::unassignedPacketGuid(),
+                focus.hasPlayer ? std::string_view(focus.playerName) : std::string_view());
             mFocusState.lastQueuedDeltaSeconds = queuedDeltaSeconds;
             if (mFocusState.lastFocusSucceeded)
             {

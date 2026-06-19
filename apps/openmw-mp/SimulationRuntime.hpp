@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <components/esm3/loadcell.hpp>
+#include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 namespace mwmp
 {
@@ -18,6 +19,26 @@ namespace mwmp
     {
         ESM::Cell cell;
         ESM::Position position;
+        bool hasPosition = false;
+        PacketGuid playerGuid = unassignedPacketGuid();
+        std::string playerName;
+        bool hasPlayer = false;
+    };
+
+    struct SimulationActorTarget
+    {
+        ESM::Cell cell;
+        std::string refId;
+        unsigned int refNum = 0;
+        unsigned int mpNum = 0;
+    };
+
+    struct SimulationPlayerTarget
+    {
+        ESM::Cell cell;
+        ESM::Position position;
+        PacketGuid guid = unassignedPacketGuid();
+        std::string name;
         bool hasPosition = false;
     };
 
@@ -146,6 +167,8 @@ namespace mwmp
         virtual void tick(float deltaSeconds);
         virtual void setSimulationCellFocuses(const std::vector<SimulationCellFocus>& focuses);
         virtual bool collectActorSnapshots(std::vector<BaseActorList>& actorLists);
+        virtual bool startActorCombatWithPlayer(
+            const SimulationActorTarget& actor, const SimulationPlayerTarget& player);
         virtual bool dispatchServerEvent(
             std::string_view eventName, const SimulationRuntimeEventArguments& arguments);
 

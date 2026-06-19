@@ -2,12 +2,15 @@
 #define ENGINE_H
 
 #include <filesystem>
+#include <string>
+#include <string_view>
 
 #include <components/compiler/extensions.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/esm/position.hpp>
 #include <components/esm/refid.hpp>
 #include <components/files/collections.hpp>
+#include <components/openmw-mp/Transport/PacketIdentity.hpp>
 #include <components/settings/settings.hpp>
 #include <components/translation/translation.hpp>
 
@@ -209,6 +212,9 @@ namespace OMW
         std::string mServerSimulationFocusCellDescription;
         ESM::Position mServerSimulationFocusPosition;
         bool mServerSimulationFocusPositionSet = false;
+        mwmp::PacketGuid mServerSimulationFocusPlayerGuid = mwmp::unassignedPacketGuid();
+        std::string mServerSimulationFocusPlayerName;
+        bool mServerSimulationFocusPlayerSet = false;
 
         // not implemented
         Engine(const Engine&);
@@ -272,7 +278,13 @@ namespace OMW
         bool tickServerSimulation(float simulationDeltaSeconds, float clockDeltaSeconds);
 
         /// Move the server-owned OpenMW simulation scene to the requested cell.
-        bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr);
+        bool focusServerSimulationCell(const ESM::Cell& cell, const ESM::Position* focusPosition = nullptr,
+            mwmp::PacketGuid playerGuid = mwmp::unassignedPacketGuid(), std::string_view playerName = {});
+
+        /// Start native OpenMW combat against the server focus player proxy.
+        bool startServerSimulationActorCombatWithPlayer(const ESM::Cell& cell, std::string_view actorRefId,
+            unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
+            mwmp::PacketGuid playerGuid, std::string_view playerName);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists) const;

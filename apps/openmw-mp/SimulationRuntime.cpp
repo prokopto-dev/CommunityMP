@@ -329,6 +329,14 @@ namespace mwmp
         return false;
     }
 
+    bool SimulationRuntime::startActorCombatWithPlayer(
+        const SimulationActorTarget& actor, const SimulationPlayerTarget& player)
+    {
+        static_cast<void>(actor);
+        static_cast<void>(player);
+        return false;
+    }
+
     bool SimulationRuntime::dispatchServerEvent(
         std::string_view eventName, const SimulationRuntimeEventArguments& arguments)
     {

@@ -2777,6 +2777,9 @@ namespace mwmp
 
                 focus.position = visitor->position;
                 focus.hasPosition = true;
+                focus.playerGuid = visitor->guid;
+                focus.playerName = visitor->npc.mName;
+                focus.hasPlayer = true;
                 break;
             }
 
@@ -4528,11 +4531,11 @@ namespace mwmp
     void ServerSimulation::applyPlayerAttack(Player& attacker)
     {
         const Attack& attack = attacker.attack;
-        if (!canApplyServerAttackDamage(attack))
-            return;
-
         if (attack.target.isPlayer)
         {
+            if (!canApplyServerAttackDamage(attack))
+                return;
+
             Player* target = Players::getPlayer(attack.target.guid);
             bool becameDead = false;
             if (target != nullptr && applyAttackDamageToPlayer(*target, attack, becameDead))
@@ -4550,8 +4553,30 @@ namespace mwmp
             return;
 
         const bool aiChanged = applyCombatTargetToActor(*targetCell, *targetActor, attacker);
+        if (mRuntime != nullptr && mRuntime->canOwnActorAuthority() && attacker.hasFinitePositionPacket()
+            && getCellSimulationKey(attacker.cell) == getCellSimulationKey(targetCell->getCellData()))
+        {
+            SimulationActorTarget runtimeActor;
+            runtimeActor.cell = targetCell->getCellData();
+            runtimeActor.refId = targetActor->refId;
+            runtimeActor.refNum = targetActor->refNum;
+            runtimeActor.mpNum = targetActor->mpNum;
+
+            SimulationPlayerTarget runtimePlayer;
+            runtimePlayer.cell = attacker.cell;
+            runtimePlayer.position = attacker.position;
+            runtimePlayer.guid = attacker.guid;
+            runtimePlayer.name = attacker.npc.mName;
+            runtimePlayer.hasPosition = true;
+
+            static_cast<void>(mRuntime->startActorCombatWithPlayer(runtimeActor, runtimePlayer));
+        }
+
         if (aiChanged)
             broadcastActorAi(*targetCell, *targetActor);
+
+        if (!canApplyServerAttackDamage(attack))
+            return;
 
         if (applyAttackDamageToActor(*targetActor, attack))
         {
