@@ -31,6 +31,7 @@ namespace mwmp
                 LocalPlayer &localPlayer = static_cast<LocalPlayer&>(*player);
                 
                 int spellbookAction = localPlayer.spellbookChanges.action;
+                localPlayer.acceptCurrentSpellbookPacket();
 
                 if (spellbookAction == SpellbookChanges::ADD)
                     localPlayer.addSpells();

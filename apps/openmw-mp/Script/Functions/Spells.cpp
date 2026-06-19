@@ -366,6 +366,7 @@ void SpellFunctions::SendSpellbookChanges(unsigned short pid, bool sendToOtherPl
     Player *player;
     GET_PLAYER(pid, player, );
 
+    player->acceptCurrentSpellbookPacket();
     mwmp::PlayerPacket *packet = mwmp::ServerNetworking::get().getPlayerPacketController()->GetPacket(ID_PLAYER_SPELLBOOK);
     packet->setPlayer(player);
 

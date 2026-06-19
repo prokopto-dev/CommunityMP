@@ -11,6 +11,7 @@
 
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadspel.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
@@ -29,6 +30,7 @@ namespace mwmp
         ESM::RefId playerClassId;
         SimulationPlayerBaseStats playerBaseStats;
         SimpleCreatureStats playerStats;
+        std::vector<ESM::Spell> playerSpellbookSpells;
         std::vector<Item> playerInventoryItems;
         std::array<Item, equipmentSlotCount> playerEquipmentItems = {};
         bool hasPlayer = false;
@@ -36,6 +38,7 @@ namespace mwmp
         bool hasPlayerClass = false;
         bool hasPlayerBaseStatsData = false;
         bool hasPlayerStats = false;
+        bool hasPlayerSpellbookData = false;
         bool hasPlayerInventoryData = false;
         bool hasPlayerEquipmentData = false;
     };
@@ -58,12 +61,14 @@ namespace mwmp
         ESM::RefId classId;
         SimulationPlayerBaseStats baseStats;
         SimpleCreatureStats creatureStats;
+        std::vector<ESM::Spell> spellbookSpells;
         std::vector<Item> inventoryItems;
         std::array<Item, equipmentSlotCount> equipmentItems = {};
         bool hasPosition = false;
         bool hasBaseInfo = false;
         bool hasClass = false;
         bool hasBaseStatsData = false;
+        bool hasSpellbookData = false;
         bool hasInventoryData = false;
         bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;

@@ -253,6 +253,64 @@ namespace mwmp
         int action; // 0 - Clear and set in entirety, 1 - Add spell, 2 - Remove spell
     };
 
+    inline bool spellbookSnapshotContains(const std::vector<ESM::Spell>& snapshot, const ESM::RefId& spellId)
+    {
+        for (const ESM::Spell& spell : snapshot)
+        {
+            if (spell.mId == spellId)
+                return true;
+        }
+
+        return false;
+    }
+
+    inline void addSpellbookSnapshotSpell(std::vector<ESM::Spell>& snapshot, const ESM::Spell& spell)
+    {
+        if (spell.mId.empty() || spellbookSnapshotContains(snapshot, spell.mId))
+            return;
+
+        snapshot.push_back(spell);
+    }
+
+    inline void removeSpellbookSnapshotSpell(std::vector<ESM::Spell>& snapshot, const ESM::Spell& spell)
+    {
+        if (spell.mId.empty())
+            return;
+
+        for (auto it = snapshot.begin(); it != snapshot.end(); ++it)
+        {
+            if (it->mId != spell.mId)
+                continue;
+
+            snapshot.erase(it);
+            return;
+        }
+    }
+
+    inline void applySpellbookChangesToSnapshot(std::vector<ESM::Spell>& snapshot, const SpellbookChanges& changes)
+    {
+        if (changes.action == SpellbookChanges::SET)
+        {
+            snapshot.clear();
+            for (const ESM::Spell& spell : changes.spells)
+                addSpellbookSnapshotSpell(snapshot, spell);
+            return;
+        }
+
+        if (changes.action == SpellbookChanges::ADD)
+        {
+            for (const ESM::Spell& spell : changes.spells)
+                addSpellbookSnapshotSpell(snapshot, spell);
+            return;
+        }
+
+        if (changes.action == SpellbookChanges::REMOVE)
+        {
+            for (const ESM::Spell& spell : changes.spells)
+                removeSpellbookSnapshotSpell(snapshot, spell);
+        }
+    }
+
     enum RESURRECT_TYPE
     {
         REGULAR = 0,
@@ -323,7 +381,9 @@ namespace mwmp
         BasePlayer(PacketGuid guid) : guid(guid)
         {
             inventoryChanges.action = 0;
+            acceptedInventoryChanges.action = 0;
             spellbookChanges.action = 0;
+            acceptedSpellbookChanges.action = 0;
 
             exchangeFullInfo = false;
             displayCreatureName = false;
@@ -333,7 +393,10 @@ namespace mwmp
 
         BasePlayer()
         {
-
+            inventoryChanges.action = 0;
+            acceptedInventoryChanges.action = 0;
+            spellbookChanges.action = 0;
+            acceptedSpellbookChanges.action = 0;
         }
 
         bool acceptPositionPacket()
@@ -484,6 +547,21 @@ namespace mwmp
             acceptedInventoryChanges.items.clear();
             acceptedInventoryItems.clear();
             hasAcceptedInventoryPacket = false;
+        }
+
+        void acceptCurrentSpellbookPacket()
+        {
+            acceptedSpellbookChanges = spellbookChanges;
+            applySpellbookChangesToSnapshot(acceptedSpellbookSpells, spellbookChanges);
+            hasAcceptedSpellbookPacket = true;
+        }
+
+        void clearAcceptedSpellbookPacket()
+        {
+            acceptedSpellbookChanges.action = SpellbookChanges::SET;
+            acceptedSpellbookChanges.spells.clear();
+            acceptedSpellbookSpells.clear();
+            hasAcceptedSpellbookPacket = false;
         }
 
         bool acceptInventoryPacket()
@@ -738,6 +816,7 @@ namespace mwmp
             clearAcceptedPositionPacket();
             clearAcceptedAnimFlagsPacket();
             clearAcceptedInventoryPacket();
+            clearAcceptedSpellbookPacket();
             clearAcceptedEquipmentPacket();
             clearAcceptedStatsDynamicPacket();
             clearAcceptedCombatPacket();
@@ -795,6 +874,9 @@ namespace mwmp
         bool hasAcceptedInventoryPacket = false;
 
         SpellbookChanges spellbookChanges;
+        SpellbookChanges acceptedSpellbookChanges;
+        std::vector<ESM::Spell> acceptedSpellbookSpells;
+        bool hasAcceptedSpellbookPacket = false;
         std::vector<SpellCooldown> cooldownChanges;
         SpellsActiveChanges spellsActiveChanges;
         std::vector<QuickKey> quickKeyChanges;

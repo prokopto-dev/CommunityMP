@@ -17,6 +17,7 @@ namespace mwmp
         {
             DEBUG_PRINTF(strPacketID.c_str());
 
+            player.acceptCurrentSpellbookPacket();
             ServerEvents::playerEvent("OnPlayerSpellbook", player.getId());
         }
     };

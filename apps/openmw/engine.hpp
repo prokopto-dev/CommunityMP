@@ -14,6 +14,7 @@
 #include <components/esm/position.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadspel.hpp>
 #include <components/files/collections.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
@@ -155,6 +156,7 @@ namespace OMW
         ESM::RefId classId;
         mwmp::SimulationPlayerBaseStats baseStats;
         mwmp::SimpleCreatureStats stats;
+        std::vector<ESM::Spell> spellbookSpells;
         std::vector<mwmp::Item> inventoryItems;
         std::array<mwmp::Item, mwmp::equipmentSlotCount> equipmentItems = {};
         std::unique_ptr<MWWorld::ManualRef> reference;
@@ -163,6 +165,7 @@ namespace OMW
         bool hasBaseInfo = false;
         bool hasClass = false;
         bool hasBaseStatsData = false;
+        bool hasSpellbookData = false;
         bool hasInventoryData = false;
         bool hasEquipmentData = false;
         bool hasStatsDynamicData = false;
@@ -335,6 +338,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
@@ -345,6 +349,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerMeleeAttackToActor(const ESM::Cell& cell, std::string_view actorRefId,
@@ -353,6 +358,7 @@ namespace OMW
             float attackStrength, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell& cell,
@@ -361,6 +367,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerRangedAttackToActor(const ESM::Cell& cell, std::string_view actorRefId,
@@ -369,6 +376,7 @@ namespace OMW
             float attackStrength, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool applyServerSimulationPlayerRangedAttackToPlayer(const ESM::Cell& cell,
@@ -377,6 +385,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool resolveServerSimulationPlayerCast(const ESM::Cell& cell, const ESM::Position& playerPosition,
@@ -384,6 +393,7 @@ namespace OMW
             bool& castSucceeded, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell, std::string_view actorRefId,
@@ -392,6 +402,7 @@ namespace OMW
             bool& castSucceeded, const mwmp::SimpleCreatureStats* playerStats = nullptr,
             const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
         bool resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cell,
@@ -400,6 +411,7 @@ namespace OMW
             const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::vector<ESM::Spell>* playerSpellbookSpells = nullptr,
             const std::vector<mwmp::Item>* playerInventoryItems = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 

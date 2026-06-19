@@ -1326,6 +1326,11 @@ namespace
         }
         target.baseStats = makeSimulationPlayerBaseStats(player.creatureStats, player.npcStats);
         target.hasBaseStatsData = true;
+        if (player.hasAcceptedSpellbookPacket)
+        {
+            target.spellbookSpells = player.acceptedSpellbookSpells;
+            target.hasSpellbookData = true;
+        }
         if (player.hasAcceptedInventoryPacket)
         {
             target.inventoryItems = player.acceptedInventoryItems;
@@ -3676,6 +3681,11 @@ namespace mwmp
             focus.hasPlayerBaseInfo = true;
             focus.playerBaseStats = makeSimulationPlayerBaseStats(visitor.creatureStats, visitor.npcStats);
             focus.hasPlayerBaseStatsData = true;
+            if (visitor.hasAcceptedSpellbookPacket)
+            {
+                focus.playerSpellbookSpells = visitor.acceptedSpellbookSpells;
+                focus.hasPlayerSpellbookData = true;
+            }
             if (visitor.hasAcceptedInventoryPacket)
             {
                 focus.playerInventoryItems = visitor.acceptedInventoryItems;

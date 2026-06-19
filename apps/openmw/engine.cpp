@@ -1025,8 +1025,21 @@ namespace
         bool mRestore = false;
     };
 
+    bool serverSimulationSpellbookContains(
+        const std::vector<ESM::Spell>& spellbookSpells, const ESM::RefId& spellId)
+    {
+        for (const ESM::Spell& spell : spellbookSpells)
+        {
+            if (spell.mId == spellId)
+                return true;
+        }
+
+        return false;
+    }
+
     bool resolveServerSimulationPlayerCastNative(MWWorld::World* world, const MWWorld::Ptr& caster,
-        const MWWorld::Ptr& target, const mwmp::Cast& cast, bool& castSucceeded)
+        const MWWorld::Ptr& target, const mwmp::Cast& cast, const std::vector<ESM::Spell>* casterSpellbookSpells,
+        bool& castSucceeded)
     {
         castSucceeded = false;
         if (world == nullptr || caster.isEmpty() || !caster.getClass().isActor())
@@ -1055,6 +1068,10 @@ namespace
                     return finish(false);
 
                 const ESM::RefId spellId = ESM::RefId::stringRefId(cast.spellId);
+                if (casterSpellbookSpells != nullptr
+                    && !serverSimulationSpellbookContains(*casterSpellbookSpells, spellId))
+                    return finish(true);
+
                 casterStats.getSpells().setSelectedSpell(spellId);
 
                 const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(spellId);
@@ -2819,6 +2836,11 @@ void OMW::Engine::setServerSimulationPlayerActors(const std::vector<mwmp::Simula
             state.classId = player.classId;
             state.hasClass = true;
         }
+        if (player.hasSpellbookData)
+        {
+            state.spellbookSpells = player.spellbookSpells;
+            state.hasSpellbookData = true;
+        }
         if (player.hasInventoryData)
         {
             state.inventoryItems = player.inventoryItems;
@@ -2867,6 +2889,7 @@ bool OMW::Engine::focusServerSimulationCell(const ESM::Cell& cell, const ESM::Po
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats,
     const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -2978,6 +3001,7 @@ bool OMW::Engine::startServerSimulationActorCombatWithPlayer(const ESM::Cell& ce
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::SimpleCreatureStats* playerStats,
     const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -2987,7 +3011,7 @@ bool OMW::Engine::startServerSimulationActorCombatWithPlayer(const ESM::Cell& ce
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     MWWorld::CellStore* cellStore = mWorld->getPlayerPtr().getCell();
@@ -3016,6 +3040,7 @@ bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToActor(const ESM::Cell&
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Attack& attack, float attackStrength,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3025,7 +3050,7 @@ bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToActor(const ESM::Cell&
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     MWWorld::Ptr player = mWorld->getPlayerPtr();
@@ -3042,6 +3067,7 @@ bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell
     mwmp::PacketGuid targetGuid, const mwmp::Attack& attack, float attackStrength,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3052,7 +3078,7 @@ bool OMW::Engine::applyServerSimulationPlayerMeleeAttackToPlayer(const ESM::Cell
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     const auto targetIt = mServerSimulationPlayerActors.find(targetGuid);
@@ -3072,6 +3098,7 @@ bool OMW::Engine::applyServerSimulationPlayerRangedAttackToActor(const ESM::Cell
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Attack& attack, float attackStrength,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3081,7 +3108,7 @@ bool OMW::Engine::applyServerSimulationPlayerRangedAttackToActor(const ESM::Cell
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     MWWorld::Ptr player = mWorld->getPlayerPtr();
@@ -3098,6 +3125,7 @@ bool OMW::Engine::applyServerSimulationPlayerRangedAttackToPlayer(const ESM::Cel
     mwmp::PacketGuid targetGuid, const mwmp::Attack& attack, float attackStrength,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3108,7 +3136,7 @@ bool OMW::Engine::applyServerSimulationPlayerRangedAttackToPlayer(const ESM::Cel
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     const auto targetIt = mServerSimulationPlayerActors.find(targetGuid);
@@ -3127,6 +3155,7 @@ bool OMW::Engine::resolveServerSimulationPlayerCast(const ESM::Cell& cell, const
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast, bool& castSucceeded,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3136,11 +3165,11 @@ bool OMW::Engine::resolveServerSimulationPlayerCast(const ESM::Cell& cell, const
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     return resolveServerSimulationPlayerCastNative(mWorld.get(), mWorld->getPlayerPtr(), MWWorld::Ptr(), cast,
-        castSucceeded);
+        playerSpellbookSpells, castSucceeded);
 }
 
 bool OMW::Engine::resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell, std::string_view actorRefId,
@@ -3148,6 +3177,7 @@ bool OMW::Engine::resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell
     mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast, bool& castSucceeded,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3157,7 +3187,7 @@ bool OMW::Engine::resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     MWWorld::Ptr player = mWorld->getPlayerPtr();
@@ -3166,7 +3196,8 @@ bool OMW::Engine::resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell
     if (actor.isEmpty() || !actor.getClass().isActor())
         return false;
 
-    return resolveServerSimulationPlayerCastNative(mWorld.get(), player, actor, cast, castSucceeded);
+    return resolveServerSimulationPlayerCastNative(mWorld.get(), player, actor, cast, playerSpellbookSpells,
+        castSucceeded);
 }
 
 bool OMW::Engine::resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cell,
@@ -3174,6 +3205,7 @@ bool OMW::Engine::resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cel
     mwmp::PacketGuid targetGuid, const mwmp::Cast& cast, bool& castSucceeded,
     const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
     const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::vector<ESM::Spell>* playerSpellbookSpells,
     const std::vector<mwmp::Item>* playerInventoryItems,
     const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
 {
@@ -3184,7 +3216,7 @@ bool OMW::Engine::resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cel
 
     if (!focusServerSimulationCell(
             cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
-            playerBaseStats, playerInventoryItems, playerEquipmentItems))
+            playerBaseStats, playerSpellbookSpells, playerInventoryItems, playerEquipmentItems))
         return false;
 
     const auto targetIt = mServerSimulationPlayerActors.find(targetGuid);
@@ -3196,7 +3228,8 @@ bool OMW::Engine::resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cel
     if (target.getCell() == nullptr || player.getCell() == nullptr || target.getCell() != player.getCell())
         return false;
 
-    return resolveServerSimulationPlayerCastNative(mWorld.get(), player, target, cast, castSucceeded);
+    return resolveServerSimulationPlayerCastNative(mWorld.get(), player, target, cast, playerSpellbookSpells,
+        castSucceeded);
 }
 
 void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists)

@@ -922,6 +922,12 @@ namespace
         player.inventoryChanges.items.push_back({ "gold_001", 10, -1, -1.f, "" });
         ASSERT_TRUE(player.acceptInventoryPacket());
 
+        ESM::Spell acceptedSpell;
+        acceptedSpell.mId = ESM::RefId::stringRefId("firebite");
+        player.spellbookChanges.action = mwmp::SpellbookChanges::SET;
+        player.spellbookChanges.spells = { acceptedSpell };
+        player.acceptCurrentSpellbookPacket();
+
         player.equipmentSequence = 43;
         player.equipmentItems[0].refId = "iron dagger";
         player.equipmentItems[0].count = 1;
@@ -959,6 +965,8 @@ namespace
         EXPECT_EQ(player.inventoryChanges.action, mwmp::InventoryChanges::SET);
         EXPECT_TRUE(player.inventoryChanges.items.empty());
         EXPECT_TRUE(player.acceptedInventoryItems.empty());
+        EXPECT_FALSE(player.hasAcceptedSpellbookPacket);
+        EXPECT_TRUE(player.acceptedSpellbookSpells.empty());
         EXPECT_TRUE(player.equipmentItems[0].refId.empty());
         EXPECT_FLOAT_EQ(player.position.pos[0], 0.f);
         EXPECT_FLOAT_EQ(player.creatureStats.mDynamic[0].mCurrent, 0.f);
@@ -2592,6 +2600,38 @@ namespace
         EXPECT_EQ(player.acceptedInventoryItems[0].count, 3);
         EXPECT_EQ(player.acceptedInventoryItems[1].refId, "iron dagger");
         EXPECT_EQ(player.acceptedInventoryItems[1].charge, 50);
+    }
+
+    TEST(MpBasePacketTest, playerSpellbookAcceptMaintainsFullSnapshot)
+    {
+        mwmp::BasePlayer player(testGuid());
+
+        ESM::Spell firebite;
+        firebite.mId = ESM::RefId::stringRefId("firebite");
+        ESM::Spell hearthHeal;
+        hearthHeal.mId = ESM::RefId::stringRefId("hearth heal");
+        ESM::Spell frostbite;
+        frostbite.mId = ESM::RefId::stringRefId("frostbite");
+
+        player.spellbookChanges.action = mwmp::SpellbookChanges::SET;
+        player.spellbookChanges.spells = { firebite, firebite };
+        player.acceptCurrentSpellbookPacket();
+        ASSERT_EQ(player.acceptedSpellbookSpells.size(), 1u);
+        EXPECT_EQ(player.acceptedSpellbookSpells[0].mId, firebite.mId);
+
+        player.spellbookChanges.action = mwmp::SpellbookChanges::ADD;
+        player.spellbookChanges.spells = { hearthHeal, frostbite };
+        player.acceptCurrentSpellbookPacket();
+        ASSERT_EQ(player.acceptedSpellbookSpells.size(), 3u);
+        EXPECT_EQ(player.acceptedSpellbookSpells[1].mId, hearthHeal.mId);
+        EXPECT_EQ(player.acceptedSpellbookSpells[2].mId, frostbite.mId);
+
+        player.spellbookChanges.action = mwmp::SpellbookChanges::REMOVE;
+        player.spellbookChanges.spells = { hearthHeal };
+        player.acceptCurrentSpellbookPacket();
+        ASSERT_EQ(player.acceptedSpellbookSpells.size(), 2u);
+        EXPECT_EQ(player.acceptedSpellbookSpells[0].mId, firebite.mId);
+        EXPECT_EQ(player.acceptedSpellbookSpells[1].mId, frostbite.mId);
     }
 
     TEST(MpBasePacketTest, actorSpellsActiveRejectsOversizedCountBeforeResize)

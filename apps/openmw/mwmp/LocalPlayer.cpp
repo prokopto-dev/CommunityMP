@@ -2373,6 +2373,7 @@ void LocalPlayer::sendSpellbook()
     }
 
     spellbookChanges.action = SpellbookChanges::SET;
+    acceptCurrentSpellbookPacket();
     getNetworking()->getPlayerPacket(ID_PLAYER_SPELLBOOK)->setPlayer(this);
     getNetworking()->getPlayerPacket(ID_PLAYER_SPELLBOOK)->Send();
 }
@@ -2390,6 +2391,7 @@ void LocalPlayer::sendSpellChange(std::string id, unsigned int action)
     spellbookChanges.spells.push_back(spell);
 
     spellbookChanges.action = action;
+    acceptCurrentSpellbookPacket();
     getNetworking()->getPlayerPacket(ID_PLAYER_SPELLBOOK)->setPlayer(this);
     getNetworking()->getPlayerPacket(ID_PLAYER_SPELLBOOK)->Send();
 }
