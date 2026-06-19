@@ -4010,6 +4010,66 @@ namespace
         EXPECT_FLOAT_EQ(receivedActor.attack.hitPosition.pos[2], 6.f);
     }
 
+    TEST(MpBasePacketTest, actorAttackRoundTripsSequentialEdgesForSameActor)
+    {
+        mwmp::BaseActorList sent;
+        sent.guid = testGuid();
+        setInteriorCell(sent.cell, "Seyda Neen");
+
+        mwmp::BaseActor startActor;
+        startActor.refNum = 128;
+        startActor.mpNum = 4;
+        startActor.combatSequence = 60;
+        startActor.hasPositionData = true;
+        startActor.positionSequence = 0x80000011u;
+        startActor.position.pos[0] = 10.f;
+        startActor.position.pos[1] = 20.f;
+        startActor.position.pos[2] = 30.f;
+        startActor.direction.pos[1] = 1.f;
+        setMovementTiming(startActor);
+        startActor.attack.target.isPlayer = true;
+        startActor.attack.target.guid = testGuid();
+        startActor.attack.type = mwmp::Attack::MELEE;
+        startActor.attack.pressed = true;
+        startActor.attack.attackAnimation = "chop";
+        startActor.attack.attackStrength = 0.f;
+        sent.baseActors.push_back(startActor);
+
+        mwmp::BaseActor releaseActor = startActor;
+        releaseActor.combatSequence = 61;
+        releaseActor.attack.pressed = false;
+        releaseActor.attack.attackStrength = 0.5f;
+        sent.baseActors.push_back(releaseActor);
+
+        PacketStream stream;
+        mwmp::PacketActorAttack writer;
+        writeActorPacketToPayload(writer, sent, stream);
+
+        mwmp::BaseActorList received;
+        received.isValid = true;
+        mwmp::PacketActorAttack reader;
+        reader.setActorList(&received);
+        reader.Packet(&stream, false);
+
+        ASSERT_TRUE(received.isValid);
+        ASSERT_EQ(received.baseActors.size(), 2);
+        EXPECT_EQ(received.baseActors[0].refNum, 128u);
+        EXPECT_EQ(received.baseActors[0].mpNum, 4u);
+        EXPECT_EQ(received.baseActors[0].combatSequence, 60u);
+        EXPECT_TRUE(received.baseActors[0].attack.pressed);
+        EXPECT_EQ(received.baseActors[0].attack.attackAnimation, "chop");
+        EXPECT_FLOAT_EQ(received.baseActors[0].attack.attackStrength, 0.f);
+        expectMovementTiming(received.baseActors[0]);
+
+        EXPECT_EQ(received.baseActors[1].refNum, 128u);
+        EXPECT_EQ(received.baseActors[1].mpNum, 4u);
+        EXPECT_EQ(received.baseActors[1].combatSequence, 61u);
+        EXPECT_FALSE(received.baseActors[1].attack.pressed);
+        EXPECT_EQ(received.baseActors[1].attack.attackAnimation, "chop");
+        EXPECT_FLOAT_EQ(received.baseActors[1].attack.attackStrength, 0.5f);
+        expectMovementTiming(received.baseActors[1]);
+    }
+
     TEST(MpBasePacketTest, actorCastRoundTripsCombatTransformAndProjectileState)
     {
         mwmp::BaseActorList sent;

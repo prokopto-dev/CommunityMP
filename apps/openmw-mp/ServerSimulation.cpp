@@ -2197,11 +2197,27 @@ namespace
         return attack.isHit || attack.success || attack.block || (std::isfinite(attack.damage) && attack.damage > 0.f);
     }
 
+    void clearRuntimeAttackOutcome(mwmp::Attack& attack)
+    {
+        attack.isHit = false;
+        attack.success = false;
+        attack.block = false;
+        attack.damage = 0.f;
+        attack.knockdown = false;
+        attack.applyWeaponEnchantment = false;
+        attack.applyAmmoEnchantment = false;
+        attack.waitingForHitReaction = false;
+        attack.hitReactionWaitFrames = 0;
+    }
+
     bool shouldSendRuntimeAttackSnapshot(const mwmp::BaseActor* previousActor, const mwmp::BaseActor& actor)
     {
         if (!actor.hasCombatData
             || (actor.attack.type != mwmp::Attack::MELEE && actor.attack.type != mwmp::Attack::RANGED))
             return false;
+
+        if (actor.attack.shouldSend)
+            return true;
 
         if (hasAuthoritativeRuntimeAttackOutcome(actor.attack))
             return true;
@@ -2210,6 +2226,27 @@ namespace
             return actor.attack.pressed;
 
         return !sameRuntimeAttackPresentation(*previousActor, actor);
+    }
+
+    bool shouldPrependRuntimeAttackStart(const mwmp::BaseActor* previousActor, const mwmp::Attack& attack)
+    {
+        if (!attack.shouldSend || attack.pressed)
+            return false;
+
+        if (attack.type != mwmp::Attack::MELEE && attack.type != mwmp::Attack::RANGED)
+            return false;
+
+        return previousActor == nullptr || !previousActor->hasCombatData || !previousActor->attack.pressed
+            || previousActor->attack.type != attack.type;
+    }
+
+    mwmp::Attack makeRuntimeAttackStart(const mwmp::Attack& releaseAttack)
+    {
+        mwmp::Attack startAttack = releaseAttack;
+        startAttack.pressed = true;
+        startAttack.attackStrength = 0.f;
+        clearRuntimeAttackOutcome(startAttack);
+        return startAttack;
     }
 
     mwmp::BaseActor buildServerAcceptedAiActor(Cell& cell, const mwmp::BaseActor& incomingActor,
@@ -4407,24 +4444,32 @@ namespace mwmp
                 if (!sentServerAttackSnapshot && !actorInteractionLocked && visualActor.hasPositionData
                     && shouldSendRuntimeAttackSnapshot(previousActor, runtimeActor))
                 {
-                    BaseActor attackActor = visualActor;
-                    attackActor.hasCombatData = true;
-                    attackActor.combatSequence = cachedActor != nullptr && cachedActor->hasCombatData
+                    std::uint32_t nextCombatSequence = cachedActor != nullptr && cachedActor->hasCombatData
                         ? cachedActor->combatSequence + 1
                         : 1;
-                    attackActor.attack = runtimeActor.attack;
-                    if (!hasAuthoritativeRuntimeAttackOutcome(attackActor.attack))
+
+                    auto appendRuntimeAttack = [&](mwmp::Attack attack) {
+                        BaseActor attackActor = visualActor;
+                        attackActor.hasCombatData = true;
+                        attackActor.combatSequence = nextCombatSequence++;
+                        if (!hasAuthoritativeRuntimeAttackOutcome(attack))
+                            clearRuntimeAttackOutcome(attack);
+                        attack.shouldSend = false;
+                        attackActor.attack = std::move(attack);
+                        attackActor.hasPositionData = true;
+                        attackActor.positionSequence = nextPositionSequence;
+                        attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+                        attackActor.movementLatencySeconds = 0.f;
+                        attackList.baseActors.push_back(std::move(attackActor));
+                    };
+
+                    if (shouldPrependRuntimeAttackStart(previousActor, runtimeActor.attack))
                     {
-                        attackActor.attack.isHit = false;
-                        attackActor.attack.success = false;
-                        attackActor.attack.damage = 0.f;
-                        attackActor.attack.block = false;
+                        mwmp::Attack startAttack = makeRuntimeAttackStart(runtimeActor.attack);
+                        appendRuntimeAttack(std::move(startAttack));
                     }
-                    attackActor.hasPositionData = true;
-                    attackActor.positionSequence = nextPositionSequence;
-                    attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
-                    attackActor.movementLatencySeconds = 0.f;
-                    attackList.baseActors.push_back(std::move(attackActor));
+
+                    appendRuntimeAttack(runtimeActor.attack);
                 }
             }
 
