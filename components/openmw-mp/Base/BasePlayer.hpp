@@ -623,10 +623,10 @@ namespace mwmp
         std::vector<int> equipmentIndexChanges;
         std::uint32_t equipmentSequence = 0;
         std::uint32_t acceptedEquipmentSequence = 0;
-        Item acceptedEquipmentItems[equipmentSlotCount];
+        Item acceptedEquipmentItems[equipmentSlotCount] = {};
         bool hasAcceptedEquipmentPacket = false;
 
-        bool exchangeFullInfo;
+        bool exchangeFullInfo = false;
 
         InventoryChanges inventoryChanges;
         std::uint32_t inventorySequence = 0;
@@ -652,17 +652,17 @@ namespace mwmp
         CurrentContainer currentContainer;
 
         int difficulty = 0;
-        int enforcedLogLevel;
+        int enforcedLogLevel = -1;
         float physicsFramerate = 60.0;
         bool consoleAllowed = false;
         bool bedRestAllowed = true;
         bool wildernessRestAllowed = true;
         bool waitAllowed = true;
 
-        bool ignorePosPacket;
+        bool ignorePosPacket = false;
 
         unsigned int movementFlags = 0;
-        char drawState;
+        char drawState = 0;
         bool isJumping = false;
         bool isFlying = false;
         bool hasTcl = false;
@@ -675,19 +675,19 @@ namespace mwmp
         bool acceptedHasTcl = false;
         bool hasAcceptedAnimFlagsPacket = false;
 
-        ESM::Position position;
-        ESM::Position direction;
+        ESM::Position position = {};
+        ESM::Position direction = {};
         float movementSampleIntervalSeconds = 1.f / 60.f;
         float movementLatencySeconds = 0.f;
         std::uint32_t positionSequence = 0;
         std::uint32_t acceptedPositionSequence = 0;
-        ESM::Position acceptedPosition;
-        ESM::Position acceptedDirection;
+        ESM::Position acceptedPosition = {};
+        ESM::Position acceptedDirection = {};
         float acceptedMovementSampleIntervalSeconds = 1.f / 60.f;
         float acceptedMovementLatencySeconds = 0.f;
         bool hasAcceptedPositionPacket = false;
-        ESM::Position previousCellPosition;
-        ESM::Position momentum;
+        ESM::Position previousCellPosition = {};
+        ESM::Position momentum = {};
         ESM::Cell cell;
         ESM::NPC npc;
         ESM::NpcStats npcStats;
@@ -695,11 +695,11 @@ namespace mwmp
         ESM::CreatureStats creatureStats;
         std::uint32_t statsDynamicSequence = 0;
         std::uint32_t acceptedStatsDynamicSequence = 0;
-        ESM::StatState<float> acceptedStatsDynamic[3];
+        ESM::StatState<float> acceptedStatsDynamic[3] = {};
         bool acceptedStatsDynamicDead = false;
         bool hasAcceptedStatsDynamicPacket = false;
         ESM::Class charClass;
-        Item equipmentItems[equipmentSlotCount];
+        Item equipmentItems[equipmentSlotCount] = {};
         Attack attack;
         Cast cast;
         std::uint32_t combatSequence = 0;
@@ -713,37 +713,37 @@ namespace mwmp
 
         std::string sound;
         Animation animation;
-        char deathState;
+        char deathState = 0;
 
         bool resetStats = false;
         float scale = 1;
         bool isWerewolf = false;
 
-        bool displayCreatureName;
+        bool displayCreatureName = false;
         std::string creatureRefId;
 
-        bool isChangingRegion;
+        bool isChangingRegion = false;
         unsigned int cellChangeReason = CELL_CHANGE_REASON_NORMAL;
 
         Target killer;
 
-        int jailDays;
-        bool ignoreJailTeleportation;
-        bool ignoreJailSkillIncreases;
+        int jailDays = 0;
+        bool ignoreJailTeleportation = false;
+        bool ignoreJailSkillIncreases = false;
         std::string jailProgressText;
         std::string jailEndText;
 
-        unsigned int resurrectType;
-        unsigned int miscellaneousChangeType;
+        unsigned int resurrectType = 0;
+        unsigned int miscellaneousChangeType = 0;
 
         ESM::Cell markCell;
-        ESM::Position markPosition;
+        ESM::Position markPosition = {};
         std::string selectedSpellId;
         mwmp::Item selectedEnchantedItem;
 
         mwmp::Item usedItem;
-        bool usingItemMagic;
-        char itemUseDrawState;
+        bool usingItemMagic = false;
+        char itemUseDrawState = 0;
     };
 }
 
