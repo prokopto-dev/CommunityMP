@@ -42,6 +42,8 @@ using namespace mwmp;
 
 namespace
 {
+    constexpr float remoteActorAnimationMovementDistance = 4.f;
+
     ESM::RefId stringRefId(const std::string& id)
     {
         return ESM::RefId::stringRefId(id);
@@ -50,6 +52,19 @@ namespace
     std::string refIdToString(const ESM::RefId& id)
     {
         return id.serializeText();
+    }
+
+    void deriveRemoteActorAnimationDirection(
+        ESM::Position& direction, const ESM::Position& currentPosition, const ESM::Position& previousPosition)
+    {
+        const float deltaX = currentPosition.pos[0] - previousPosition.pos[0];
+        const float deltaY = currentPosition.pos[1] - previousPosition.pos[1];
+        const float horizontalDistanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (!std::isfinite(horizontalDistanceSquared)
+            || horizontalDistanceSquared < remoteActorAnimationMovementDistance * remoteActorAnimationMovementDistance)
+            return;
+
+        MechanicsHelper::deriveMissingMovementDirection(direction, currentPosition, previousPosition);
     }
 }
 
@@ -183,7 +198,7 @@ void DedicatedActor::setMovementSettingsFromVisualDelta(const ESM::Position& pre
     animationDirection.pos[0] = 0.f;
     animationDirection.pos[1] = 0.f;
     const ESM::Position currentPosition = ptr.getRefData().getPosition();
-    MechanicsHelper::deriveMissingMovementDirection(animationDirection, ptr.getRefData().getPosition(), previousPosition);
+    deriveRemoteActorAnimationDirection(animationDirection, currentPosition, previousPosition);
 
     if (animationDirection.pos[0] == 0.f && animationDirection.pos[1] == 0.f)
     {
@@ -192,7 +207,7 @@ void DedicatedActor::setMovementSettingsFromVisualDelta(const ESM::Position& pre
     }
 
     if (animationDirection.pos[0] == 0.f && animationDirection.pos[1] == 0.f)
-        MechanicsHelper::deriveMissingMovementDirection(animationDirection, position, currentPosition);
+        deriveRemoteActorAnimationDirection(animationDirection, position, currentPosition);
 
     const float deltaZ = currentPosition.pos[2] - previousPosition.pos[2];
     constexpr float minDerivedJumpRise = 0.5f;
