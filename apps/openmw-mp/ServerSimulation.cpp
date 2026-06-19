@@ -77,8 +77,19 @@ namespace
     constexpr float serverFallbackFatigueAttackMult = 0.0f;
     constexpr float serverFallbackWeaponFatigueMult = 0.25f;
     constexpr int serverEquipmentSlotCarriedRight = 16;
+    constexpr int serverEquipmentSlotCarriedLeft = 17;
     constexpr float serverFatigueBase = 1.25f;
     constexpr float serverFatigueMult = 0.5f;
+    constexpr float serverCombatBlockLeftAngle = -90.f;
+    constexpr float serverCombatBlockRightAngle = 30.f;
+    constexpr float serverSwingBlockBase = 1.f;
+    constexpr float serverSwingBlockMult = 1.f;
+    constexpr float serverBlockStillBonus = 1.25f;
+    constexpr int serverBlockMinChance = 10;
+    constexpr int serverBlockMaxChance = 50;
+    constexpr float serverFatigueBlockBase = 4.f;
+    constexpr float serverFatigueBlockMult = 0.f;
+    constexpr float serverWeaponFatigueBlockMult = 1.f;
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
     constexpr auto runtimePlayerFatalSnapshotCellChangeGrace = std::chrono::seconds(3);
@@ -2162,9 +2173,10 @@ namespace
     }
 
     std::uint32_t getServerCombatRoll0To99(const mwmp::BaseActor& actor, const mwmp::Attack& attack,
-        std::uint32_t combatSequence)
+        std::uint32_t combatSequence, std::string_view rollKind)
     {
         std::uint64_t hash = 14695981039346656037ull;
+        mixCombatRollHash(hash, rollKind);
         mixCombatRollHash(hash, actor.cell.getDescription());
         mixCombatRollHash(hash, actor.refId);
         mixCombatRollHash(hash, actor.refNum);
@@ -2200,8 +2212,146 @@ namespace
         if (hitChance <= 0.f)
             return false;
 
-        return getServerCombatRoll0To99(actor, attack, combatSequence)
+        return getServerCombatRoll0To99(actor, attack, combatSequence, "hit")
             < static_cast<std::uint32_t>(std::clamp(hitChance, 0.f, 100.f));
+    }
+
+    float getServerPlayerSkill(const Player& player, ESM::RefId skillId)
+    {
+        const int skillIndex = getSkillIndex(skillId);
+        if (skillIndex < 0)
+            return 0.f;
+
+        return getModifiedStatValue(player.npcStats.mSkills[skillIndex]);
+    }
+
+    std::optional<mwmp::WorldRecordWinner> findServerPlayerShield(const Player& player)
+    {
+        if (!player.hasAcceptedEquipmentPacket || serverEquipmentSlotCarriedLeft < 0
+            || serverEquipmentSlotCarriedLeft >= mwmp::equipmentSlotCount)
+            return std::nullopt;
+
+        const mwmp::Item& item = player.equipmentItems[serverEquipmentSlotCarriedLeft];
+        if (item.refId.empty() || !mwmp::isValidEquipmentItem(item))
+            return std::nullopt;
+
+        std::optional<mwmp::WorldRecordWinner> shield
+            = mwmp::WorldDatabaseStore::get().findWinningRecordByTypeAndKey("ARMO", item.refId);
+        if (!shield || shield->deleted || shield->tombstone || !shield->itemEquipmentImported)
+            return std::nullopt;
+
+        return shield;
+    }
+
+    bool isActorInsidePlayerBlockArc(const mwmp::BaseActor& actor, const Player& target)
+    {
+        if (!actor.hasPositionData || !hasFiniteWorldPosition(actor.position)
+            || !hasFiniteWorldPosition(target.acceptedPosition))
+            return false;
+
+        const float deltaX = actor.position.pos[0] - target.acceptedPosition.pos[0];
+        const float deltaY = actor.position.pos[1] - target.acceptedPosition.pos[1];
+        if (squaredHorizontalLength(deltaX, deltaY) <= healthDeadEpsilon)
+            return true;
+
+        const float angleToActor = std::atan2(deltaX, deltaY);
+        const float signedAngleDegrees = normalizedAngleDelta(angleToActor, target.acceptedPosition.rot[2])
+            * 180.f / 3.14159265358979323846f;
+        return signedAngleDegrees >= serverCombatBlockLeftAngle
+            && signedAngleDegrees <= serverCombatBlockRightAngle;
+    }
+
+    bool spendPlayerBlockFatigue(Player& target, const mwmp::Attack& attack,
+        const std::optional<ServerActorMeleeWeaponContext>& weaponContext)
+    {
+        if (!target.hasFiniteDynamicStats() || target.creatureStats.mDead)
+            return false;
+
+        float& fatigue = target.creatureStats.mDynamic[2].mCurrent;
+        if (!std::isfinite(fatigue))
+            return false;
+
+        float fatigueLoss = serverFatigueBlockBase;
+        if (serverFatigueBlockMult > 0.f)
+        {
+            constexpr float unknownNormalizedEncumbrance = 0.f;
+            fatigueLoss += unknownNormalizedEncumbrance * serverFatigueBlockMult;
+        }
+
+        if (weaponContext && std::isfinite(weaponContext->weapon.itemEquipmentWeight)
+            && weaponContext->weapon.itemEquipmentWeight > 0.f)
+        {
+            fatigueLoss += weaponContext->weapon.itemEquipmentWeight
+                * std::clamp(attack.attackStrength, 0.f, 1.f) * serverWeaponFatigueBlockMult;
+        }
+
+        fatigue = std::max(0.f, fatigue - std::max(0.f, fatigueLoss));
+        target.creatureStats.mBlock = true;
+        ++target.statsDynamicSequence;
+        target.exchangeFullInfo = false;
+        target.statsDynamicIndexChanges.clear();
+        target.statsDynamicIndexChanges.push_back(2);
+        target.acceptCurrentStatsDynamicPacket();
+        return true;
+    }
+
+    bool serverPlayerBlocksActorMelee(mwmp::BaseActor const& actor, Player& target, mwmp::Attack& attack,
+        std::uint32_t combatSequence, const std::optional<ServerActorMeleeWeaponContext>& weaponContext)
+    {
+        if (!attack.success || attack.block || !target.hasFiniteDynamicStats() || target.creatureStats.mKnockdown)
+            return false;
+
+        if (!findServerPlayerShield(target))
+            return false;
+
+        if (!isActorInsidePlayerBlockArc(actor, target))
+            return false;
+
+        std::optional<mwmp::WorldActorProfileRecord> profile;
+        if (!actor.refId.empty())
+        {
+            mwmp::WorldDatabaseStore::get().ensureLoaded();
+            profile = mwmp::WorldDatabaseStore::get().findActorProfileByRecordKey(actor.refId);
+        }
+
+        static const int agilityIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Agility);
+        static const int luckIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Luck);
+        const float targetAgility = agilityIndex >= 0 && agilityIndex < ESM::Attribute::Length
+            ? getModifiedStatValue(target.creatureStats.mAttributes[agilityIndex])
+            : 0.f;
+        const float targetLuck = luckIndex >= 0 && luckIndex < ESM::Attribute::Length
+            ? getModifiedStatValue(target.creatureStats.mAttributes[luckIndex])
+            : 0.f;
+
+        float blockTerm = getServerPlayerSkill(target, ESM::Skill::Block)
+            + 0.2f * targetAgility + 0.1f * targetLuck;
+        const float swingTerm = std::clamp(attack.attackStrength, 0.f, 1.f) * serverSwingBlockMult
+            + serverSwingBlockBase;
+        blockTerm *= swingTerm;
+        if (!std::isfinite(target.acceptedDirection.pos[1]) || target.acceptedDirection.pos[1] <= 0.f)
+            blockTerm *= serverBlockStillBonus;
+        blockTerm *= getServerFatigueTerm(target.creatureStats.mDynamic[2]);
+
+        const float attackerSkill = getServerActorAttackSkill(profile, weaponContext);
+        const float attackerAgility = getActorProfileAttribute(profile, ESM::Attribute::Agility, 50.f);
+        const float attackerLuck = getActorProfileAttribute(profile, ESM::Attribute::Luck, 50.f);
+        float attackerTerm = attackerSkill + 0.2f * attackerAgility + 0.1f * attackerLuck;
+        if (actor.hasStatsDynamicData && mwmp::hasFiniteActorDynamicStats(actor))
+            attackerTerm *= getServerFatigueTerm(actor.creatureStats.mDynamic[2]);
+
+        const int blockChance = std::clamp(static_cast<int>(blockTerm - attackerTerm),
+            serverBlockMinChance, serverBlockMaxChance);
+        if (getServerCombatRoll0To99(actor, attack, combatSequence, "block")
+            >= static_cast<std::uint32_t>(blockChance))
+            return false;
+
+        if (!spendPlayerBlockFatigue(target, attack, weaponContext))
+            return false;
+
+        attack.block = true;
+        attack.knockdown = false;
+        attack.damage = 0.f;
+        return true;
     }
 
     float getServerActorMeleeDamage(const mwmp::BaseActor& actor, std::string_view attackAnimation,
@@ -3325,6 +3475,12 @@ namespace mwmp
                     releaseAttack.block = false;
                     releaseAttack.knockdown = false;
                     releaseAttack.damage = 0.f;
+                }
+                else if (serverPlayerBlocksActorMelee(
+                    actor, *target, releaseAttack, combatState.pendingMeleeCombatSequence, weaponContext))
+                {
+                    broadcastPlayerStats(*target);
+                    notifyPlayerStatsDynamic(*target);
                 }
                 else if (applyAttackDamageToPlayer(*target, releaseAttack, becameDead))
                 {
