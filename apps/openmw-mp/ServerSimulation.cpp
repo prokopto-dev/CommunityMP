@@ -1469,18 +1469,30 @@ namespace
             && !attack.block && isWeaponMeleeAttack(attack);
     }
 
-    const mwmp::Item* findPlayerEquippedItemByRefId(const Player& player, std::string_view refId)
+    const mwmp::Item* getPlayerAcceptedEquipmentSlotItem(const Player& player, int slot)
+    {
+        if (!player.hasAcceptedEquipmentPacket || slot < 0 || slot >= mwmp::equipmentSlotCount)
+            return nullptr;
+
+        const mwmp::Item& item = player.equipmentItems[slot];
+        if (!mwmp::isValidEquipmentItem(item))
+            return nullptr;
+
+        return &item;
+    }
+
+    const mwmp::Item* findPlayerAcceptedCarriedRightItemByRefId(const Player& player, std::string_view refId)
     {
         if (refId.empty())
             return nullptr;
 
+        const mwmp::Item* item = getPlayerAcceptedEquipmentSlotItem(player, serverEquipmentSlotCarriedRight);
+        if (item == nullptr)
+            return nullptr;
+
         const std::string normalizedRefId = normalizedWorldLookupKey(refId);
-        for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
-        {
-            const mwmp::Item& item = player.equipmentItems[slot];
-            if (!item.refId.empty() && item.count > 0 && normalizedWorldLookupKey(item.refId) == normalizedRefId)
-                return &item;
-        }
+        if (normalizedWorldLookupKey(item->refId) == normalizedRefId)
+            return item;
 
         return nullptr;
     }
@@ -1590,7 +1602,11 @@ namespace
     {
         std::optional<mwmp::WorldRecordWinner> weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
         if (!weapon)
-            return getServerAttackDamage(attack);
+            return 0.f;
+
+        const mwmp::Item* equippedWeapon = findPlayerAcceptedCarriedRightItemByRefId(attacker, attack.rangedWeaponId);
+        if (equippedWeapon == nullptr)
+            return 0.f;
 
         int minDamage = 0;
         int maxDamage = 0;
@@ -1600,15 +1616,12 @@ namespace
         const float resolvedStrength = sanitizePlayerReleaseMeleeAttackStrength(attackStrength);
         float damage = static_cast<float>(minDamage) + (static_cast<float>(maxDamage - minDamage) * resolvedStrength);
 
-        if (const mwmp::Item* equippedWeapon = findPlayerEquippedItemByRefId(attacker, attack.rangedWeaponId))
+        if (equippedWeapon->charge >= 0 && weapon->itemEquipmentHealth > 0)
         {
-            if (equippedWeapon->charge >= 0 && weapon->itemEquipmentHealth > 0)
-            {
-                const float normalizedHealth = std::clamp(
-                    static_cast<float>(equippedWeapon->charge) / static_cast<float>(weapon->itemEquipmentHealth),
-                    0.f, 1.f);
-                damage *= normalizedHealth;
-            }
+            const float normalizedHealth = std::clamp(
+                static_cast<float>(equippedWeapon->charge) / static_cast<float>(weapon->itemEquipmentHealth),
+                0.f, 1.f);
+            damage *= normalizedHealth;
         }
 
         const float strengthScale = serverFallbackDamageStrengthBase
@@ -1617,7 +1630,8 @@ namespace
         return std::clamp(damage, 0.f, maxServerAttackDamage);
     }
 
-    float getServerFallbackPlayerAttackFatigueLoss(const mwmp::Attack& attack, float attackStrength)
+    float getServerFallbackPlayerAttackFatigueLoss(
+        const Player& attacker, const mwmp::Attack& attack, float attackStrength)
     {
         if (attack.type != mwmp::Attack::MELEE || attack.pressed)
             return 0.f;
@@ -1635,7 +1649,8 @@ namespace
         {
             const std::optional<mwmp::WorldRecordWinner> weapon
                 = findServerFallbackWeaponRecord(attack.rangedWeaponId);
-            if (weapon && std::isfinite(weapon->itemEquipmentWeight) && weapon->itemEquipmentWeight > 0.f)
+            if (weapon && findPlayerAcceptedCarriedRightItemByRefId(attacker, attack.rangedWeaponId) != nullptr
+                && std::isfinite(weapon->itemEquipmentWeight) && weapon->itemEquipmentWeight > 0.f)
                 fatigueLoss += weapon->itemEquipmentWeight * resolvedStrength * serverFallbackWeaponFatigueMult;
         }
 
@@ -2277,7 +2292,7 @@ namespace
         if (isWeaponMeleeAttack(attack))
         {
             weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
-            if (!weapon)
+            if (!weapon || findPlayerAcceptedCarriedRightItemByRefId(attacker, attack.rangedWeaponId) == nullptr)
                 return false;
         }
 
@@ -2317,7 +2332,7 @@ namespace
         if (isWeaponMeleeAttack(attack))
         {
             weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
-            if (!weapon)
+            if (!weapon || findPlayerAcceptedCarriedRightItemByRefId(attacker, attack.rangedWeaponId) == nullptr)
                 return false;
         }
 
@@ -3138,7 +3153,7 @@ namespace
 
     bool spendPlayerAttackFatigue(Player& attacker, const mwmp::Attack& attack, float attackStrength)
     {
-        const float fatigueLoss = getServerFallbackPlayerAttackFatigueLoss(attack, attackStrength);
+        const float fatigueLoss = getServerFallbackPlayerAttackFatigueLoss(attacker, attack, attackStrength);
         if (fatigueLoss <= healthDeadEpsilon || !attacker.hasFiniteDynamicStats() || attacker.creatureStats.mDead)
             return false;
 
