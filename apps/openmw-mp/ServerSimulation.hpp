@@ -176,7 +176,11 @@ namespace mwmp
             Clock::time_point nextMeleeAttack;
             Clock::time_point pendingMeleeRelease;
             Attack pendingMeleeAttack;
+            ESM::Position pendingMeleePosition;
+            ESM::Position pendingMeleeDirection;
             std::uint32_t pendingMeleeCombatSequence = 0;
+            std::uint32_t pendingMeleePositionSequence = 0;
+            float pendingMeleeSampleIntervalSeconds = 0.f;
             bool hasNextMeleeAttack = false;
             bool hasPendingMeleeRelease = false;
         };

@@ -2482,33 +2482,15 @@ namespace mwmp
         std::uint32_t positionSequence, float sampleIntervalSeconds, Clock::time_point now,
         BaseActorList& attackList, const Attack* runtimeAttack)
     {
-        if (!actor.hasPositionData || !hasFiniteWorldPosition(presentationPosition)
-            || !actorHasServerCombatTarget(actor) || !actor.aiTarget.isPlayer || !isLiveActorForServerMelee(actor))
-        {
-            mServerActorCombatStates.erase(actorKey);
-            return false;
-        }
-
-        ESM::Position targetPosition;
-        if (!getAiTargetPosition(cell, actor.aiTarget, targetPosition))
-        {
-            mServerActorCombatStates.erase(actorKey);
-            return false;
-        }
-
-        const float deltaX = targetPosition.pos[0] - presentationPosition.pos[0];
-        const float deltaY = targetPosition.pos[1] - presentationPosition.pos[1];
-        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+        const bool hasPresentationPosition = actor.hasPositionData && hasFiniteWorldPosition(presentationPosition);
 
         auto combatStateIt = mServerActorCombatStates.find(actorKey);
-        if (combatStateIt != mServerActorCombatStates.end() && combatStateIt->second.hasPendingMeleeRelease)
-        {
-            ServerActorCombatState& combatState = combatStateIt->second;
-            if (now < combatState.pendingMeleeRelease)
-                return true;
+        const bool hasPendingRelease = combatStateIt != mServerActorCombatStates.end()
+            && combatStateIt->second.hasPendingMeleeRelease;
 
+        auto appendPendingRelease = [&](ServerActorCombatState& combatState, bool forceMiss) {
             Attack releaseAttack = combatState.pendingMeleeAttack;
-            if (!std::isfinite(distanceSquared) || distanceSquared > serverActorMeleeRangeSquared)
+            if (forceMiss)
             {
                 releaseAttack.isHit = false;
                 releaseAttack.success = false;
@@ -2528,11 +2510,13 @@ namespace mwmp
                     if (becameDead)
                         notifyPlayerDeath(*target);
                 }
-                else if (target == nullptr)
+                else
                 {
                     releaseAttack.isHit = false;
                     releaseAttack.success = false;
+                    releaseAttack.block = false;
                     releaseAttack.damage = 0.f;
+                    releaseAttack.attackStrength = 0.f;
                 }
             }
 
@@ -2542,13 +2526,49 @@ namespace mwmp
             releaseActor.combatSequence = combatState.pendingMeleeCombatSequence;
             releaseActor.attack = std::move(releaseAttack);
             releaseActor.hasPositionData = true;
-            releaseActor.position = presentationPosition;
-            releaseActor.positionSequence = positionSequence;
-            releaseActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+            releaseActor.position = hasPresentationPosition ? presentationPosition : combatState.pendingMeleePosition;
+            releaseActor.direction = hasPresentationPosition ? actor.direction : combatState.pendingMeleeDirection;
+            releaseActor.positionSequence = hasPresentationPosition
+                ? positionSequence
+                : combatState.pendingMeleePositionSequence;
+            releaseActor.movementSampleIntervalSeconds = hasPresentationPosition
+                ? sampleIntervalSeconds
+                : combatState.pendingMeleeSampleIntervalSeconds;
             releaseActor.movementLatencySeconds = 0.f;
             attackList.baseActors.push_back(std::move(releaseActor));
 
             combatState.hasPendingMeleeRelease = false;
+        };
+
+        if (!hasPresentationPosition || !actorHasServerCombatTarget(actor) || !actor.aiTarget.isPlayer
+            || !isLiveActorForServerMelee(actor))
+        {
+            if (hasPendingRelease)
+                appendPendingRelease(combatStateIt->second, true);
+            mServerActorCombatStates.erase(actorKey);
+            return hasPendingRelease;
+        }
+
+        ESM::Position targetPosition;
+        if (!getAiTargetPosition(cell, actor.aiTarget, targetPosition))
+        {
+            if (hasPendingRelease)
+                appendPendingRelease(combatStateIt->second, true);
+            mServerActorCombatStates.erase(actorKey);
+            return hasPendingRelease;
+        }
+
+        const float deltaX = targetPosition.pos[0] - presentationPosition.pos[0];
+        const float deltaY = targetPosition.pos[1] - presentationPosition.pos[1];
+        const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+
+        if (hasPendingRelease)
+        {
+            ServerActorCombatState& combatState = combatStateIt->second;
+            if (now < combatState.pendingMeleeRelease)
+                return true;
+
+            appendPendingRelease(combatState, !std::isfinite(distanceSquared) || distanceSquared > serverActorMeleeRangeSquared);
             return true;
         }
 
@@ -2591,7 +2611,11 @@ namespace mwmp
 
         combatState.pendingMeleeRelease = now + serverActorMeleeWindup;
         combatState.pendingMeleeAttack = std::move(serverAttack);
+        combatState.pendingMeleePosition = presentationPosition;
+        combatState.pendingMeleeDirection = actor.direction;
         combatState.pendingMeleeCombatSequence = baseCombatSequence + 2;
+        combatState.pendingMeleePositionSequence = positionSequence;
+        combatState.pendingMeleeSampleIntervalSeconds = sampleIntervalSeconds;
         combatState.hasPendingMeleeRelease = true;
         return true;
     }
