@@ -2,6 +2,8 @@
 #define OPENMW_PROCESSORPLAYERSPELLSACTIVE_HPP
 
 #include "../PlayerProcessor.hpp"
+#include "apps/openmw-mp/ServerNetworking.hpp"
+#include "apps/openmw-mp/ServerSimulation.hpp"
 
 namespace mwmp
 {
@@ -16,6 +18,10 @@ namespace mwmp
         void Do(PlayerPacket &packet, Player &player) override
         {
             DEBUG_PRINTF(strPacketID.c_str());
+
+            ServerNetworking* networking = ServerNetworking::getPtr();
+            if (networking != nullptr && networking->getServerSimulation().runtime().canOwnActorAuthority())
+                return;
 
             ServerEvents::playerEvent("OnPlayerSpellsActive", player.getId());
         }
