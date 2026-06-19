@@ -2278,7 +2278,7 @@ namespace
         {
             weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
             if (!weapon)
-                return attack.success;
+                return false;
         }
 
         std::optional<mwmp::WorldActorProfileRecord> profile;
@@ -2298,6 +2298,39 @@ namespace
             attackTerm *= getServerFatigueTerm(attacker.creatureStats.mDynamic[2]);
 
         const float hitChance = std::round(attackTerm - getServerActorEvasion(target, profile));
+        if (hitChance >= 100.f)
+            return true;
+        if (hitChance <= 0.f)
+            return false;
+
+        return getServerPlayerCombatRoll0To99(attacker, attack, combatSequence, "hit")
+            < static_cast<std::uint32_t>(std::clamp(hitChance, 0.f, 100.f));
+    }
+
+    bool serverPlayerMeleeHitSucceeds(const Player& attacker, const Player& target,
+        const mwmp::Attack& attack, std::uint32_t combatSequence)
+    {
+        if (target.creatureStats.mDead)
+            return false;
+
+        std::optional<mwmp::WorldRecordWinner> weapon;
+        if (isWeaponMeleeAttack(attack))
+        {
+            weapon = findServerFallbackWeaponRecord(attack.rangedWeaponId);
+            if (!weapon)
+                return false;
+        }
+
+        const int skillIndex = weapon ? getWeaponSkillIndex(weapon->itemEquipmentWeaponType)
+                                      : getSkillIndex(ESM::Skill::HandToHand);
+        const float attackSkill = skillIndex >= 0 ? getModifiedStatValue(attacker.npcStats.mSkills[skillIndex]) : 0.f;
+        float attackTerm = attackSkill
+            + getServerPlayerAttribute(attacker, ESM::Attribute::Agility) / 5.f
+            + getServerPlayerAttribute(attacker, ESM::Attribute::Luck) / 10.f;
+        if (attacker.hasFiniteDynamicStats())
+            attackTerm *= getServerFatigueTerm(attacker.creatureStats.mDynamic[2]);
+
+        const float hitChance = std::round(attackTerm - getServerPlayerEvasion(target));
         if (hitChance >= 100.f)
             return true;
         if (hitChance <= 0.f)
@@ -3193,13 +3226,21 @@ namespace
     }
 
     mwmp::Attack makeServerResolvedPlayerAttack(
-        const Player& attacker, const mwmp::Attack& attack, const ESM::CreatureStats& targetStats,
-        float meleeAttackStrength)
+        const Player& attacker, const mwmp::Attack& attack, const Player& target, float meleeAttackStrength,
+        std::uint32_t combatSequence)
     {
         mwmp::Attack resolvedAttack = attack;
         if (shouldUseServerFallbackWeaponDamage(resolvedAttack))
         {
             resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
+            if (!serverPlayerMeleeHitSucceeds(attacker, target, resolvedAttack, combatSequence))
+            {
+                resolvedAttack.success = false;
+                resolvedAttack.block = false;
+                resolvedAttack.knockdown = false;
+                resolvedAttack.damage = 0.f;
+                return resolvedAttack;
+            }
             resolvedAttack.damage = getServerFallbackPlayerWeaponDamage(
                 attacker, resolvedAttack, resolvedAttack.attackStrength);
             return resolvedAttack;
@@ -3209,7 +3250,15 @@ namespace
             return resolvedAttack;
 
         resolvedAttack.attackStrength = sanitizePlayerReleaseMeleeAttackStrength(meleeAttackStrength);
-        const bool targetTakesHealthDamage = shouldApplyAttackHealthDamage(resolvedAttack, targetStats);
+        if (!serverPlayerMeleeHitSucceeds(attacker, target, resolvedAttack, combatSequence))
+        {
+            resolvedAttack.success = false;
+            resolvedAttack.block = false;
+            resolvedAttack.knockdown = false;
+            resolvedAttack.damage = 0.f;
+            return resolvedAttack;
+        }
+        const bool targetTakesHealthDamage = shouldApplyAttackHealthDamage(resolvedAttack, target.creatureStats);
         resolvedAttack.damage = getServerFallbackPlayerUnarmedDamage(
             attacker, targetTakesHealthDamage, resolvedAttack.attackStrength);
         return resolvedAttack;
@@ -7078,7 +7127,8 @@ namespace mwmp
             }
 
             Attack resolvedAttack = target != nullptr
-                ? makeServerResolvedPlayerAttack(attacker, attack, target->creatureStats, serverMeleeAttackStrength)
+                ? makeServerResolvedPlayerAttack(
+                    attacker, attack, *target, serverMeleeAttackStrength, attacker.combatSequence)
                 : attack;
             attacker.attack = resolvedAttack;
 
