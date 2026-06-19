@@ -221,6 +221,23 @@ namespace
         return "unknown";
     }
 
+    std::string runtimeWholeGameBlockReason(const mwmp::SimulationRuntime& runtime)
+    {
+        const std::string actorAuthorityBlockReason = runtimeAuthorityBlockReason(runtime);
+        if (!actorAuthorityBlockReason.empty())
+            return actorAuthorityBlockReason;
+
+        const mwmp::SimulationRuntimeTopology& topology = runtime.topology();
+        if (!topology.hasPersistentPlayerActors)
+            return "persistent-server-player-actors-missing";
+        if (topology.usesSinglePlayerProxy)
+            return "single-server-player-proxy-active";
+        if (!topology.rendererClientProtocol)
+            return "renderer-client-protocol-missing";
+
+        return {};
+    }
+
     const char* cellSimulationAuthorityMode(bool serverActorAuthority)
     {
         return serverActorAuthority ? "server-simulation" : "client-snapshot-reporter";
@@ -4362,6 +4379,7 @@ namespace mwmp
         const SimulationRuntimeFocusState& runtimeFocusState = runtime().focusState();
         const bool serverActorAuthority = canAuthoritativelySimulateActors();
         const std::string authorityBlockReason = runtimeAuthorityBlockReason(runtime());
+        const std::string wholeGameBlockReason = runtimeWholeGameBlockReason(runtime());
         const ServerContentRegistryStatistics serverContent = ServerContentRegistry::get().statistics();
         const ServerContentDatabaseStatistics serverContentDatabase = ServerContentDatabase::get().statistics();
         WorldDatabaseStore::get().ensureLoaded();
@@ -4548,6 +4566,14 @@ namespace mwmp
         payload += jsonBool(serverActorAuthority);
         payload += ",\"serverActorAuthorityBlockedBy\":";
         payload += jsonString(authorityBlockReason);
+        payload += ",\"serverWholeGameReady\":";
+        payload += jsonBool(wholeGameBlockReason.empty());
+        payload += ",\"serverWholeGameBlockedBy\":";
+        payload += jsonString(wholeGameBlockReason);
+        payload += ",\"openMwRuntimeUsesSinglePlayerProxy\":";
+        payload += jsonBool(runtimeTopology.usesSinglePlayerProxy);
+        payload += ",\"openMwRuntimeHasPersistentPlayerActors\":";
+        payload += jsonBool(runtimeTopology.hasPersistentPlayerActors);
         payload += ",\"serverActorPathgridRouteCacheCount\":";
         payload += std::to_string(serverActorPathgridRouteCacheCount);
         payload += ",\"serverActorPathgridBlockedRouteCacheCount\":";
@@ -5183,6 +5209,10 @@ namespace mwmp
         payload += jsonBool(runtimeTopology.hasHeadlessOpenMwEngine);
         payload += ",\"runsOpenMwLua\":";
         payload += jsonBool(runtimeTopology.runsOpenMwLua);
+        payload += ",\"usesSinglePlayerProxy\":";
+        payload += jsonBool(runtimeTopology.usesSinglePlayerProxy);
+        payload += ",\"hasPersistentPlayerActors\":";
+        payload += jsonBool(runtimeTopology.hasPersistentPlayerActors);
         payload += ",\"rendererClientProtocol\":";
         payload += jsonBool(runtimeTopology.rendererClientProtocol);
         payload += "}";

@@ -283,6 +283,8 @@ namespace
         topology.linksOpenMwCore = true;
         topology.hasHeadlessOpenMwEngine = hasPreparedEngine;
         topology.runsOpenMwLua = hasPreparedEngine;
+        topology.usesSinglePlayerProxy = hasPreparedEngine;
+        topology.hasPersistentPlayerActors = false;
         topology.rendererClientProtocol = false;
         return topology;
     }

@@ -101,6 +101,8 @@ namespace mwmp
         bool linksOpenMwCore = false;
         bool hasHeadlessOpenMwEngine = false;
         bool runsOpenMwLua = false;
+        bool usesSinglePlayerProxy = false;
+        bool hasPersistentPlayerActors = false;
         bool rendererClientProtocol = false;
     };
 
