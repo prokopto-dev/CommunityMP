@@ -4203,8 +4203,7 @@ namespace mwmp
                     ? cachedActor->positionSequence + 1
                     : 1;
                 const ActorMovementKey actorKey{ runtimeCellKey, runtimeActor.refNum, runtimeActor.mpNum };
-                const bool actorInteractionLocked = isActorInteractionLocked(actorKey, now)
-                    && !(cachedActor != nullptr && actorHasServerCombatTarget(*cachedActor));
+                const bool actorInteractionLocked = isActorInteractionLocked(actorKey, now);
                 const bool useRuntimeFallbackMovement = shouldUseRuntimeFallbackMovement(
                     actorKey, runtimeActor, cachedActor);
                 const bool rawRuntimeMovementIntent = hasMeaningfulMovementIntent(runtimeActor.direction);
@@ -6518,21 +6517,15 @@ namespace mwmp
             for (BaseActor& actor : storedActorList->baseActors)
             {
                 const ActorMovementKey actorKey{ cellKey, actor.refNum, actor.mpNum };
-                if (!actor.hasPositionData || !isClientActorControlUpdateAllowed(&actor))
-                {
-                    if (hasPendingServerActorMeleeRelease(actorKey))
-                        static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
-                            actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
-                            Clock::now(), attackActorList));
-                    continue;
-                }
+                const Clock::time_point tickNow = Clock::now();
 
-                if (isActorInteractionLocked(actorKey, Clock::now()))
+                if (isActorInteractionLocked(actorKey, tickNow))
                 {
-                    const bool wasMoving = hasMovementIntent(actor.direction);
+                    const bool wasMoving = actor.hasPositionData && hasMovementIntent(actor.direction);
                     mActorWanderStates.erase(actorKey);
                     mActorPathgridRouteStates.erase(actorKey);
                     mRuntimeActorMovementStates.erase(actorKey);
+                    mServerActorCombatStates.erase(actorKey);
                     actor.direction = zeroPosition();
                     if (wasMoving)
                     {
@@ -6542,10 +6535,15 @@ namespace mwmp
                         actor.hasPositionData = true;
                         tickActorList.baseActors.push_back(actor);
                     }
+                    continue;
+                }
+
+                if (!actor.hasPositionData || !isClientActorControlUpdateAllowed(&actor))
+                {
                     if (hasPendingServerActorMeleeRelease(actorKey))
                         static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
                             actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
-                            Clock::now(), attackActorList));
+                            tickNow, attackActorList));
                     continue;
                 }
 
@@ -6557,7 +6555,7 @@ namespace mwmp
                     {
                         static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
                             actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
-                            Clock::now(), attackActorList));
+                            tickNow, attackActorList));
                         continue;
                     }
                 }
@@ -6603,7 +6601,7 @@ namespace mwmp
                     }
                     static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
                         actor.positionSequence, mwmp::sanitizeMovementSampleIntervalSeconds(deltaSeconds),
-                        Clock::now(), attackActorList));
+                        tickNow, attackActorList));
                     continue;
                 }
 
@@ -6616,7 +6614,7 @@ namespace mwmp
 
                 tickActorList.baseActors.push_back(actor);
                 static_cast<void>(applyServerActorMeleeIfReady(*cell, actor, actorKey, actor.position,
-                    actor.positionSequence, actor.movementSampleIntervalSeconds, Clock::now(), attackActorList));
+                    actor.positionSequence, actor.movementSampleIntervalSeconds, tickNow, attackActorList));
             }
 
             tickActorList.count = static_cast<unsigned int>(tickActorList.baseActors.size());
