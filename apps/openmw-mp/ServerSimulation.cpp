@@ -4254,14 +4254,21 @@ namespace mwmp
                     sanitizeFinitePosition(cachedActor->direction);
                 }
 
+                const bool hadPreviousRuntimeMovementIntent = previousActor != nullptr
+                    && hasMovementIntent(previousActor->direction);
                 const bool sendInteractionStopSnapshot = actorInteractionLocked && visualActor.hasPositionData
                     && (cachedActor == nullptr || hasMovementIntent(cachedActor->direction)
                         || hasMeaningfulRuntimeTransformDelta(runtimeActor, visualActor)
                         || hasMeaningfulMovementIntent(runtimeActor.direction));
+                const bool sendRuntimeStopSnapshot = runtimeActor.hasPositionData && !useRuntimeFallbackMovement
+                    && !actorInteractionLocked && hadPreviousRuntimeMovementIntent
+                    && !hasMovementIntent(visualActor.direction)
+                    && previousActor != nullptr
+                    && !hasMeaningfulRuntimeTransformDelta(runtimeActor, *previousActor);
                 const bool sendRuntimePositionSnapshot = runtimeActor.hasPositionData && !useRuntimeFallbackMovement
                     && !actorInteractionLocked
                     && shouldSendRuntimePositionSnapshot(previousActor, visualActor);
-                if (sendRuntimePositionSnapshot || sendInteractionStopSnapshot)
+                if (sendRuntimePositionSnapshot || sendInteractionStopSnapshot || sendRuntimeStopSnapshot)
                 {
                     BaseActor positionActor = visualActor;
                     positionActor.hasPositionData = true;
