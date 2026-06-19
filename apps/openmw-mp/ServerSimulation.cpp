@@ -2587,7 +2587,7 @@ namespace mwmp
 
         std::vector<SimulationCellFocus> simulationFocuses;
         std::set<std::string> focusedCellDescriptions;
-        std::set<std::string> deferredLoadedCellDescriptions;
+        std::set<std::string> authorityOnlyCellDescriptions;
         RuntimeFocusSelectionStats focusSelectionStats;
         reconcileCurrentPlayerSimulationCells(focusSelectionStats);
         for (const auto& [cellDescription, state] : mShadowCellAuthority)
@@ -2611,8 +2611,10 @@ namespace mwmp
             }
             else
             {
-                deferredLoadedCellDescriptions.insert(cellDescription);
+                authorityOnlyCellDescriptions.insert(cellDescription);
+                ++focusSelectionStats.authorityOnlyCellCount;
                 ++focusSelectionStats.deferredLoadedCellCount;
+                focusSelectionStats.lastAuthorityOnlyCellDescription = cellDescription;
                 focusSelectionStats.lastDeferredLoadedCellDescription = cellDescription;
             }
         }
@@ -2623,33 +2625,32 @@ namespace mwmp
                 continue;
             if (focusedCellDescriptions.find(cell->getShortDescription()) != focusedCellDescriptions.end())
                 continue;
-            if (deferredLoadedCellDescriptions.find(cell->getShortDescription()) != deferredLoadedCellDescriptions.end())
+            const std::string cellDescription = cell->getShortDescription();
+            if (authorityOnlyCellDescriptions.find(cellDescription) != authorityOnlyCellDescriptions.end())
                 continue;
+
+            const auto stateIt = mShadowCellAuthority.find(cellDescription);
+            if (stateIt != mShadowCellAuthority.end())
+            {
+                if (!stateIt->second.visitors.empty())
+                {
+                    ++focusSelectionStats.authorityOnlyCellCount;
+                    focusSelectionStats.lastAuthorityOnlyCellDescription = cellDescription;
+                    continue;
+                }
+
+                ++focusSelectionStats.staleSimulationInterestCellCount;
+                focusSelectionStats.lastStaleSimulationInterestCellDescription = cellDescription;
+                continue;
+            }
 
             SimulationCellFocus focus;
             focus.cell = cell->getCellData();
 
-            const auto stateIt = mShadowCellAuthority.find(cell->getShortDescription());
-            if (stateIt != mShadowCellAuthority.end())
-            {
-                for (PacketGuid visitorGuid : stateIt->second.visitors)
-                {
-                    Player* visitor = Players::getPlayer(visitorGuid);
-                    if (visitor == nullptr || visitor->getLoadState() == Player::KICKED)
-                        continue;
-
-                    if (!visitor->hasFinitePositionPacket() || !isSameSimulationCell(visitor->cell, focus.cell))
-                        continue;
-
-                    focus.position = visitor->position;
-                    focus.hasPosition = true;
-                    break;
-                }
-            }
-
             simulationFocuses.push_back(std::move(focus));
             ++focusSelectionStats.candidateCellCount;
             ++focusSelectionStats.scriptFocusCellCount;
+            ++focusSelectionStats.scriptFocusWithoutPositionCellCount;
         }
 
         mRuntimeFocusSelectionStats = std::move(focusSelectionStats);
@@ -3357,12 +3358,22 @@ namespace mwmp
         payload += std::to_string(mRuntimeFocusSelectionStats.deferredLoadedCellCount);
         payload += ",\"openMwRuntimeScriptFocusCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.scriptFocusCellCount);
+        payload += ",\"openMwRuntimeScriptFocusWithoutPositionCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.scriptFocusWithoutPositionCellCount);
+        payload += ",\"openMwRuntimeAuthorityOnlyCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.authorityOnlyCellCount);
+        payload += ",\"openMwRuntimeStaleSimulationInterestCellCount\":";
+        payload += std::to_string(mRuntimeFocusSelectionStats.staleSimulationInterestCellCount);
         payload += ",\"openMwRuntimeCurrentPlayerCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.currentPlayerCellCount);
         payload += ",\"openMwRuntimeRepairedCurrentPlayerCellCount\":";
         payload += std::to_string(mRuntimeFocusSelectionStats.repairedCurrentPlayerCellCount);
         payload += ",\"openMwRuntimeLastDeferredLoadedCell\":";
         payload += jsonString(mRuntimeFocusSelectionStats.lastDeferredLoadedCellDescription);
+        payload += ",\"openMwRuntimeLastAuthorityOnlyCell\":";
+        payload += jsonString(mRuntimeFocusSelectionStats.lastAuthorityOnlyCellDescription);
+        payload += ",\"openMwRuntimeLastStaleSimulationInterestCell\":";
+        payload += jsonString(mRuntimeFocusSelectionStats.lastStaleSimulationInterestCellDescription);
         payload += ",\"openMwRuntimeLastRepairedCurrentPlayerCell\":";
         payload += jsonString(mRuntimeFocusSelectionStats.lastRepairedCurrentPlayerCellDescription);
         payload += ",\"openMwRuntimeFocusAttemptCount\":";

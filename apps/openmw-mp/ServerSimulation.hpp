@@ -154,9 +154,14 @@ namespace mwmp
             std::size_t directFocusCellCount = 0;
             std::size_t deferredLoadedCellCount = 0;
             std::size_t scriptFocusCellCount = 0;
+            std::size_t scriptFocusWithoutPositionCellCount = 0;
+            std::size_t authorityOnlyCellCount = 0;
+            std::size_t staleSimulationInterestCellCount = 0;
             std::size_t currentPlayerCellCount = 0;
             std::size_t repairedCurrentPlayerCellCount = 0;
             std::string lastDeferredLoadedCellDescription;
+            std::string lastAuthorityOnlyCellDescription;
+            std::string lastStaleSimulationInterestCellDescription;
             std::string lastRepairedCurrentPlayerCellDescription;
         };
 
