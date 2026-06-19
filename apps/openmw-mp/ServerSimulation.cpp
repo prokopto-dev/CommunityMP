@@ -62,6 +62,7 @@ namespace
     constexpr float serverActorMeleeRangeSquared = serverActorMeleeRange * serverActorMeleeRange;
     constexpr float serverActorMeleeMinimumDamage = 4.f;
     constexpr float serverActorMeleeMaximumFallbackDamage = 24.f;
+    constexpr auto serverActorMeleeWindup = std::chrono::milliseconds(350);
     constexpr auto serverActorMeleeInterval = std::chrono::milliseconds(1500);
     // Matches MWMechanics::CharState_Death1 without linking the dedicated server core to OpenMW mechanics headers.
     constexpr char serverActorDefaultDeathState = 29;
@@ -2498,6 +2499,59 @@ namespace mwmp
         const float deltaX = targetPosition.pos[0] - presentationPosition.pos[0];
         const float deltaY = targetPosition.pos[1] - presentationPosition.pos[1];
         const float distanceSquared = squaredHorizontalLength(deltaX, deltaY);
+
+        auto combatStateIt = mServerActorCombatStates.find(actorKey);
+        if (combatStateIt != mServerActorCombatStates.end() && combatStateIt->second.hasPendingMeleeRelease)
+        {
+            ServerActorCombatState& combatState = combatStateIt->second;
+            if (now < combatState.pendingMeleeRelease)
+                return true;
+
+            Attack releaseAttack = combatState.pendingMeleeAttack;
+            if (!std::isfinite(distanceSquared) || distanceSquared > serverActorMeleeRangeSquared)
+            {
+                releaseAttack.isHit = false;
+                releaseAttack.success = false;
+                releaseAttack.block = false;
+                releaseAttack.damage = 0.f;
+                releaseAttack.attackStrength = 0.f;
+            }
+
+            if (releaseAttack.isHit && releaseAttack.success)
+            {
+                Player* target = Players::getPlayer(releaseAttack.target.guid);
+                bool becameDead = false;
+                if (target != nullptr && applyAttackDamageToPlayer(*target, releaseAttack, becameDead))
+                {
+                    broadcastPlayerStats(*target);
+                    notifyPlayerStatsDynamic(*target);
+                    if (becameDead)
+                        notifyPlayerDeath(*target);
+                }
+                else if (target == nullptr)
+                {
+                    releaseAttack.isHit = false;
+                    releaseAttack.success = false;
+                    releaseAttack.damage = 0.f;
+                }
+            }
+
+            BaseActor releaseActor = actor;
+            releaseActor.cell = cell.getCellData();
+            releaseActor.hasCombatData = true;
+            releaseActor.combatSequence = combatState.pendingMeleeCombatSequence;
+            releaseActor.attack = std::move(releaseAttack);
+            releaseActor.hasPositionData = true;
+            releaseActor.position = presentationPosition;
+            releaseActor.positionSequence = positionSequence;
+            releaseActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
+            releaseActor.movementLatencySeconds = 0.f;
+            attackList.baseActors.push_back(std::move(releaseActor));
+
+            combatState.hasPendingMeleeRelease = false;
+            return true;
+        }
+
         if (!std::isfinite(distanceSquared) || distanceSquared > serverActorMeleeRangeSquared)
             return false;
 
@@ -2514,16 +2568,6 @@ namespace mwmp
         combatState.nextMeleeAttack = now + serverActorMeleeInterval;
         const std::string attackAnimation = runtimeAttack != nullptr ? runtimeAttack->attackAnimation : std::string();
         Attack serverAttack = makeServerActorMeleeAttack(actor, actor.aiTarget, targetPosition, attackAnimation);
-
-        Player* target = Players::getPlayer(serverAttack.target.guid);
-        bool becameDead = false;
-        if (target != nullptr && applyAttackDamageToPlayer(*target, serverAttack, becameDead))
-        {
-            broadcastPlayerStats(*target);
-            notifyPlayerStatsDynamic(*target);
-            if (becameDead)
-                notifyPlayerDeath(*target);
-        }
 
         const std::uint32_t baseCombatSequence = actor.hasCombatData ? actor.combatSequence : 0;
 
@@ -2545,17 +2589,10 @@ namespace mwmp
         startActor.movementLatencySeconds = 0.f;
         attackList.baseActors.push_back(std::move(startActor));
 
-        BaseActor releaseActor = actor;
-        releaseActor.cell = cell.getCellData();
-        releaseActor.hasCombatData = true;
-        releaseActor.combatSequence = baseCombatSequence + 2;
-        releaseActor.attack = std::move(serverAttack);
-        releaseActor.hasPositionData = true;
-        releaseActor.position = presentationPosition;
-        releaseActor.positionSequence = positionSequence;
-        releaseActor.movementSampleIntervalSeconds = sampleIntervalSeconds;
-        releaseActor.movementLatencySeconds = 0.f;
-        attackList.baseActors.push_back(std::move(releaseActor));
+        combatState.pendingMeleeRelease = now + serverActorMeleeWindup;
+        combatState.pendingMeleeAttack = std::move(serverAttack);
+        combatState.pendingMeleeCombatSequence = baseCombatSequence + 2;
+        combatState.hasPendingMeleeRelease = true;
         return true;
     }
 

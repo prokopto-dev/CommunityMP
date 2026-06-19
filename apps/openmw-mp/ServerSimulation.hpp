@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <components/esm3/loadcell.hpp>
+#include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Transport/PacketIdentity.hpp>
 
 #include "SimulationRuntime.hpp"
@@ -173,7 +174,11 @@ namespace mwmp
         struct ServerActorCombatState
         {
             Clock::time_point nextMeleeAttack;
+            Clock::time_point pendingMeleeRelease;
+            Attack pendingMeleeAttack;
+            std::uint32_t pendingMeleeCombatSequence = 0;
             bool hasNextMeleeAttack = false;
+            bool hasPendingMeleeRelease = false;
         };
 
         struct ActorInteractionLease

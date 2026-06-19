@@ -719,6 +719,16 @@ void Cell::readAttack(ActorList& actorList)
             acceptActorCombatReplaySequence(*actor, baseActor);
             actor->attack = baseActor.attack;
 
+            // Set the correct drawState here if we've somehow missed a previous
+            // AnimFlags packet. Server-owned attacks can otherwise replay into an
+            // idle upper body while authoritative damage still lands.
+            if ((actor->attack.type == mwmp::Attack::MELEE || actor->attack.type == mwmp::Attack::RANGED)
+                && actor->drawState != static_cast<char>(MWMechanics::DrawState::Weapon))
+            {
+                actor->drawState = static_cast<char>(MWMechanics::DrawState::Weapon);
+                actor->setAnimFlags();
+            }
+
             MechanicsHelper::processAttack(actor->attack, actor->getPtr(), false);
         }
     }
