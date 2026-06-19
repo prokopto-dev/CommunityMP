@@ -4,6 +4,7 @@
 
 #include "../PlayerProcessor.hpp"
 #include <components/openmw-mp/Utils.hpp>
+#include <components/openmw-mp/Transport/PacketIdentity.hpp>
 #include <apps/openmw/mwbase/environment.hpp>
 #include "apps/openmw/mwstate/statemanagerimp.hpp"
 
@@ -18,16 +19,14 @@ namespace mwmp
             avoidReading = true;
         }
 
-        virtual void Do(PlayerPacket &packet, BasePlayer *player)
+        void Do(PlayerPacket &packet, BasePlayer *player) override
         {
+            static_cast<void>(packet);
             if (isLocal())
                 MWBase::Environment::get().getStateManager()->requestQuit();
             else
             {
                 PlayerProcessor::clearPendingPacketsForPlayer(guid);
-
-                if (player == 0)
-                    return;
 
                 mwmp::LocalPlayer *localPlayer = mwmp::Main::get().getLocalPlayer();
 
@@ -36,12 +35,22 @@ namespace mwmp
                     if (*iter == guid)
                     {
                         DedicatedPlayer *dedicatedPlayer = PlayerList::getPlayer(guid);
-                        LOG_APPEND(TimedLog::LOG_INFO, "- Deleting %s from our allied players", dedicatedPlayer->npc.mName.c_str());
+                        if (dedicatedPlayer != nullptr)
+                            LOG_APPEND(TimedLog::LOG_INFO, "- Deleting %s from our allied players",
+                                dedicatedPlayer->npc.mName.c_str());
+                        else
+                            LOG_APPEND(TimedLog::LOG_INFO, "- Deleting stale guid %s from our allied players",
+                                packetGuidToString(guid).c_str());
                         iter = localPlayer->alliedPlayers.erase(iter);
                     }
                     else
                         ++iter;
                 }
+
+                if (player == nullptr)
+                    LOG_APPEND(TimedLog::LOG_INFO, "- Deleting stale remote avatar for disconnected guid %s",
+                        packetGuidToString(guid).c_str());
+
                 PlayerList::deletePlayer(guid);
             }
         }

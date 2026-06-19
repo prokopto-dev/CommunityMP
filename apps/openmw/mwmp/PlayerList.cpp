@@ -91,7 +91,11 @@ std::vector<PacketGuid> PlayerList::deletePlayersByNameExcept(const std::string&
 void PlayerList::cleanUp()
 {
     for (auto& playerEntry : playerList)
+    {
+        if (playerEntry.second != nullptr && playerEntry.second->reference)
+            playerEntry.second->deleteReference();
         delete playerEntry.second;
+    }
     playerList.clear();
 }
 

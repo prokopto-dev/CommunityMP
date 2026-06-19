@@ -153,11 +153,11 @@ Main::~Main()
 {
     LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO, "%s stopped", Branding::productName);
     delete mNetworking;
+    PlayerList::cleanUp();
     delete mLocalSystem;
     delete mLocalPlayer;
     delete mCellController;
     delete mGUIController;
-    PlayerList::cleanUp();
 }
 
 void Main::optionsDesc(boost::program_options::options_description *desc)
