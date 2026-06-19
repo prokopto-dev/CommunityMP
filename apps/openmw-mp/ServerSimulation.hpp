@@ -131,6 +131,8 @@ namespace mwmp
             std::uint64_t fallbackMovementSuppressedSnapshotCount = 0;
             std::uint64_t visualDirectionClearedCount = 0;
             std::uint64_t visualDirectionDerivedCount = 0;
+            std::uint64_t redundantPositionSnapshotSuppressedCount = 0;
+            std::uint64_t redundantAnimFlagsSnapshotSuppressedCount = 0;
             std::string lastSnapshotCellDescription;
             std::string lastRejectedClientActorPacket;
             std::string lastRejectedClientActorCellDescription;

@@ -71,6 +71,8 @@ namespace
     constexpr float followerCellChangeColumnSpacing = 48.f;
     constexpr float runtimeActorMovementEpsilonSquared = 4.f * 4.f;
     constexpr float runtimeActorDerivedDirectionMaximumDistanceSquared = 512.f * 512.f;
+    constexpr float runtimeActorRotationEpsilonRadians = 0.001f;
+    constexpr float runtimeActorDirectionEpsilonSquared = 0.0001f;
     constexpr std::uint32_t runtimeActorFallbackSnapshotThreshold = 15;
     constexpr std::size_t runtimeStatusContentPreviewLimit = 32;
     constexpr auto luaMovementHealthFreshnessWindow = std::chrono::seconds(2);
@@ -1015,6 +1017,106 @@ namespace
     {
         return direction.pos[0] != 0.f || direction.pos[1] != 0.f || direction.pos[2] != 0.f
             || direction.rot[0] != 0.f || direction.rot[1] != 0.f || direction.rot[2] != 0.f;
+    }
+
+    float squaredDirectionDelta(const ESM::Position& left, const ESM::Position& right)
+    {
+        float result = 0.f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float positionDelta = left.pos[axis] - right.pos[axis];
+            const float rotationDelta = left.rot[axis] - right.rot[axis];
+            result += positionDelta * positionDelta + rotationDelta * rotationDelta;
+        }
+
+        return result;
+    }
+
+    bool hasMeaningfulMovementIntent(const ESM::Position& direction)
+    {
+        const ESM::Position zero = {};
+        const float deltaSquared = squaredDirectionDelta(direction, zero);
+        return std::isfinite(deltaSquared) && deltaSquared > runtimeActorDirectionEpsilonSquared;
+    }
+
+    float normalizedAngleDelta(float left, float right)
+    {
+        if (!std::isfinite(left) || !std::isfinite(right))
+            return std::numeric_limits<float>::infinity();
+
+        float delta = std::fmod(left - right, twoPi);
+        if (delta > twoPi * 0.5f)
+            delta -= twoPi;
+        else if (delta < -twoPi * 0.5f)
+            delta += twoPi;
+
+        return delta;
+    }
+
+    bool hasMeaningfulRotationChange(const ESM::Position& left, const ESM::Position& right)
+    {
+        float rotationDeltaSquared = 0.f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float delta = normalizedAngleDelta(left.rot[axis], right.rot[axis]);
+            if (!std::isfinite(delta))
+                return true;
+
+            rotationDeltaSquared += delta * delta;
+        }
+
+        constexpr float rotationEpsilonSquared
+            = runtimeActorRotationEpsilonRadians * runtimeActorRotationEpsilonRadians;
+        return rotationDeltaSquared > rotationEpsilonSquared;
+    }
+
+    bool hasMeaningfulRuntimeTransformChange(const mwmp::BaseActor& actor, const mwmp::BaseActor& previousActor)
+    {
+        if (!actor.hasPositionData || !previousActor.hasPositionData)
+            return true;
+
+        const float distanceSquared = squaredDistance(actor.position, previousActor.position);
+        if (!std::isfinite(distanceSquared) || distanceSquared > runtimeActorMovementEpsilonSquared)
+            return true;
+
+        if (hasMeaningfulRotationChange(actor.position, previousActor.position))
+            return true;
+
+        const float directionDeltaSquared = squaredDirectionDelta(actor.direction, previousActor.direction);
+        return !std::isfinite(directionDeltaSquared) || directionDeltaSquared > runtimeActorDirectionEpsilonSquared;
+    }
+
+    bool hasRuntimeAnimFlagsChange(const mwmp::BaseActor& actor, const mwmp::BaseActor& previousActor)
+    {
+        return actor.movementFlags != previousActor.movementFlags
+            || actor.drawState != previousActor.drawState
+            || actor.isJumping != previousActor.isJumping
+            || actor.isFlying != previousActor.isFlying;
+    }
+
+    bool shouldSendRuntimePositionSnapshot(const mwmp::BaseActor* previousActor, const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasPositionData)
+            return false;
+
+        if (previousActor == nullptr || !previousActor->hasPositionData)
+            return true;
+
+        if (hasMeaningfulMovementIntent(actor.direction))
+            return true;
+
+        return hasMeaningfulRuntimeTransformChange(actor, *previousActor);
+    }
+
+    bool shouldSendRuntimeAnimFlagsSnapshot(const mwmp::BaseActor* previousActor, const mwmp::BaseActor& actor)
+    {
+        if (!actor.hasAnimFlagsData)
+            return false;
+
+        if (previousActor == nullptr || !previousActor->hasAnimFlagsData)
+            return true;
+
+        return hasRuntimeAnimFlagsChange(actor, *previousActor);
     }
 
     ESM::Position zeroPosition()
@@ -2817,7 +2919,9 @@ namespace mwmp
                     sanitizeFinitePosition(cachedActor->direction);
                 }
 
-                if (runtimeActor.hasPositionData && !useRuntimeFallbackMovement)
+                const bool sendRuntimePositionSnapshot = runtimeActor.hasPositionData && !useRuntimeFallbackMovement
+                    && shouldSendRuntimePositionSnapshot(previousActor, visualActor);
+                if (sendRuntimePositionSnapshot)
                 {
                     BaseActor positionActor = visualActor;
                     positionActor.hasPositionData = true;
@@ -2826,8 +2930,12 @@ namespace mwmp
                     positionActor.movementLatencySeconds = 0.f;
                     positionList.baseActors.push_back(std::move(positionActor));
                 }
+                else if (runtimeActor.hasPositionData && !useRuntimeFallbackMovement)
+                    ++mRuntimeActorSnapshotStats.redundantPositionSnapshotSuppressedCount;
 
-                if (runtimeActor.hasAnimFlagsData)
+                const bool sendRuntimeAnimFlagsSnapshot
+                    = shouldSendRuntimeAnimFlagsSnapshot(previousActor, visualActor);
+                if (sendRuntimeAnimFlagsSnapshot)
                 {
                     BaseActor animFlagsActor = visualActor;
                     animFlagsActor.hasAnimFlagsData = true;
@@ -2836,7 +2944,7 @@ namespace mwmp
                         : 1;
                     if (animFlagsActor.hasPositionData)
                     {
-                        if (useRuntimeFallbackMovement)
+                        if (useRuntimeFallbackMovement || !sendRuntimePositionSnapshot)
                             animFlagsActor.hasPositionData = false;
                         else
                         {
@@ -2847,6 +2955,8 @@ namespace mwmp
                     }
                     animFlagsList.baseActors.push_back(std::move(animFlagsActor));
                 }
+                else if (runtimeActor.hasAnimFlagsData)
+                    ++mRuntimeActorSnapshotStats.redundantAnimFlagsSnapshotSuppressedCount;
 
                 if (runtimeActor.hasStatsDynamicData)
                 {
@@ -3436,6 +3546,10 @@ namespace mwmp
         payload += std::to_string(mRuntimeActorSnapshotStats.visualDirectionClearedCount);
         payload += ",\"openMwRuntimeVisualDirectionDerivedCount\":";
         payload += std::to_string(mRuntimeActorSnapshotStats.visualDirectionDerivedCount);
+        payload += ",\"openMwRuntimeRedundantPositionSnapshotSuppressedCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.redundantPositionSnapshotSuppressedCount);
+        payload += ",\"openMwRuntimeRedundantAnimFlagsSnapshotSuppressedCount\":";
+        payload += std::to_string(mRuntimeActorSnapshotStats.redundantAnimFlagsSnapshotSuppressedCount);
         payload += ",\"openMwRuntimeLastFallbackMovementCellKey\":";
         payload += jsonString(mRuntimeActorSnapshotStats.lastFallbackMovementCellKey);
         payload += ",\"openMwRuntimeLastFallbackMovementRefNum\":";
