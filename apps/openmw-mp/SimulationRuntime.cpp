@@ -348,6 +348,17 @@ namespace mwmp
         return false;
     }
 
+    bool SimulationRuntime::applyPlayerMeleeAttackToActor(
+        const SimulationPlayerTarget& player, const SimulationActorTarget& actor, const Attack& attack,
+        float attackStrength)
+    {
+        static_cast<void>(player);
+        static_cast<void>(actor);
+        static_cast<void>(attack);
+        static_cast<void>(attackStrength);
+        return false;
+    }
+
     bool SimulationRuntime::dispatchServerEvent(
         std::string_view eventName, const SimulationRuntimeEventArguments& arguments)
     {

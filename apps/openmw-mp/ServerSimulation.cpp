@@ -1308,6 +1308,37 @@ namespace
         return result;
     }
 
+    mwmp::SimulationPlayerTarget makeRuntimePlayerTarget(const Player& player)
+    {
+        mwmp::SimulationPlayerTarget target;
+        target.cell = player.cell;
+        target.position = player.acceptedPosition;
+        target.guid = player.guid;
+        target.name = player.npc.mName;
+        target.npc = player.npc;
+        target.hasBaseInfo = true;
+        if (!player.charClass.mId.empty())
+        {
+            target.classId = player.charClass.mId;
+            target.hasClass = true;
+        }
+        target.baseStats = makeSimulationPlayerBaseStats(player.creatureStats, player.npcStats);
+        target.hasBaseStatsData = true;
+        if (player.hasAcceptedEquipmentPacket)
+        {
+            for (int slot = 0; slot < mwmp::equipmentSlotCount; ++slot)
+                target.equipmentItems[slot] = player.equipmentItems[slot];
+            target.hasEquipmentData = true;
+        }
+        target.hasPosition = true;
+        if (player.hasFiniteDynamicStats())
+        {
+            target.creatureStats = makeSimpleCreatureStats(player.creatureStats);
+            target.hasStatsDynamicData = true;
+        }
+        return target;
+    }
+
     bool canApplyServerAttackDamage(const mwmp::Attack& attack)
     {
         return attack.isHit && attack.success && !attack.block && std::isfinite(attack.damage)
@@ -3593,33 +3624,7 @@ namespace mwmp
             if (!hasAcceptedLivePlayerBody(*player) || player->cell.getDescription().empty())
                 continue;
 
-            SimulationPlayerTarget target;
-            target.cell = player->cell;
-            target.position = player->acceptedPosition;
-            target.guid = player->guid;
-            target.name = player->npc.mName;
-            target.npc = player->npc;
-            target.hasBaseInfo = true;
-            if (!player->charClass.mId.empty())
-            {
-                target.classId = player->charClass.mId;
-                target.hasClass = true;
-            }
-            target.baseStats = makeSimulationPlayerBaseStats(player->creatureStats, player->npcStats);
-            target.hasBaseStatsData = true;
-            if (player->hasAcceptedEquipmentPacket)
-            {
-                for (int slot = 0; slot < equipmentSlotCount; ++slot)
-                    target.equipmentItems[slot] = player->equipmentItems[slot];
-                target.hasEquipmentData = true;
-            }
-            target.hasPosition = true;
-            if (player->hasFiniteDynamicStats())
-            {
-                target.creatureStats = makeSimpleCreatureStats(player->creatureStats);
-                target.hasStatsDynamicData = true;
-            }
-            result.push_back(std::move(target));
+            result.push_back(makeRuntimePlayerTarget(*player));
         }
 
         return result;
@@ -5885,6 +5890,7 @@ namespace mwmp
             mRuntimeClientAiPresentedActors.erase(actorKey);
         }
         const ESM::Cell& targetCellData = targetCell->getCellData();
+        bool nativeRuntimeHandledMelee = false;
         if (mRuntime != nullptr && mRuntime->canOwnActorAuthority()
             && hasAcceptedLivePlayerBody(attacker, &targetCellData))
         {
@@ -5894,38 +5900,21 @@ namespace mwmp
             runtimeActor.refNum = targetActor->refNum;
             runtimeActor.mpNum = targetActor->mpNum;
 
-            SimulationPlayerTarget runtimePlayer;
-            runtimePlayer.cell = attacker.cell;
-            runtimePlayer.position = attacker.acceptedPosition;
-            runtimePlayer.guid = attacker.guid;
-            runtimePlayer.name = attacker.npc.mName;
-            runtimePlayer.npc = attacker.npc;
-            runtimePlayer.hasBaseInfo = true;
-            if (!attacker.charClass.mId.empty())
-            {
-                runtimePlayer.classId = attacker.charClass.mId;
-                runtimePlayer.hasClass = true;
-            }
-            if (attacker.hasAcceptedEquipmentPacket)
-            {
-                for (int slot = 0; slot < equipmentSlotCount; ++slot)
-                    runtimePlayer.equipmentItems[slot] = attacker.equipmentItems[slot];
-                runtimePlayer.hasEquipmentData = true;
-            }
-            runtimePlayer.baseStats = makeSimulationPlayerBaseStats(attacker.creatureStats, attacker.npcStats);
-            runtimePlayer.hasBaseStatsData = true;
-            runtimePlayer.hasPosition = true;
-            if (attacker.hasFiniteDynamicStats())
-            {
-                runtimePlayer.creatureStats = makeSimpleCreatureStats(attacker.creatureStats);
-                runtimePlayer.hasStatsDynamicData = true;
-            }
+            SimulationPlayerTarget runtimePlayer = makeRuntimePlayerTarget(attacker);
 
             static_cast<void>(mRuntime->startActorCombatWithPlayer(runtimeActor, runtimePlayer));
+            if (!attack.pressed && attack.type == Attack::MELEE)
+            {
+                nativeRuntimeHandledMelee = mRuntime->applyPlayerMeleeAttackToActor(
+                    runtimePlayer, runtimeActor, attack, attack.attackStrength);
+            }
         }
 
-        if (aiChanged)
+        if (aiChanged && (mRuntime == nullptr || !mRuntime->canOwnActorAuthority()))
             broadcastActorAi(*targetCell, *targetActor);
+
+        if (nativeRuntimeHandledMelee)
+            return;
 
         if (!canApplyServerAttackDamage(attack))
             return;

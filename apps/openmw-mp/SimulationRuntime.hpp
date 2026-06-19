@@ -213,6 +213,9 @@ namespace mwmp
         virtual bool collectPlayerSnapshots(std::vector<SimulationPlayerSnapshot>& playerSnapshots);
         virtual bool startActorCombatWithPlayer(
             const SimulationActorTarget& actor, const SimulationPlayerTarget& player);
+        virtual bool applyPlayerMeleeAttackToActor(
+            const SimulationPlayerTarget& player, const SimulationActorTarget& actor, const Attack& attack,
+            float attackStrength);
         virtual bool dispatchServerEvent(
             std::string_view eventName, const SimulationRuntimeEventArguments& arguments);
 
