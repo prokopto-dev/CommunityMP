@@ -3184,6 +3184,26 @@ namespace mwmp
                 {
                     BaseActor statsActor = runtimeActor;
                     statsActor.hasStatsDynamicData = true;
+                    if (cachedActor != nullptr && cachedActor->hasStatsDynamicData
+                        && mwmp::hasFiniteActorDynamicStats(*cachedActor)
+                        && mwmp::hasFiniteActorDynamicStats(statsActor))
+                    {
+                        for (int statIndex = 0; statIndex < 3; ++statIndex)
+                        {
+                            ESM::StatState<float>& incomingStat = statsActor.creatureStats.mDynamic[statIndex];
+                            const ESM::StatState<float>& cachedStat = cachedActor->creatureStats.mDynamic[statIndex];
+                            incomingStat.mCurrent = std::min(incomingStat.mCurrent, cachedStat.mCurrent);
+                        }
+
+                        if (cachedActor->creatureStats.mDead
+                            || cachedActor->creatureStats.mDynamic[0].mCurrent <= healthDeadEpsilon)
+                        {
+                            statsActor.creatureStats.mDead = true;
+                            statsActor.creatureStats.mDeathAnimationFinished
+                                = cachedActor->creatureStats.mDeathAnimationFinished
+                                || statsActor.creatureStats.mDeathAnimationFinished;
+                        }
+                    }
                     statsActor.statsDynamicSequence = cachedActor != nullptr && cachedActor->hasStatsDynamicData
                         ? cachedActor->statsDynamicSequence + 1
                         : 1;
