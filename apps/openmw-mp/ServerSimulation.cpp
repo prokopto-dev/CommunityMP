@@ -3825,7 +3825,9 @@ namespace mwmp
                     const bool shouldPresentCancelAi = !actorInteractionLocked && cachedActor != nullptr
                         && cachedActor->hasAiData && !shouldPresentCombatAi
                         && cachedActor->aiAction != BaseActorList::CANCEL;
-                    if ((shouldPresentCombatAi || shouldPresentCancelAi) && !hasPresentedAi)
+                    const bool authoritativeAiChanged = cachedActor != nullptr
+                        && (previousActor == nullptr || !sameActorAi(*previousActor, *cachedActor));
+                    if ((shouldPresentCombatAi || shouldPresentCancelAi) && (!hasPresentedAi || authoritativeAiChanged))
                     {
                         BaseActor aiActor = visualActor;
                         aiActor.hasAiData = true;
