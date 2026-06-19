@@ -2373,6 +2373,17 @@ namespace
         return target;
     }
 
+    mwmp::Target makeActorKillerTarget(const mwmp::BaseActor& actor)
+    {
+        mwmp::Target target;
+        target.isPlayer = false;
+        target.refId = actor.refId;
+        target.refNum = actor.refNum;
+        target.mpNum = actor.mpNum;
+        target.name = actor.refId;
+        return target;
+    }
+
     bool applyCombatTargetToActor(Cell& cell, mwmp::BaseActor& targetActor, const Player& attacker)
     {
         const ESM::Cell& cellData = cell.getCellData();
@@ -2396,6 +2407,35 @@ namespace
 
     void notifyPlayerDeath(Player& target)
     {
+        if (target.hasAcceptedPositionPacket)
+        {
+            target.restoreAcceptedPositionPacket();
+            ++target.positionSequence;
+            target.movementLatencySeconds = 0.f;
+            target.acceptPositionPacket();
+        }
+
+        target.creatureStats.mDead = true;
+        if (target.hasFiniteDynamicStats())
+            target.creatureStats.mDynamic[0].mCurrent = 0.f;
+
+        if (target.deathState == 0)
+            target.deathState = serverActorDefaultDeathState;
+
+        target.combatSequence = target.acceptedCombatSequence + 1;
+        target.acceptCurrentCombatPacket();
+
+        if (mwmp::ServerNetworking* networking = mwmp::ServerNetworking::getPtr())
+        {
+            if (mwmp::PlayerPacket* deathPacket
+                = networking->getPlayerPacketController()->GetPacket(ID_PLAYER_DEATH))
+            {
+                deathPacket->setPlayer(&target);
+                deathPacket->Send(target.guid);
+                target.sendToLoaded(deathPacket);
+            }
+        }
+
         mwmp::ServerEvents::playerDeath(target.getId());
     }
 
@@ -2525,6 +2565,7 @@ namespace mwmp
                     notifyPlayerStatsDynamic(*target);
                     if (becameDead)
                     {
+                        target->killer = makeActorKillerTarget(actor);
                         clearActorCombatTargetsForPlayer(*target, "server actor melee killed the player");
                         notifyPlayerDeath(*target);
                     }
@@ -4337,6 +4378,7 @@ namespace mwmp
             notifyPlayerStatsDynamic(*target);
             if (becameDead)
             {
+                target->killer = Target();
                 clearActorCombatTargetsForPlayer(*target, "runtime simulation killed the player");
                 notifyPlayerDeath(*target);
             }
@@ -5790,6 +5832,7 @@ namespace mwmp
                     notifyPlayerStatsDynamic(*target);
                     if (becameDead)
                     {
+                        target->killer = makeActorKillerTarget(*currentActor);
                         clearActorCombatTargetsForPlayer(*target, "server accepted actor attack killed the player");
                         notifyPlayerDeath(*target);
                     }
@@ -5827,6 +5870,7 @@ namespace mwmp
                 notifyPlayerStatsDynamic(*target);
                 if (becameDead)
                 {
+                    target->killer = makePlayerAiTarget(attacker);
                     clearActorCombatTargetsForPlayer(*target, "server accepted player attack killed the player");
                     notifyPlayerDeath(*target);
                 }

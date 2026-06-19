@@ -1438,12 +1438,6 @@ void LocalPlayer::die()
     playerPtr.getClass().getCreatureStats(playerPtr).setHealth(health);
     health.writeState(creatureStats.mDynamic[0]);
     acceptCurrentStatsDynamicPacket();
-
-    updatePosition(true, false, false, true);
-    advanceCombatSequence();
-    acceptCurrentCombatPacket();
-    Main::get().getNetworking()->getPlayerPacket(ID_PLAYER_DEATH)->setPlayer(this);
-    Main::get().getNetworking()->getPlayerPacket(ID_PLAYER_DEATH)->Send();
 }
 
 void LocalPlayer::resurrect()

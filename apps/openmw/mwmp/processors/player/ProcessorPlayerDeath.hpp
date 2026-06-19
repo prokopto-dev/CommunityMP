@@ -26,6 +26,7 @@ namespace mwmp
                 if (!player->acceptCombatPacket())
                     return;
 
+                player->acceptPositionPacket();
                 static_cast<LocalPlayer*>(player)->die();
             }
             else if (player != 0)
