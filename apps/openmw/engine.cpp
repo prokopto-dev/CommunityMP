@@ -118,6 +118,7 @@
 #include "mwmechanics/mechanicsmanagerimp.hpp"
 #include "mwmechanics/movement.hpp"
 #include "mwmechanics/npcstats.hpp"
+#include "mwmechanics/spellcasting.hpp"
 
 #include "mwstate/statemanagerimp.hpp"
 
@@ -982,6 +983,108 @@ namespace
         MWMechanics::projectileHit(attacker, target, weapon, projectile, hitPosition, requestedAttackStrength);
         attackerStats.setAttackingOrSpell(false);
         return true;
+    }
+
+    osg::Vec3f getServerSimulationSpellHitPosition(const MWWorld::Ptr& caster, const MWWorld::Ptr& target)
+    {
+        osg::Vec3f hitPosition = caster.getRefData().getPosition().asVec3();
+        if (target.isEmpty())
+            return hitPosition;
+
+        hitPosition = target.getRefData().getPosition().asVec3();
+        constexpr float explosionHeight = 0.7f;
+        float targetHeight = MWBase::Environment::get().getWorld()->getHalfExtents(target).z() * 2.f;
+        hitPosition.z() += targetHeight * explosionHeight;
+        return hitPosition;
+    }
+
+    class ScopedServerSimulationGodModeOff
+    {
+    public:
+        explicit ScopedServerSimulationGodModeOff(MWWorld::World* world)
+            : mWorld(world)
+        {
+            if (mWorld != nullptr && mWorld->getGodModeState())
+            {
+                mWorld->toggleGodMode();
+                mRestore = true;
+            }
+        }
+
+        ~ScopedServerSimulationGodModeOff()
+        {
+            if (mWorld != nullptr && mRestore && !mWorld->getGodModeState())
+                mWorld->toggleGodMode();
+        }
+
+        ScopedServerSimulationGodModeOff(const ScopedServerSimulationGodModeOff&) = delete;
+        ScopedServerSimulationGodModeOff& operator=(const ScopedServerSimulationGodModeOff&) = delete;
+
+    private:
+        MWWorld::World* mWorld = nullptr;
+        bool mRestore = false;
+    };
+
+    bool resolveServerSimulationPlayerCastNative(MWWorld::World* world, const MWWorld::Ptr& caster,
+        const MWWorld::Ptr& target, const mwmp::Cast& cast, bool& castSucceeded)
+    {
+        castSucceeded = false;
+        if (world == nullptr || caster.isEmpty() || !caster.getClass().isActor())
+            return false;
+
+        if (cast.type != mwmp::Cast::REGULAR && cast.type != mwmp::Cast::ITEM)
+            return false;
+
+        MWMechanics::CreatureStats& casterStats = caster.getClass().getCreatureStats(caster);
+        if (casterStats.isDead())
+            return true;
+
+        casterStats.setAttackingOrSpell(true);
+        auto finish = [&](bool handled) {
+            casterStats.setAttackingOrSpell(false);
+            return handled;
+        };
+
+        try
+        {
+            ScopedServerSimulationGodModeOff godModeOff(world);
+
+            if (cast.type == mwmp::Cast::REGULAR)
+            {
+                if (cast.spellId.empty() || cast.pressed)
+                    return finish(false);
+
+                const ESM::RefId spellId = ESM::RefId::stringRefId(cast.spellId);
+                casterStats.getSpells().setSelectedSpell(spellId);
+
+                const ESM::Spell* spell = world->getStore().get<ESM::Spell>().search(spellId);
+                if (spell == nullptr)
+                    return finish(true);
+
+                MWMechanics::CastSpell nativeCast(caster, target, false, cast.instant);
+                nativeCast.mHitPosition = getServerSimulationSpellHitPosition(caster, target);
+                castSucceeded = nativeCast.cast(spell);
+                return finish(true);
+            }
+
+            if (cast.itemId.empty())
+                return finish(false);
+
+            casterStats.getSpells().setSelectedSpell(ESM::RefId());
+            MWWorld::Ptr item = findServerSimulationInventoryItem(caster, cast.itemId);
+            if (item.isEmpty())
+                return finish(false);
+
+            MWMechanics::CastSpell nativeCast(caster, target, false, cast.instant);
+            nativeCast.mHitPosition = getServerSimulationSpellHitPosition(caster, target);
+            castSucceeded = nativeCast.cast(item);
+            return finish(true);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to resolve server simulation player cast natively: " << e.what();
+            return finish(true);
+        }
     }
 
     void copyServerSimulationAttack(mwmp::BaseActor& actor, const MWMechanics::CreatureStats& creatureStats)
@@ -2928,6 +3031,79 @@ bool OMW::Engine::applyServerSimulationPlayerRangedAttackToPlayer(const ESM::Cel
         return false;
 
     return applyServerSimulationPlayerRangedHit(player, target, attack, attackStrength, *mMechanicsManager);
+}
+
+bool OMW::Engine::resolveServerSimulationPlayerCast(const ESM::Cell& cell, const ESM::Position& playerPosition,
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast, bool& castSucceeded,
+    const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
+    const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
+{
+    castSucceeded = false;
+    if (!mServerSimulationPrepared || mWorld == nullptr || !mwmp::isPacketGuidAssigned(playerGuid))
+        return false;
+
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
+            playerBaseStats, playerEquipmentItems))
+        return false;
+
+    return resolveServerSimulationPlayerCastNative(mWorld.get(), mWorld->getPlayerPtr(), MWWorld::Ptr(), cast,
+        castSucceeded);
+}
+
+bool OMW::Engine::resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell, std::string_view actorRefId,
+    unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
+    mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast, bool& castSucceeded,
+    const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
+    const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
+{
+    castSucceeded = false;
+    if (!mServerSimulationPrepared || mWorld == nullptr || !mwmp::isPacketGuidAssigned(playerGuid))
+        return false;
+
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
+            playerBaseStats, playerEquipmentItems))
+        return false;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    MWWorld::CellStore* cellStore = player.getCell();
+    MWWorld::Ptr actor = findServerSimulationActor(cellStore, actorRefId, actorRefNum, actorMpNum);
+    if (actor.isEmpty() || !actor.getClass().isActor())
+        return false;
+
+    return resolveServerSimulationPlayerCastNative(mWorld.get(), player, actor, cast, castSucceeded);
+}
+
+bool OMW::Engine::resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cell,
+    const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
+    mwmp::PacketGuid targetGuid, const mwmp::Cast& cast, bool& castSucceeded,
+    const mwmp::SimpleCreatureStats* playerStats, const ESM::NPC* playerNpc, const ESM::RefId* playerClassId,
+    const mwmp::SimulationPlayerBaseStats* playerBaseStats,
+    const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems)
+{
+    castSucceeded = false;
+    if (!mServerSimulationPrepared || mWorld == nullptr || !mwmp::isPacketGuidAssigned(playerGuid)
+        || !mwmp::isPacketGuidAssigned(targetGuid) || playerGuid == targetGuid)
+        return false;
+
+    if (!focusServerSimulationCell(
+            cell, &playerPosition, playerGuid, playerName, playerStats, playerNpc, playerClassId,
+            playerBaseStats, playerEquipmentItems))
+        return false;
+
+    const auto targetIt = mServerSimulationPlayerActors.find(targetGuid);
+    if (targetIt == mServerSimulationPlayerActors.end() || targetIt->second.ptr.isEmpty())
+        return false;
+
+    MWWorld::Ptr player = mWorld->getPlayerPtr();
+    MWWorld::Ptr target = targetIt->second.ptr;
+    if (target.getCell() == nullptr || player.getCell() == nullptr || target.getCell() != player.getCell())
+        return false;
+
+    return resolveServerSimulationPlayerCastNative(mWorld.get(), player, target, cast, castSucceeded);
 }
 
 void OMW::Engine::exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists)

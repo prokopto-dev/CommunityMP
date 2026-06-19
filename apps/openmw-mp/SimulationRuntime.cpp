@@ -392,6 +392,37 @@ namespace mwmp
         return false;
     }
 
+    bool SimulationRuntime::resolvePlayerCast(
+        const SimulationPlayerTarget& caster, const Cast& cast, bool& castSucceeded)
+    {
+        static_cast<void>(caster);
+        static_cast<void>(cast);
+        castSucceeded = false;
+        return false;
+    }
+
+    bool SimulationRuntime::resolvePlayerCastToActor(
+        const SimulationPlayerTarget& caster, const SimulationActorTarget& actor, const Cast& cast,
+        bool& castSucceeded)
+    {
+        static_cast<void>(caster);
+        static_cast<void>(actor);
+        static_cast<void>(cast);
+        castSucceeded = false;
+        return false;
+    }
+
+    bool SimulationRuntime::resolvePlayerCastToPlayer(
+        const SimulationPlayerTarget& caster, const SimulationPlayerTarget& target, const Cast& cast,
+        bool& castSucceeded)
+    {
+        static_cast<void>(caster);
+        static_cast<void>(target);
+        static_cast<void>(cast);
+        castSucceeded = false;
+        return false;
+    }
+
     bool SimulationRuntime::dispatchServerEvent(
         std::string_view eventName, const SimulationRuntimeEventArguments& arguments)
     {

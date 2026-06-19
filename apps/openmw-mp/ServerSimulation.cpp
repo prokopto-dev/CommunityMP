@@ -5752,7 +5752,62 @@ namespace mwmp
 
     bool ServerSimulation::acceptPlayerCast(Player& caster)
     {
-        return isAcceptedCastTarget(caster.cast, caster.cell, &caster, nullptr);
+        Cast validationCast = caster.cast;
+        if (validationCast.type == Cast::REGULAR && !validationCast.pressed)
+            validationCast.success = true;
+
+        if (!isAcceptedCastTarget(validationCast, caster.cell, &caster, nullptr))
+            return false;
+
+        const bool hasReleaseOutcome = caster.cast.type == Cast::ITEM
+            || (caster.cast.type == Cast::REGULAR && !caster.cast.pressed);
+        if (!hasReleaseOutcome || mRuntime == nullptr || !mRuntime->canOwnActorAuthority()
+            || !hasAcceptedLivePlayerBody(caster))
+            return true;
+
+        SimulationPlayerTarget runtimeCaster = makeRuntimePlayerTarget(caster);
+        bool castSucceeded = false;
+        bool nativeRuntimeHandledCast = false;
+
+        if (caster.cast.target.isPlayer)
+        {
+            Player* target = Players::getPlayer(caster.cast.target.guid);
+            if (target != nullptr && hasAcceptedLivePlayerBody(caster, &target->cell)
+                && hasAcceptedLivePlayerBody(*target, &caster.cell))
+            {
+                SimulationPlayerTarget runtimeTarget = makeRuntimePlayerTarget(*target);
+                nativeRuntimeHandledCast = mRuntime->resolvePlayerCastToPlayer(
+                    runtimeCaster, runtimeTarget, caster.cast, castSucceeded);
+            }
+        }
+        else if (hasExplicitActorTarget(caster.cast.target))
+        {
+            auto [targetCell, targetActor] = findLoadedActorTarget(caster, caster.cast.target);
+            if (targetCell != nullptr && targetActor != nullptr
+                && hasAcceptedLivePlayerBody(caster, &targetCell->getCellData()))
+            {
+                SimulationActorTarget runtimeActor;
+                runtimeActor.cell = targetCell->getCellData();
+                runtimeActor.refId = targetActor->refId;
+                runtimeActor.refNum = targetActor->refNum;
+                runtimeActor.mpNum = targetActor->mpNum;
+                nativeRuntimeHandledCast = mRuntime->resolvePlayerCastToActor(
+                    runtimeCaster, runtimeActor, caster.cast, castSucceeded);
+            }
+        }
+        else
+            nativeRuntimeHandledCast = mRuntime->resolvePlayerCast(runtimeCaster, caster.cast, castSucceeded);
+
+        if (!nativeRuntimeHandledCast)
+            return true;
+
+        if (caster.cast.type == Cast::REGULAR)
+        {
+            caster.cast.success = castSucceeded;
+            return true;
+        }
+
+        return castSucceeded;
     }
 
     bool ServerSimulation::rejectClientActorPacketForServerOwnedCell(

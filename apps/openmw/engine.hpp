@@ -371,6 +371,26 @@ namespace OMW
             const ESM::RefId* playerClassId = nullptr,
             const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
             const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
+        bool resolveServerSimulationPlayerCast(const ESM::Cell& cell, const ESM::Position& playerPosition,
+            mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast,
+            bool& castSucceeded, const mwmp::SimpleCreatureStats* playerStats = nullptr,
+            const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
+            const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
+        bool resolveServerSimulationPlayerCastToActor(const ESM::Cell& cell, std::string_view actorRefId,
+            unsigned int actorRefNum, unsigned int actorMpNum, const ESM::Position& playerPosition,
+            mwmp::PacketGuid playerGuid, std::string_view playerName, const mwmp::Cast& cast,
+            bool& castSucceeded, const mwmp::SimpleCreatureStats* playerStats = nullptr,
+            const ESM::NPC* playerNpc = nullptr, const ESM::RefId* playerClassId = nullptr,
+            const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
+        bool resolveServerSimulationPlayerCastToPlayer(const ESM::Cell& cell,
+            const ESM::Position& playerPosition, mwmp::PacketGuid playerGuid, std::string_view playerName,
+            mwmp::PacketGuid targetGuid, const mwmp::Cast& cast, bool& castSucceeded,
+            const mwmp::SimpleCreatureStats* playerStats = nullptr, const ESM::NPC* playerNpc = nullptr,
+            const ESM::RefId* playerClassId = nullptr,
+            const mwmp::SimulationPlayerBaseStats* playerBaseStats = nullptr,
+            const std::array<mwmp::Item, mwmp::equipmentSlotCount>* playerEquipmentItems = nullptr);
 
         /// Export actor snapshots from the server-owned OpenMW scene.
         void exportServerSimulationActorSnapshots(std::vector<mwmp::BaseActorList>& actorLists);

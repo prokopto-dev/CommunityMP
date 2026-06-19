@@ -536,6 +536,54 @@ namespace
                 attacker.hasEquipmentData ? &attacker.equipmentItems : nullptr);
         }
 
+        bool resolvePlayerCast(
+            const mwmp::SimulationPlayerTarget& caster, const mwmp::Cast& cast, bool& castSucceeded) override
+        {
+            castSucceeded = false;
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared() || !caster.hasPosition)
+                return false;
+
+            return mEngine->resolveServerSimulationPlayerCast(caster.cell, caster.position, caster.guid,
+                caster.name, cast, castSucceeded,
+                caster.hasStatsDynamicData ? &caster.creatureStats : nullptr,
+                caster.hasBaseInfo ? &caster.npc : nullptr,
+                caster.hasClass ? &caster.classId : nullptr,
+                caster.hasBaseStatsData ? &caster.baseStats : nullptr,
+                caster.hasEquipmentData ? &caster.equipmentItems : nullptr);
+        }
+
+        bool resolvePlayerCastToActor(const mwmp::SimulationPlayerTarget& caster,
+            const mwmp::SimulationActorTarget& actor, const mwmp::Cast& cast, bool& castSucceeded) override
+        {
+            castSucceeded = false;
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared() || !caster.hasPosition)
+                return false;
+
+            return mEngine->resolveServerSimulationPlayerCastToActor(actor.cell, actor.refId, actor.refNum,
+                actor.mpNum, caster.position, caster.guid, caster.name, cast, castSucceeded,
+                caster.hasStatsDynamicData ? &caster.creatureStats : nullptr,
+                caster.hasBaseInfo ? &caster.npc : nullptr,
+                caster.hasClass ? &caster.classId : nullptr,
+                caster.hasBaseStatsData ? &caster.baseStats : nullptr,
+                caster.hasEquipmentData ? &caster.equipmentItems : nullptr);
+        }
+
+        bool resolvePlayerCastToPlayer(const mwmp::SimulationPlayerTarget& caster,
+            const mwmp::SimulationPlayerTarget& target, const mwmp::Cast& cast, bool& castSucceeded) override
+        {
+            castSucceeded = false;
+            if (mEngine == nullptr || !mEngine->isServerSimulationPrepared() || !caster.hasPosition)
+                return false;
+
+            return mEngine->resolveServerSimulationPlayerCastToPlayer(caster.cell, caster.position, caster.guid,
+                caster.name, target.guid, cast, castSucceeded,
+                caster.hasStatsDynamicData ? &caster.creatureStats : nullptr,
+                caster.hasBaseInfo ? &caster.npc : nullptr,
+                caster.hasClass ? &caster.classId : nullptr,
+                caster.hasBaseStatsData ? &caster.baseStats : nullptr,
+                caster.hasEquipmentData ? &caster.equipmentItems : nullptr);
+        }
+
         const mwmp::SimulationRuntimeFocusState& focusState() const override
         {
             return mFocusState;
