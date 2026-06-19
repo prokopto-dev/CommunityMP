@@ -47,6 +47,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerMiscellaneous.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerQuickKeys.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerResurrect.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerShapeshift.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSkill.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
@@ -1753,6 +1754,43 @@ namespace
         EXPECT_TRUE(player.isClientDeathPacketAllowed());
     }
 
+    TEST(MpBasePacketTest, playerResurrectCarriesAuthoritativeDynamicStats)
+    {
+        mwmp::BasePlayer sent(testGuid());
+        sent.resurrectType = mwmp::RESURRECT_TYPE::IMPERIAL_SHRINE;
+        sent.statsDynamicSequence = 42;
+        sent.creatureStats.mDead = false;
+        sent.creatureStats.mDynamic[0].mBase = 100.f;
+        sent.creatureStats.mDynamic[0].mCurrent = 100.f;
+        sent.creatureStats.mDynamic[0].mMod = 0.f;
+        sent.creatureStats.mDynamic[1].mBase = 60.f;
+        sent.creatureStats.mDynamic[1].mCurrent = 38.f;
+        sent.creatureStats.mDynamic[1].mMod = 4.f;
+        sent.creatureStats.mDynamic[2].mBase = 80.f;
+        sent.creatureStats.mDynamic[2].mCurrent = 80.f;
+        sent.creatureStats.mDynamic[2].mMod = 0.f;
+
+        PacketStream stream;
+        mwmp::PacketPlayerResurrect writer;
+        writePlayerPacketToPayload(writer, sent, stream);
+
+        mwmp::BasePlayer received(testGuid());
+        mwmp::PacketPlayerResurrect reader;
+        reader.setPlayer(&received);
+        reader.Packet(&stream, false);
+
+        ASSERT_TRUE(reader.isPacketValid());
+        EXPECT_EQ(received.resurrectType, sent.resurrectType);
+        EXPECT_EQ(received.statsDynamicSequence, 42u);
+        EXPECT_FALSE(received.creatureStats.mDead);
+        for (int i = 0; i < 3; ++i)
+        {
+            EXPECT_FLOAT_EQ(received.creatureStats.mDynamic[i].mBase, sent.creatureStats.mDynamic[i].mBase);
+            EXPECT_FLOAT_EQ(received.creatureStats.mDynamic[i].mCurrent, sent.creatureStats.mDynamic[i].mCurrent);
+            EXPECT_FLOAT_EQ(received.creatureStats.mDynamic[i].mMod, sent.creatureStats.mDynamic[i].mMod);
+        }
+    }
+
     TEST(MpBasePacketTest, playerCellAndStatsPacketsRejectTruncatedPayloads)
     {
         {
@@ -1777,6 +1815,20 @@ namespace
             sent.statsDynamicIndexChanges.push_back(0);
 
             expectTruncatedPlayerPacketInvalid<mwmp::PacketPlayerStatsDynamic>(sent, ID_PLAYER_STATS_DYNAMIC);
+        }
+
+        {
+            mwmp::BasePlayer sent(testGuid());
+            sent.resurrectType = mwmp::RESURRECT_TYPE::REGULAR;
+            sent.statsDynamicSequence = 5;
+            sent.creatureStats.mDynamic[0].mBase = 100.f;
+            sent.creatureStats.mDynamic[0].mCurrent = 100.f;
+            sent.creatureStats.mDynamic[1].mBase = 50.f;
+            sent.creatureStats.mDynamic[1].mCurrent = 50.f;
+            sent.creatureStats.mDynamic[2].mBase = 75.f;
+            sent.creatureStats.mDynamic[2].mCurrent = 75.f;
+
+            expectTruncatedPlayerPacketInvalid<mwmp::PacketPlayerResurrect>(sent, ID_PLAYER_RESURRECT);
         }
     }
 

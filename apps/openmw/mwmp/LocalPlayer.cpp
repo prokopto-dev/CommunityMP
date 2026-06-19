@@ -1504,9 +1504,6 @@ void LocalPlayer::resurrect()
     for (const auto &damageEffect : damageEffects)
         MechanicsHelper::unequipItemsByEffect(ptrPlayer, ESM::Enchantment::ConstantEffect, damageEffect);
 
-    Main::get().getNetworking()->getPlayerPacket(ID_PLAYER_RESURRECT)->setPlayer(this);
-    Main::get().getNetworking()->getPlayerPacket(ID_PLAYER_RESURRECT)->Send();
-
     updateStatsDynamic(true);
     if (markerRespawn)
         updateCell(true);

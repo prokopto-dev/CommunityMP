@@ -13,5 +13,21 @@ void PacketPlayerResurrect::Packet(PacketStream *newBitstream, bool send)
 {
     PlayerPacket::Packet(newBitstream, send);
 
-    RW(player->resurrectType, send);
+    if (!RW(player->resurrectType, send))
+        return;
+
+    if (!RW(player->statsDynamicSequence, send))
+        return;
+
+    if (!RW(player->creatureStats.mDead, send))
+        return;
+
+    if (!RW(player->creatureStats.mDynamic, send))
+        return;
+
+    if (!send && !player->hasFiniteDynamicStats())
+    {
+        player->restoreAcceptedStatsDynamicPacket();
+        packetValid = false;
+    }
 }

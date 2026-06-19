@@ -15,6 +15,8 @@ namespace mwmp
 
         void Do(PlayerPacket &packet, Player &player) override
         {
+            player.restoreAcceptedStatsDynamicPacket();
+
             LOG_MESSAGE_SIMPLE(TimedLog::LOG_VERBOSE, "Received %s from %s and ignored client-origin resurrection",
                 strPacketID.c_str(), player.npc.mName.c_str());
         }
