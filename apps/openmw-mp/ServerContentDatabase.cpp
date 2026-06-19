@@ -24,6 +24,7 @@
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
+#include <components/openmw-mp/TimedLog.hpp>
 #include <components/toutf8/toutf8.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
@@ -48,6 +49,7 @@
 namespace
 {
     constexpr const char* manifestSchema = "communitymp.worlddb.v1";
+    constexpr const char* importInputFingerprintSchema = "communitymp.worlddb.import-input.v1";
     constexpr const char* dataDirRowSchema = "communitymp.worlddb.data-dir.v1";
     constexpr const char* loadOrderRowSchema = "communitymp.worlddb.load-order.v1";
     constexpr const char* contentFileRowSchema = "communitymp.worlddb.content-file.v1";
@@ -334,6 +336,102 @@ namespace
         return buffer.str();
     }
 
+    std::string readFlatJsonStringField(std::string_view json, std::string_view field)
+    {
+        std::string quotedField;
+        appendJsonString(quotedField, field);
+        std::size_t pos = json.find(quotedField);
+        if (pos == std::string_view::npos)
+            return {};
+
+        pos = json.find(':', pos + quotedField.size());
+        if (pos == std::string_view::npos)
+            return {};
+
+        pos = json.find('"', pos + 1);
+        if (pos == std::string_view::npos)
+            return {};
+
+        std::string result;
+        for (++pos; pos < json.size(); ++pos)
+        {
+            const char c = json[pos];
+            if (c == '"')
+                return result;
+
+            if (c != '\\')
+            {
+                result.push_back(c);
+                continue;
+            }
+
+            if (++pos >= json.size())
+                break;
+
+            switch (json[pos])
+            {
+                case '"':
+                case '\\':
+                case '/':
+                    result.push_back(json[pos]);
+                    break;
+                case 'b':
+                    result.push_back('\b');
+                    break;
+                case 'f':
+                    result.push_back('\f');
+                    break;
+                case 'n':
+                    result.push_back('\n');
+                    break;
+                case 'r':
+                    result.push_back('\r');
+                    break;
+                case 't':
+                    result.push_back('\t');
+                    break;
+                default:
+                    result.push_back(json[pos]);
+                    break;
+            }
+        }
+
+        return {};
+    }
+
+    std::size_t readFlatJsonSizeField(std::string_view json, std::string_view field)
+    {
+        std::string quotedField;
+        appendJsonString(quotedField, field);
+        std::size_t pos = json.find(quotedField);
+        if (pos == std::string_view::npos)
+            return 0;
+
+        pos = json.find(':', pos + quotedField.size());
+        if (pos == std::string_view::npos)
+            return 0;
+
+        ++pos;
+        while (pos < json.size() && std::isspace(static_cast<unsigned char>(json[pos])))
+            ++pos;
+
+        std::size_t end = pos;
+        while (end < json.size() && std::isdigit(static_cast<unsigned char>(json[end])))
+            ++end;
+
+        if (end == pos)
+            return 0;
+
+        try
+        {
+            return static_cast<std::size_t>(std::stoull(std::string(json.substr(pos, end - pos))));
+        }
+        catch (const std::exception&)
+        {
+            return 0;
+        }
+    }
+
     bool writeIfChanged(const std::filesystem::path& path, const std::string& contents)
     {
         if (readWholeFile(path) == contents)
@@ -593,6 +691,8 @@ namespace
         result += ",\n  ";
         appendJsonStringField(result, "backend", stats.backend);
         result += ",\n  ";
+        appendJsonStringField(result, "importInputFingerprint", stats.importInputFingerprint);
+        result += ",\n  ";
         appendJsonStringField(result, "contentPlanFingerprint", stats.contentPlanFingerprint);
         result += ",\n  ";
         appendJsonStringField(result, "worldDatabaseFingerprint", stats.worldDatabaseFingerprint);
@@ -731,6 +831,126 @@ namespace
         appendJsonNumberField(result, "assetImportErrorCount", stats.assetImportErrorCount);
         result += "\n}\n";
         return result;
+    }
+
+    std::string buildImportInputFingerprint(const std::string& encoding, const std::string& loadOrderSource,
+        const std::string& loadOrderRule, const std::string& dataDirsJsonl, const std::string& loadOrderJsonl,
+        const std::string& contentFilesJsonl, const std::string& assetProvidersJsonl,
+        const std::string& serverWorldCompatibilityJsonl)
+    {
+        FingerprintBuilder importInputFingerprint;
+        importInputFingerprint.add("schema", importInputFingerprintSchema);
+        importInputFingerprint.add("encoding", encoding);
+        importInputFingerprint.add("loadOrderSource", loadOrderSource);
+        importInputFingerprint.add("loadOrderRule", loadOrderRule);
+        importInputFingerprint.add("data_dirs.jsonl", dataDirsJsonl);
+        importInputFingerprint.add("load_order.jsonl", loadOrderJsonl);
+        importInputFingerprint.add("content_files.jsonl", contentFilesJsonl);
+        importInputFingerprint.add("asset_providers.jsonl", assetProvidersJsonl);
+        importInputFingerprint.add("server_world_compatibility.jsonl", serverWorldCompatibilityJsonl);
+        return importInputFingerprint.finish();
+    }
+
+    bool tryReuseCurrentWorldDatabase(mwmp::ServerContentDatabaseStatistics& stats)
+    {
+        if (stats.manifestPath.empty() || !std::filesystem::is_regular_file(stats.manifestPath)
+            || stats.importInputFingerprint.empty())
+            return false;
+
+        const std::string manifest = readWholeFile(stats.manifestPath);
+        if (manifest.empty() || readFlatJsonStringField(manifest, "schema") != manifestSchema
+            || readFlatJsonStringField(manifest, "importInputFingerprint") != stats.importInputFingerprint)
+            return false;
+
+        stats.backend = readFlatJsonStringField(manifest, "backend");
+        if (stats.backend.empty())
+            stats.backend = "jsonl-package";
+        stats.contentPlanFingerprint = readFlatJsonStringField(manifest, "contentPlanFingerprint");
+        stats.worldDatabaseFingerprint = readFlatJsonStringField(manifest, "worldDatabaseFingerprint");
+        stats.serverWorldCompatibilityFingerprint
+            = readFlatJsonStringField(manifest, "serverWorldCompatibilityFingerprint");
+        stats.generatedQuestDatabasePath = Files::pathFromUnicodeString(
+            readFlatJsonStringField(manifest, "generatedQuestDatabasePath"));
+
+#define READ_WORLDDB_MANIFEST_SIZE_FIELD(name) stats.name = readFlatJsonSizeField(manifest, #name)
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(tableCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(dataDirCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(loadOrderEntryCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(contentFileCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(esmLikeContentFileCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(resolvedContentFileCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(unresolvedContentFileCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(checksumCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(recordIndexCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(recordKeyCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(recordUnkeyedCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(recordWinnerCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(recordWinnerDeletedCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(recordImportErrorCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorProfileRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorProfileNpcCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorProfileCreatureCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorProfileAutocalcNpcCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorAiPackageRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorAiPackageItemCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorInventoryRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorInventoryItemCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorSpellbookRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorSpellbookSpellCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorStatsDynamicRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorStatsDynamicItemCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(itemEquipmentRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorEquipmentRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(actorEquipmentItemCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(containerInventoryRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(containerInventoryItemCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(pathgridRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(pathgridPointCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(pathgridEdgeCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellRecordCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellReferenceCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellReferenceMovedCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellReferenceDeletedCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellReferenceWinnerCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellReferenceWinnerDeletedCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(cellImportErrorCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(questSourceRowCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(questSourcePackageCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(questSourceDialogueCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(questSourceInfoCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(questSourceImportErrorCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedQuestDatabasePackageCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedQuestDefinitionCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedQuestStepCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedDialogueTopicCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedDialogueResponseCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedConditionCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedQuestEffectCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedLegacyEffectCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(generatedQuestDatabaseImportErrorCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(archiveCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(resolvedArchiveCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(unresolvedArchiveCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(archiveFileCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(assetProviderCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(resolvedAssetCount);
+        READ_WORLDDB_MANIFEST_SIZE_FIELD(assetImportErrorCount);
+#undef READ_WORLDDB_MANIFEST_SIZE_FIELD
+
+        mwmp::WorldDatabaseStore::get().loadFromDirectory(stats.rootPath);
+        const mwmp::WorldDatabaseStatistics worldStats = mwmp::WorldDatabaseStore::get().statistics();
+        if (!worldStats.loaded)
+        {
+            stats.lastError = worldStats.lastError;
+            return false;
+        }
+
+        stats.available = true;
+        stats.changed = false;
+        LOG_MESSAGE_SIMPLE(TimedLog::LOG_INFO,
+            "Reused CommunityMP world database root=%s importInputFingerprint=%s",
+            pathToLogString(stats.rootPath).c_str(), stats.importInputFingerprint.c_str());
+        return true;
     }
 
     std::string buildServerWorldCompatibilityJsonl(const std::vector<std::filesystem::path>& dataDirs,
@@ -4924,6 +5144,17 @@ namespace mwmp
             const std::string contentFilesJsonl
                 = buildContentFilesJsonl(dataDirs, contentFiles, dataFileRequirements, newStats);
             const std::string assetProvidersJsonl = buildAssetProvidersJsonl(dataDirs, archives, newStats);
+            const std::string serverWorldCompatibilityJsonl = buildServerWorldCompatibilityJsonl(
+                dataDirs, contentFiles, archives, dataFileRequirements);
+            newStats.importInputFingerprint = buildImportInputFingerprint(encoding, newStats.loadOrderSource,
+                newStats.loadOrderRule, dataDirsJsonl, loadOrderJsonl, contentFilesJsonl, assetProvidersJsonl,
+                serverWorldCompatibilityJsonl);
+            if (tryReuseCurrentWorldDatabase(newStats))
+            {
+                mStats = std::move(newStats);
+                return;
+            }
+
             const std::string archiveFilesJsonl = buildArchiveFilesJsonl(dataDirs, archives, encoding, newStats);
             const std::string resolvedAssetsJsonl = buildResolvedAssetsJsonl(dataDirs, archives, encoding, newStats);
             const RecordIndexTables recordIndexTables
@@ -4932,8 +5163,6 @@ namespace mwmp
             const std::string questSourcesJsonl = buildQuestSourcesJsonl(dataDirs, contentFiles, encoding, newStats);
             const GeneratedQuestDbTables generatedQuestDb
                 = buildGeneratedQuestDatabasePackage(dataDirs, contentFiles, encoding, newStats);
-            const std::string serverWorldCompatibilityJsonl = buildServerWorldCompatibilityJsonl(
-                dataDirs, contentFiles, archives, dataFileRequirements);
 
             FingerprintBuilder contentPlanFingerprint;
             contentPlanFingerprint.add("encoding", encoding);

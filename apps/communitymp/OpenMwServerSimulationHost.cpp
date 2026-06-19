@@ -177,10 +177,6 @@ namespace
         if (bootstrap.canLoadOpenMwApplicationSettings)
         {
             mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
-            const mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
-            mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
-                settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
-                mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
         }
 
         mwmp::ServerContentRegistryStatistics content = mwmp::ServerContentRegistry::get().statistics();
@@ -201,9 +197,6 @@ namespace
                 bootstrap.usedServerContentFallback = true;
                 mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
                 content = mwmp::ServerContentRegistry::get().statistics();
-                mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
-                    settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
-                    mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
             }
             else
                 bootstrap.canLoadOpenMwApplicationSettings = false;
@@ -232,9 +225,6 @@ namespace
                 selectedEngineArguments = engineArguments;
                 mwmp::ServerContentRegistry::get().enrichFromOpenMwContentPlan(settings.dataDirs, settings.contentFiles);
                 content = mwmp::ServerContentRegistry::get().statistics();
-                mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
-                    settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
-                    mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
             }
         }
         bootstrap.contentRegistryLoaded = content.loaded;
@@ -255,6 +245,13 @@ namespace
             && bootstrap.resolvedOpenMwContentFileCount != 0
             && content.loaded
             && content.dataFileCount != 0;
+
+        if (bootstrap.hasOpenMwContentPlan)
+        {
+            mwmp::ServerContentDatabase::get().updateFromOpenMwContentPlan(
+                settings.dataDirs, settings.contentFiles, settings.archives, settings.encoding,
+                mwmp::ServerContentRegistry::get().dataFiles(), content.loadOrderSource);
+        }
 
         if (!bootstrap.canConfigureOpenMwApplication)
             bootstrap.blockedBy = "openmw-application-configurator-missing";

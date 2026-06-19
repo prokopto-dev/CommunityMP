@@ -21,6 +21,7 @@ namespace mwmp
         std::filesystem::path manifestPath;
         std::filesystem::path generatedQuestDatabasePath;
         std::string lastError;
+        std::string importInputFingerprint;
         std::string contentPlanFingerprint;
         std::string worldDatabaseFingerprint;
         std::string serverWorldCompatibilityFingerprint;
