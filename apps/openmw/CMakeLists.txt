@@ -1,6 +1,7 @@
 set(OPENMW_SOURCES
     engine.cpp
     options.cpp
+    serversimulationevents.cpp
 )
 
 set(OPENMW_RESOURCES
@@ -21,6 +22,7 @@ set(OPENMW_HEADERS
     OpenMWApplication.hpp
     options.hpp
     profile.hpp
+    serversimulationevents.hpp
 )
 
 source_group(apps/openmw FILES main.cpp OpenMWStandaloneMain.cpp androidmain.cpp ${OPENMW_SOURCES} ${OPENMW_HEADERS} ${OPENMW_RESOURCES})

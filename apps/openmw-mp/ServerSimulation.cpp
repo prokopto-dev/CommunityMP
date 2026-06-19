@@ -2023,10 +2023,19 @@ namespace
             && sameActorAiTarget(left.attack.target, right.attack.target);
     }
 
+    bool hasAuthoritativeRuntimeAttackOutcome(const mwmp::Attack& attack)
+    {
+        return attack.isHit || attack.success || attack.block || (std::isfinite(attack.damage) && attack.damage > 0.f);
+    }
+
     bool shouldSendRuntimeAttackSnapshot(const mwmp::BaseActor* previousActor, const mwmp::BaseActor& actor)
     {
-        if (!actor.hasCombatData || actor.attack.type != mwmp::Attack::MELEE)
+        if (!actor.hasCombatData
+            || (actor.attack.type != mwmp::Attack::MELEE && actor.attack.type != mwmp::Attack::RANGED))
             return false;
+
+        if (hasAuthoritativeRuntimeAttackOutcome(actor.attack))
+            return true;
 
         if (previousActor == nullptr || !previousActor->hasCombatData)
             return actor.attack.pressed;
@@ -4162,8 +4171,11 @@ namespace mwmp
                 }
 
                 bool sentServerAttackSnapshot = false;
-                const bool pendingServerMeleeRelease = hasPendingServerActorMeleeRelease(actorKey);
-                if (pendingServerMeleeRelease || (!actorInteractionLocked && cachedActor != nullptr
+                const bool pendingServerMeleeRelease = !runtimeOwnsClientRenderedAi
+                    && hasPendingServerActorMeleeRelease(actorKey);
+                if (runtimeOwnsClientRenderedAi)
+                    mServerActorCombatStates.erase(actorKey);
+                else if (pendingServerMeleeRelease || (!actorInteractionLocked && cachedActor != nullptr
                         && visualActor.hasPositionData && actorHasServerCombatTarget(*cachedActor)))
                 {
                     BaseActor serverActor = cachedActor != nullptr ? *cachedActor : visualActor;
@@ -4196,10 +4208,13 @@ namespace mwmp
                         ? cachedActor->combatSequence + 1
                         : 1;
                     attackActor.attack = runtimeActor.attack;
-                    attackActor.attack.isHit = false;
-                    attackActor.attack.success = false;
-                    attackActor.attack.damage = 0.f;
-                    attackActor.attack.block = false;
+                    if (!hasAuthoritativeRuntimeAttackOutcome(attackActor.attack))
+                    {
+                        attackActor.attack.isHit = false;
+                        attackActor.attack.success = false;
+                        attackActor.attack.damage = 0.f;
+                        attackActor.attack.block = false;
+                    }
                     attackActor.hasPositionData = true;
                     attackActor.positionSequence = nextPositionSequence;
                     attackActor.movementSampleIntervalSeconds = sampleIntervalSeconds;

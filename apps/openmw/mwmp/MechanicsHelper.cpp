@@ -23,6 +23,9 @@
 
 #include "../mwrender/animation.hpp"
 
+#include "../serversimulationevents.hpp"
+#include "../serversimulationmode.hpp"
+
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/inventorystore.hpp"
@@ -33,6 +36,7 @@
 #include <map>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "MechanicsHelper.hpp"
@@ -132,6 +136,90 @@ namespace
     unsigned int getLocalHitReactionWaitFrames()
     {
         return 4;
+    }
+
+    void queueServerSimulationAttackStart(
+        const MWWorld::Ptr& attacker, bool isRanged, const std::string& attackAnimation)
+    {
+        if (!OMW::isServerSimulationModeActive())
+            return;
+
+        OMW::ServerSimulationCombatEvent event;
+        event.attacker = attacker;
+        MechanicsHelper::resetAttack(&event.attack);
+        event.attack.type = static_cast<char>(isRanged ? Attack::RANGED : Attack::MELEE);
+        event.attack.pressed = true;
+        event.attack.attackAnimation = attackAnimation;
+        event.attack.shouldSend = true;
+        OMW::queueServerSimulationCombatEvent(std::move(event));
+    }
+
+    void queueServerSimulationMeleeAttack(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim,
+        const MWWorld::Ptr& weapon, float attackStrength, int attackType, bool isHit, bool success, float damage,
+        bool block, const osg::Vec3f& hitPosition, bool applyWeaponEnchantment)
+    {
+        if (!OMW::isServerSimulationModeActive())
+            return;
+
+        OMW::ServerSimulationCombatEvent event;
+        event.attacker = attacker;
+        event.victim = victim;
+        event.weapon = weapon;
+        MechanicsHelper::resetAttack(&event.attack);
+        event.attack.type = static_cast<char>(Attack::MELEE);
+        event.attack.pressed = false;
+        event.attack.attackAnimation = attackTypeName(attackType);
+        event.attack.attackStrength = attackStrength;
+        event.attack.isHit = isHit && !victim.isEmpty();
+        event.attack.success = success;
+        event.attack.damage = std::max(0.f, damage);
+        event.attack.block = block;
+        event.attack.applyWeaponEnchantment = applyWeaponEnchantment;
+        event.attack.hitPosition = MechanicsHelper::getPositionFromVector(hitPosition);
+
+        if (!weapon.isEmpty())
+            event.attack.rangedWeaponId = weapon.getCellRef().getRefId().serializeText();
+
+        event.attack.waitingForHitReaction = event.attack.isHit && event.attack.success && !event.attack.block;
+        event.attack.hitReactionWaitFrames = event.attack.waitingForHitReaction ? getLocalHitReactionWaitFrames() : 0;
+        event.attack.shouldSend = true;
+        OMW::queueServerSimulationCombatEvent(std::move(event));
+    }
+
+    void queueServerSimulationRangedAttack(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim,
+        const MWWorld::Ptr& weapon, const MWWorld::Ptr& projectile, float attackStrength, bool isHit, bool success,
+        float damage, const osg::Vec3f& hitPosition, bool applyWeaponEnchantment, bool applyAmmoEnchantment)
+    {
+        if (!OMW::isServerSimulationModeActive())
+            return;
+
+        OMW::ServerSimulationCombatEvent event;
+        event.attacker = attacker;
+        event.victim = victim;
+        event.weapon = weapon;
+        event.projectile = projectile;
+        MechanicsHelper::resetAttack(&event.attack);
+        event.attack.type = static_cast<char>(Attack::RANGED);
+        event.attack.pressed = false;
+        event.attack.attackStrength = attackStrength;
+        event.attack.isHit = isHit && !victim.isEmpty();
+        event.attack.success = success;
+        event.attack.damage = std::max(0.f, damage);
+        event.attack.block = false;
+        event.attack.applyWeaponEnchantment = applyWeaponEnchantment;
+        event.attack.applyAmmoEnchantment = applyAmmoEnchantment;
+        event.attack.hitPosition = MechanicsHelper::getPositionFromVector(hitPosition);
+
+        if (!weapon.isEmpty())
+            event.attack.rangedWeaponId = weapon.getCellRef().getRefId().serializeText();
+
+        if (!projectile.isEmpty() && projectile != weapon)
+            event.attack.rangedAmmoId = projectile.getCellRef().getRefId().serializeText();
+
+        event.attack.waitingForHitReaction = event.attack.isHit && event.attack.success;
+        event.attack.hitReactionWaitFrames = event.attack.waitingForHitReaction ? getLocalHitReactionWaitFrames() : 0;
+        event.attack.shouldSend = true;
+        OMW::queueServerSimulationCombatEvent(std::move(event));
     }
 
     bool hasUsableRefNum(unsigned int refNum)
@@ -1083,6 +1171,8 @@ void MechanicsHelper::resetCast(Cast* cast)
 void MechanicsHelper::queueLocalAttackStart(
     const MWWorld::Ptr& attacker, bool isRanged, const std::string& attackAnimation)
 {
+    queueServerSimulationAttackStart(attacker, isRanged, attackAnimation);
+
     if (!mwmp::Main::isInitialized())
         return;
 
@@ -1101,6 +1191,9 @@ void MechanicsHelper::queueLocalMeleeAttack(const MWWorld::Ptr& attacker, const 
     const MWWorld::Ptr& weapon, float attackStrength, int attackType, bool isHit, bool success, float damage, bool block,
     const osg::Vec3f& hitPosition, bool applyWeaponEnchantment)
 {
+    queueServerSimulationMeleeAttack(attacker, victim, weapon, attackStrength, attackType, isHit, success, damage, block,
+        hitPosition, applyWeaponEnchantment);
+
     if (!mwmp::Main::isInitialized())
         return;
 
@@ -1188,6 +1281,9 @@ void MechanicsHelper::queueLocalRangedAttack(const MWWorld::Ptr& attacker, const
     const MWWorld::Ptr& weapon, const MWWorld::Ptr& projectile, float attackStrength, bool isHit, bool success,
     float damage, const osg::Vec3f& hitPosition, bool applyWeaponEnchantment, bool applyAmmoEnchantment)
 {
+    queueServerSimulationRangedAttack(attacker, victim, weapon, projectile, attackStrength, isHit, success, damage,
+        hitPosition, applyWeaponEnchantment, applyAmmoEnchantment);
+
     if (!mwmp::Main::isInitialized())
         return;
 
