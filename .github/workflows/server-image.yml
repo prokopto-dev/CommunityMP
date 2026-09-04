@@ -40,14 +40,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps/vcpkg-gns/installed
-          key: gns-x64-linux-v1
+          key: gns-x64-linux-v2
 
       - name: Build GameNetworkingSockets (vcpkg, static x64-linux)
         if: steps.gns-cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/microsoft/vcpkg.git deps/vcpkg-gns
           ./deps/vcpkg-gns/bootstrap-vcpkg.sh -disableMetrics
-          ./deps/vcpkg-gns/vcpkg install gamenetworkingsockets boost-asio boost-iostreams --triplet x64-linux
+          # deliberately NOT installing boost-asio/boost-iostreams here: vcpkg would
+          # pull Boost 1.92 into CMAKE_PREFIX_PATH, whose BoostConfig.cmake then demands
+          # every component at exactly 1.92 while the system provides 1.83
+          ./deps/vcpkg-gns/vcpkg install gamenetworkingsockets --triplet x64-linux
 
       - name: Prime ccache
         uses: hendrikmuhs/ccache-action@v1
