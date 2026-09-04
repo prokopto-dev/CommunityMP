@@ -1,0 +1,123 @@
+name: Server image
+
+# Builds the Linux dedicated server (communitymp-server) only -- no client, no
+# launcher, no hub, no tests. That configuration drops Qt6 and the npm/Tauri
+# toolchain entirely, which the full "Build and test" workflow still requires.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - communitymp-server-image
+
+env:
+  BUILD_TYPE: RelWithDebInfo
+
+jobs:
+  server:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add OpenMW PPA
+        run: |
+          sudo add-apt-repository -y ppa:openmw/openmw
+          sudo apt-get update
+
+      - name: Install build dependencies
+        run: |
+          sudo CI/install_debian_deps.sh gcc openmw-deps openmw-deps-dynamic
+          # libboost-filesystem-dev is missing from the openmw-deps group even
+          # though CMakeLists.txt requires the Boost filesystem component.
+          sudo apt-get install -y --no-install-recommends libboost-filesystem-dev ninja-build
+
+      - name: Build GameNetworkingSockets (vcpkg, static x64-linux)
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git deps/vcpkg-gns
+          ./deps/vcpkg-gns/bootstrap-vcpkg.sh -disableMetrics
+          ./deps/vcpkg-gns/vcpkg install gamenetworkingsockets boost-asio boost-iostreams --triplet x64-linux
+
+      - name: Prime ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: server-${{ env.BUILD_TYPE }}
+          max-size: 1500M
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -D CMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          -D CMAKE_C_COMPILER_LAUNCHER=ccache
+          -D CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -D CMAKE_PREFIX_PATH=${{ github.workspace }}/deps/vcpkg-gns/installed/x64-linux
+          -D OPENMW_USE_SYSTEM_RECASTNAVIGATION=ON
+          -D USE_SYSTEM_TINYXML=ON
+          -D BUILD_TES3MP_SERVER=ON
+          -D BUILD_OPENMW=OFF
+          -D BUILD_TES3MP_CLIENT=OFF
+          -D BUILD_COMMUNITYMP_LAUNCHER=OFF
+          -D BUILD_COMMUNITYMP_HUB=OFF
+          -D BUILD_OPENCS=OFF
+          -D BUILD_LAUNCHER=OFF
+          -D BUILD_WIZARD=OFF
+          -D BUILD_ESMTOOL=OFF
+          -D BUILD_BSATOOL=OFF
+          -D BUILD_NAVMESHTOOL=OFF
+          -D BUILD_BULLETOBJECTTOOL=OFF
+          -D BUILD_NIFTEST=OFF
+          -D BUILD_ESSIMPORTER=OFF
+          -D BUILD_MWINIIMPORTER=OFF
+          -D BUILD_BENCHMARKS=OFF
+          -D BUILD_COMPONENTS_TESTS=OFF
+          -D BUILD_OPENMW_TESTS=OFF
+          -D BUILD_OPENCS_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build -- -j$(nproc)
+
+      - name: Stage runtime tree
+        run: |
+          set -eux
+          mkdir -p stage
+          cp build/communitymp-server stage/
+          # the server looks for communitymp-server-default.cfg then
+          # tes3mp-server-default.cfg, in the directory holding the binary
+          cp build/communitymp-server-default.cfg stage/
+          cp -a build/server stage/server
+          git rev-parse HEAD > stage/COMMIT
+          # derive the runtime package list from the binary itself rather than
+          # guessing version-suffixed package names
+          ldd stage/communitymp-server \
+            | awk '/=> \//{print $3}' \
+            | sort -u \
+            | xargs -r dpkg -S 2>/dev/null \
+            | cut -d: -f1 | sort -u > stage/runtime-deps.txt
+          cat stage/runtime-deps.txt
+          ls -laR stage | head -50
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: communitymp-server-linux-${{ github.sha }}
+          path: stage/
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.communitymp-server
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/communitymp-server:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/communitymp-server:latest
