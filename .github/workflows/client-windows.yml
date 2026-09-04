@@ -1,0 +1,27 @@
+name: Windows client
+
+# Manual entry point for the reusable Windows workflow, which otherwise only
+# runs via release.yml on an "openmw-**" tag. Lets us reproduce and iterate on
+# the Windows client build without tagging a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-type:
+        description: CMake build type
+        default: RelWithDebInfo
+        type: string
+      package:
+        description: Build the NSIS installer
+        default: false
+        type: boolean
+
+jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+    with:
+      image: "2022"
+      build-type: ${{ inputs.build-type }}
+      package: ${{ inputs.package }}
+      release: false
+    secrets: inherit
