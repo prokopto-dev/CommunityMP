@@ -298,6 +298,16 @@ endif()
 
 if (BUILD_TES3MP_TARGETS)
     find_package(GameNetworkingSockets CONFIG REQUIRED)
+
+    # Static GNS builds (e.g. vcpkg's x64-linux triplet) only export the _s
+    # target; the unsuffixed name the rest of the tree links against comes from
+    # shared builds. Bridge the two so either flavour works.
+    if (NOT TARGET GameNetworkingSockets::GameNetworkingSockets
+            AND TARGET GameNetworkingSockets::GameNetworkingSockets_s)
+        add_library(GameNetworkingSockets::GameNetworkingSockets INTERFACE IMPORTED)
+        target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
+            INTERFACE GameNetworkingSockets::GameNetworkingSockets_s)
+    endif()
 endif()
 
 if(WIN32 AND BUILD_TES3MP_TARGETS)
