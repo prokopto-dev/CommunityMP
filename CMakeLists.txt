@@ -317,7 +317,10 @@ if (BUILD_TES3MP_TARGETS)
         # in a linker group so their mutual references resolve.
         if (UNIX AND NOT APPLE)
             get_filename_component(_gns_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
-            file(GLOB _gns_absl_libs "${_gns_prefix}/lib/libabsl_*.a")
+            # protobuf 6 also needs utf8_range/utf8_validity alongside Abseil
+            file(GLOB _gns_absl_libs
+                "${_gns_prefix}/lib/libabsl_*.a"
+                "${_gns_prefix}/lib/libutf8_*.a")
 
             if (_gns_absl_libs)
                 target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
