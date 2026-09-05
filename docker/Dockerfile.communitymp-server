@@ -3,15 +3,15 @@
 # and staged in ./stage before this Dockerfile is used -- nothing is compiled here.
 FROM ubuntu:24.04
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends software-properties-common ca-certificates \
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends software-properties-common ca-certificates \
     && add-apt-repository -y ppa:openmw/openmw \
-    && apt-get update
+    && apt-get -o Acquire::Retries=5 update
 
 COPY stage/runtime-deps.txt /tmp/runtime-deps.txt
 
 # install exactly the packages that own the shared libraries the binary links
-RUN apt-get install -y --no-install-recommends $(tr '\n' ' ' < /tmp/runtime-deps.txt) \
+RUN apt-get -o Acquire::Retries=5 install -y --no-install-recommends $(tr '\n' ' ' < /tmp/runtime-deps.txt) \
     && apt-get purge -y software-properties-common \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/runtime-deps.txt

@@ -102,14 +102,22 @@ jobs:
           cp build/communitymp-server-default.cfg stage/
           cp -a build/server stage/server
           git rev-parse HEAD > stage/COMMIT
-          # derive the runtime package list from the binary itself rather than
-          # guessing version-suffixed package names
+          # debug info is ~120MB of the binary and useless in the image
+          strip stage/communitymp-server
+          # Derive the runtime package list from the binary itself rather than
+          # guessing version-suffixed package names. readlink -f is required:
+          # ldd reports /lib/x86_64-linux-gnu/... while dpkg records the
+          # /usr/lib/... paths on merged-usr systems, so raw ldd output matches
+          # nothing.
           ldd stage/communitymp-server \
             | awk '/=> \//{print $3}' \
+            | xargs -r readlink -f \
             | sort -u \
             | xargs -r dpkg -S 2>/dev/null \
             | cut -d: -f1 | sort -u > stage/runtime-deps.txt
           cat stage/runtime-deps.txt
+          # an empty list would silently produce an image with no libraries
+          test -s stage/runtime-deps.txt
           ls -laR stage | head -50
 
       - name: Upload server artifact
