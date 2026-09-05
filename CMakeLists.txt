@@ -1113,13 +1113,28 @@ if (APPLE)
     if (BUILD_TES3MP_TARGETS AND GameNetworkingSockets_DIR)
         get_filename_component(_gns_fixup_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
         set(TES3MP_GNS_FIXUP_DIRS "${_gns_fixup_prefix}/lib")
-        # naming the dylibs outright, not just their directory: fixup_bundle
-        # only searches dirs for items it has already failed to resolve, and an
-        # unresolved @rpath item makes it run otool on the literal string
-        file(GLOB TES3MP_GNS_FIXUP_LIBS "${_gns_fixup_prefix}/lib/*.dylib")
+        # fixup_bundle refuses to touch an item that is not already inside the
+        # bundle, so the GNS dylibs are copied into Contents/Frameworks below
+        # and referenced there; the directory above still resolves their
+        # transitive dependencies.
+        file(GLOB _gns_source_dylibs "${_gns_fixup_prefix}/lib/libGameNetworkingSockets*.dylib")
+        foreach(_gns_dylib ${_gns_source_dylibs})
+            get_filename_component(_gns_dylib_name "${_gns_dylib}" NAME)
+            list(APPEND TES3MP_GNS_FIXUP_LIBS
+                "${INSTALLED_OPENMW_APP}/Contents/Frameworks/${_gns_dylib_name}")
+        endforeach()
     endif()
     message(STATUS "TES3MP bundle fixup dirs: '${TES3MP_GNS_FIXUP_DIRS}'")
     message(STATUS "TES3MP bundle fixup libs: '${TES3MP_GNS_FIXUP_LIBS}'")
+
+    if (_gns_source_dylibs)
+        install(CODE "
+            file(COPY ${_gns_source_dylibs}
+                DESTINATION \"${INSTALLED_OPENMW_APP}/Contents/Frameworks\")
+            file(COPY ${_gns_source_dylibs}
+                DESTINATION \"${INSTALLED_OPENCS_APP}/Contents/Frameworks\")
+        ")
+    endif()
 
     install(CODE "
         function(gp_item_default_embedded_path_override item  default_embedded_path_var)
