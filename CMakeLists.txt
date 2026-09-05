@@ -332,9 +332,11 @@ if (BUILD_TES3MP_TARGETS)
 
             if (_gns_absl_libs AND APPLE)
                 # ld64 has no --start-group and does not need it: it resolves
-                # static archives without regard to command-line order
+                # static archives without regard to command-line order.
+                # Abseil's time zone lookup calls CoreFoundation on Apple, which
+                # a shared build would have carried for us.
                 target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
-                    INTERFACE ${_gns_absl_libs})
+                    INTERFACE ${_gns_absl_libs} "-framework CoreFoundation")
             elseif (_gns_absl_libs)
                 target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
                     INTERFACE "-Wl,--start-group" ${_gns_absl_libs} "-Wl,--end-group")
