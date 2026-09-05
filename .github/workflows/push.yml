@@ -79,7 +79,9 @@ jobs:
 
   MacOS:
     strategy:
-      fail-fast: true
+      # an Intel runner failing should not cancel the arm64 build: the two
+      # platforms fail for unrelated reasons
+      fail-fast: false
       matrix:
         args:
           - image: macos-15
