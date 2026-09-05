@@ -322,6 +322,14 @@ if (BUILD_TES3MP_TARGETS)
                 "${_gns_prefix}/lib/libabsl_*.a"
                 "${_gns_prefix}/lib/libutf8_*.a")
 
+            # On Apple the GNS package config does not put protobuf itself on the
+            # link line, so its generated message code is left with undefined
+            # google::protobuf::Message symbols. Deliberately not libprotobuf-lite,
+            # which would collide with it.
+            if (APPLE AND EXISTS "${_gns_prefix}/lib/libprotobuf.a")
+                list(INSERT _gns_absl_libs 0 "${_gns_prefix}/lib/libprotobuf.a")
+            endif()
+
             if (_gns_absl_libs AND APPLE)
                 # ld64 has no --start-group and does not need it: it resolves
                 # static archives without regard to command-line order
