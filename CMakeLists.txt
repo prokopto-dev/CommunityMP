@@ -315,14 +315,29 @@ if (BUILD_TES3MP_TARGETS)
         # re-running find_package(protobuf CONFIG) collides with that export
         # set. Link the Abseil archives from the same prefix directly, wrapped
         # in a linker group so their mutual references resolve.
-        if (UNIX AND NOT APPLE)
+        if (UNIX)
             get_filename_component(_gns_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
             # protobuf 6 also needs utf8_range/utf8_validity alongside Abseil
             file(GLOB _gns_absl_libs
                 "${_gns_prefix}/lib/libabsl_*.a"
                 "${_gns_prefix}/lib/libutf8_*.a")
 
-            if (_gns_absl_libs)
+            # On Apple the GNS package config does not put protobuf itself on the
+            # link line, so its generated message code is left with undefined
+            # google::protobuf::Message symbols. Deliberately not libprotobuf-lite,
+            # which would collide with it.
+            if (APPLE AND EXISTS "${_gns_prefix}/lib/libprotobuf.a")
+                list(INSERT _gns_absl_libs 0 "${_gns_prefix}/lib/libprotobuf.a")
+            endif()
+
+            if (_gns_absl_libs AND APPLE)
+                # ld64 has no --start-group and does not need it: it resolves
+                # static archives without regard to command-line order.
+                # Abseil's time zone lookup calls CoreFoundation on Apple, which
+                # a shared build would have carried for us.
+                target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
+                    INTERFACE ${_gns_absl_libs} "-framework CoreFoundation")
+            elseif (_gns_absl_libs)
                 target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
                     INTERFACE "-Wl,--start-group" ${_gns_absl_libs} "-Wl,--end-group")
             else()
