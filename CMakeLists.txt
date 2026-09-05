@@ -298,39 +298,6 @@ endif()
 
 if (BUILD_TES3MP_TARGETS)
     find_package(GameNetworkingSockets CONFIG REQUIRED)
-
-    # Static GNS builds (e.g. vcpkg's x64-linux triplet) only export the _s
-    # target; the unsuffixed name the rest of the tree links against comes from
-    # shared builds. Bridge the two so either flavour works.
-    if (NOT TARGET GameNetworkingSockets::GameNetworkingSockets
-            AND TARGET GameNetworkingSockets::GameNetworkingSockets_s)
-        add_library(GameNetworkingSockets::GameNetworkingSockets INTERFACE IMPORTED)
-        target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
-            INTERFACE GameNetworkingSockets::GameNetworkingSockets_s)
-
-        # A static GNS drags in static protobuf, which has needed Abseil on the
-        # link line since protobuf 22. The GNS package config names protobuf by
-        # path, so nothing pulls Abseil in, and protobuf::libprotobuf (already
-        # defined here by module-mode FindProtobuf) carries none either -- while
-        # re-running find_package(protobuf CONFIG) collides with that export
-        # set. Link the Abseil archives from the same prefix directly, wrapped
-        # in a linker group so their mutual references resolve.
-        if (UNIX AND NOT APPLE)
-            get_filename_component(_gns_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
-            # protobuf 6 also needs utf8_range/utf8_validity alongside Abseil
-            file(GLOB _gns_absl_libs
-                "${_gns_prefix}/lib/libabsl_*.a"
-                "${_gns_prefix}/lib/libutf8_*.a")
-
-            if (_gns_absl_libs)
-                target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
-                    INTERFACE "-Wl,--start-group" ${_gns_absl_libs} "-Wl,--end-group")
-            else()
-                message(WARNING "No Abseil archives found in ${_gns_prefix}/lib; "
-                    "a static protobuf will fail to link")
-            endif()
-        endif()
-    endif()
 endif()
 
 if(WIN32 AND BUILD_TES3MP_TARGETS)
@@ -1137,6 +1104,16 @@ if (APPLE)
     set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}")
     set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}")
 
+    # BundleUtilities resolves @rpath entries only from directories it is given,
+    # and a dynamic GNS (vcpkg's *-osx-dynamic triplets) leaves the bundle
+    # referencing @rpath/libGameNetworkingSockets.dylib, which fails packaging
+    # with "otool -l failed". Hand it the GNS library directory.
+    set(TES3MP_GNS_FIXUP_DIRS "")
+    if (BUILD_TES3MP_TARGETS AND GameNetworkingSockets_DIR)
+        get_filename_component(_gns_fixup_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
+        set(TES3MP_GNS_FIXUP_DIRS "${_gns_fixup_prefix}/lib")
+    endif()
+
     install(CODE "
         function(gp_item_default_embedded_path_override item  default_embedded_path_var)
             if (\${item} MATCHES ${OSG_PLUGIN_PREFIX_DIR})
@@ -1145,7 +1122,7 @@ if (APPLE)
             endif()
         endfunction()
 
-        fixup_bundle(\"${INSTALLED_OPENMW_APP}\" \"${PLUGINS}\" \"\")
+        fixup_bundle(\"${INSTALLED_OPENMW_APP}\" \"${PLUGINS}\" \"${TES3MP_GNS_FIXUP_DIRS}\")
         fixup_bundle(\"${INSTALLED_OPENCS_APP}\" \"${OPENCS_PLUGINS}\" \"\")
         " COMPONENT Runtime)
 
