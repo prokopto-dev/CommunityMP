@@ -1,0 +1,28 @@
+name: macOS client
+
+# Manual entry point for the reusable macOS workflow, which otherwise only runs
+# via release.yml on an "openmw-**" tag. Lets us reproduce and iterate on the
+# macOS build without tagging a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Runner image (macos-15 = arm64, macos-15-intel = x86_64)
+        default: macos-15
+        type: choice
+        options:
+          - macos-15
+          - macos-15-intel
+      build-type:
+        description: CMake build type
+        default: RelWithDebInfo
+        type: string
+
+jobs:
+  macos:
+    uses: ./.github/workflows/macos.yml
+    with:
+      image: ${{ inputs.image }}
+      build-type: ${{ inputs.build-type }}
+    secrets: inherit
