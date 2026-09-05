@@ -342,12 +342,20 @@ function(tes3mp_copy_runtime_dlls target)
             list(APPEND runtime_dlls "$<TARGET_FILE:yaml-cpp>")
         endif()
 
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${runtime_dlls}
-                $<TARGET_FILE_DIR:${target}>
-            COMMAND_EXPAND_LISTS
-        )
+        # Every TES3MP target lands in the same output directory, so giving each
+        # one its own POST_BUILD copy of the same DLLs races on Windows:
+        # concurrent copy_if_different calls collide and the loser fails the
+        # build (masterserver.exe vs bz2.dll). Copy once, in a shared target.
+        if(NOT TARGET tes3mp_runtime_dlls)
+            add_custom_target(tes3mp_runtime_dlls
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${runtime_dlls}
+                    $<TARGET_FILE_DIR:${target}>
+                COMMAND_EXPAND_LISTS
+            )
+        endif()
+
+        add_dependencies(${target} tes3mp_runtime_dlls)
 
         if(OPENSCENEGRAPH_VERSION)
             set(_osg_plugin_dir "")
@@ -365,12 +373,16 @@ function(tes3mp_copy_runtime_dlls target)
                 endif()
             endforeach()
 
-            if(_osg_plugin_dir)
-                add_custom_command(TARGET ${target} POST_BUILD
+            if(_osg_plugin_dir AND NOT TARGET tes3mp_runtime_osg_plugins)
+                add_custom_target(tes3mp_runtime_osg_plugins
                     COMMAND ${CMAKE_COMMAND} -E copy_directory
                         "${_osg_plugin_dir}"
                         "$<TARGET_FILE_DIR:${target}>/osgPlugins-${OPENSCENEGRAPH_VERSION}"
                 )
+            endif()
+
+            if(TARGET tes3mp_runtime_osg_plugins)
+                add_dependencies(${target} tes3mp_runtime_osg_plugins)
             endif()
         endif()
     endif()
