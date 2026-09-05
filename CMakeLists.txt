@@ -308,14 +308,24 @@ if (BUILD_TES3MP_TARGETS)
         target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
             INTERFACE GameNetworkingSockets::GameNetworkingSockets_s)
 
-        # A static GNS drags in static protobuf, which since protobuf 22 needs
-        # Abseil on the link line. The GNS package config names protobuf by
-        # path, so nothing pulls those in; linking the imported protobuf target
-        # brings its abseil dependencies transitively.
-        find_package(protobuf CONFIG QUIET)
-        if (TARGET protobuf::libprotobuf)
-            target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
-                INTERFACE protobuf::libprotobuf)
+        # A static GNS drags in static protobuf, which has needed Abseil on the
+        # link line since protobuf 22. The GNS package config names protobuf by
+        # path, so nothing pulls Abseil in, and protobuf::libprotobuf (already
+        # defined here by module-mode FindProtobuf) carries none either -- while
+        # re-running find_package(protobuf CONFIG) collides with that export
+        # set. Link the Abseil archives from the same prefix directly, wrapped
+        # in a linker group so their mutual references resolve.
+        if (UNIX AND NOT APPLE)
+            get_filename_component(_gns_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
+            file(GLOB _gns_absl_libs "${_gns_prefix}/lib/libabsl_*.a")
+
+            if (_gns_absl_libs)
+                target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
+                    INTERFACE "-Wl,--start-group" ${_gns_absl_libs} "-Wl,--end-group")
+            else()
+                message(WARNING "No Abseil archives found in ${_gns_prefix}/lib; "
+                    "a static protobuf will fail to link")
+            endif()
         endif()
     endif()
 endif()
