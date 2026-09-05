@@ -84,6 +84,13 @@ declare -a BUILD_OPTS=(
 -D BUILD_TES3MP_SERVER=TRUE
 -D BUILD_TES3MP_BROWSER=TRUE
 -D BUILD_TES3MP_MASTER=TRUE
+# The unified launcher links openmw-client-core and tes3mp-server-core
+# together, and each defines its own mwmp::ActorProcessor,
+# mwmp::ObjectProcessor, mwmp::PlayerProcessor, mwmp::WorldstateProcessor and
+# mwmp::ProcessorInitializer. GNU ld and MSVC silently keep one of each; ld64
+# rejects the duplicates outright. Leave the launcher out on macOS until the
+# name collision is resolved -- the client and server binaries are unaffected.
+-D BUILD_COMMUNITYMP_LAUNCHER=FALSE
 -G"Unix Makefiles"
 )
 
