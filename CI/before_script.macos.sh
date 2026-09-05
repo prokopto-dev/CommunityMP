@@ -83,7 +83,10 @@ declare -a BUILD_OPTS=(
 -D BUILD_TES3MP_CLIENT=TRUE
 -D BUILD_TES3MP_SERVER=TRUE
 -D BUILD_TES3MP_BROWSER=TRUE
--D BUILD_TES3MP_MASTER=TRUE
+# The master server pulls in Boost.Asio through SimpleWeb, which is not part
+# of the OpenMW dependency bundle and would mean installing a second Boost
+# next to it. It is an optional service, not part of the client deliverable.
+-D BUILD_TES3MP_MASTER=FALSE
 # The unified launcher links openmw-client-core and tes3mp-server-core
 # together, and each defines its own mwmp::ActorProcessor,
 # mwmp::ObjectProcessor, mwmp::PlayerProcessor, mwmp::WorldstateProcessor and
