@@ -307,6 +307,16 @@ if (BUILD_TES3MP_TARGETS)
         add_library(GameNetworkingSockets::GameNetworkingSockets INTERFACE IMPORTED)
         target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
             INTERFACE GameNetworkingSockets::GameNetworkingSockets_s)
+
+        # A static GNS drags in static protobuf, which since protobuf 22 needs
+        # Abseil on the link line. The GNS package config names protobuf by
+        # path, so nothing pulls those in; linking the imported protobuf target
+        # brings its abseil dependencies transitively.
+        find_package(protobuf CONFIG QUIET)
+        if (TARGET protobuf::libprotobuf)
+            target_link_libraries(GameNetworkingSockets::GameNetworkingSockets
+                INTERFACE protobuf::libprotobuf)
+        endif()
     endif()
 endif()
 
