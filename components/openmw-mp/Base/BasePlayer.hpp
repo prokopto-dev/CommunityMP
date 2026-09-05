@@ -931,7 +931,10 @@ namespace mwmp
         ESM::Position previousCellPosition = {};
         ESM::Position momentum = {};
         ESM::Cell cell;
-        ESM::NPC npc;
+        // value-initialized: the server asks a client for BaseInfo at connect,
+        // long before chargen fills this in, and ESM::NPC::mFlags has no default
+        // initializer -- bit 0 of it is ESM::NPC::Female
+        ESM::NPC npc{};
         ESM::NpcStats npcStats;
         ESM::Creature creature;
         ESM::CreatureStats creatureStats;
