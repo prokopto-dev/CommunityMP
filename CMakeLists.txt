@@ -1104,6 +1104,16 @@ if (APPLE)
     set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}")
     set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}")
 
+    # BundleUtilities resolves @rpath entries only from directories it is given,
+    # and a dynamic GNS (vcpkg's *-osx-dynamic triplets) leaves the bundle
+    # referencing @rpath/libGameNetworkingSockets.dylib, which fails packaging
+    # with "otool -l failed". Hand it the GNS library directory.
+    set(TES3MP_GNS_FIXUP_DIRS "")
+    if (BUILD_TES3MP_TARGETS AND GameNetworkingSockets_DIR)
+        get_filename_component(_gns_fixup_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
+        set(TES3MP_GNS_FIXUP_DIRS "${_gns_fixup_prefix}/lib")
+    endif()
+
     install(CODE "
         function(gp_item_default_embedded_path_override item  default_embedded_path_var)
             if (\${item} MATCHES ${OSG_PLUGIN_PREFIX_DIR})
@@ -1112,7 +1122,7 @@ if (APPLE)
             endif()
         endfunction()
 
-        fixup_bundle(\"${INSTALLED_OPENMW_APP}\" \"${PLUGINS}\" \"\")
+        fixup_bundle(\"${INSTALLED_OPENMW_APP}\" \"${PLUGINS}\" \"${TES3MP_GNS_FIXUP_DIRS}\")
         fixup_bundle(\"${INSTALLED_OPENCS_APP}\" \"${OPENCS_PLUGINS}\" \"\")
         " COMPONENT Runtime)
 
