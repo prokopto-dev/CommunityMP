@@ -934,7 +934,9 @@ namespace mwmp
         ESM::NPC npc;
         ESM::NpcStats npcStats;
         ESM::Creature creature;
-        ESM::CreatureStats creatureStats;
+        // value-initialised: ESM::CreatureStats declares plain members such as
+        // bool mDead with no initialiser, and acceptStatsDynamicPacket reads mDead
+        ESM::CreatureStats creatureStats{};
         std::uint32_t statsDynamicSequence = 0;
         std::uint32_t acceptedStatsDynamicSequence = 0;
         ESM::StatState<float> acceptedStatsDynamic[3] = {};
