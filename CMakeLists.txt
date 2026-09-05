@@ -1109,10 +1109,17 @@ if (APPLE)
     # referencing @rpath/libGameNetworkingSockets.dylib, which fails packaging
     # with "otool -l failed". Hand it the GNS library directory.
     set(TES3MP_GNS_FIXUP_DIRS "")
+    set(TES3MP_GNS_FIXUP_LIBS "")
     if (BUILD_TES3MP_TARGETS AND GameNetworkingSockets_DIR)
         get_filename_component(_gns_fixup_prefix "${GameNetworkingSockets_DIR}/../.." ABSOLUTE)
         set(TES3MP_GNS_FIXUP_DIRS "${_gns_fixup_prefix}/lib")
+        # naming the dylibs outright, not just their directory: fixup_bundle
+        # only searches dirs for items it has already failed to resolve, and an
+        # unresolved @rpath item makes it run otool on the literal string
+        file(GLOB TES3MP_GNS_FIXUP_LIBS "${_gns_fixup_prefix}/lib/*.dylib")
     endif()
+    message(STATUS "TES3MP bundle fixup dirs: '${TES3MP_GNS_FIXUP_DIRS}'")
+    message(STATUS "TES3MP bundle fixup libs: '${TES3MP_GNS_FIXUP_LIBS}'")
 
     install(CODE "
         function(gp_item_default_embedded_path_override item  default_embedded_path_var)
@@ -1122,8 +1129,8 @@ if (APPLE)
             endif()
         endfunction()
 
-        fixup_bundle(\"${INSTALLED_OPENMW_APP}\" \"${PLUGINS}\" \"${TES3MP_GNS_FIXUP_DIRS}\")
-        fixup_bundle(\"${INSTALLED_OPENCS_APP}\" \"${OPENCS_PLUGINS}\" \"\")
+        fixup_bundle(\"${INSTALLED_OPENMW_APP}\" \"${PLUGINS};${TES3MP_GNS_FIXUP_LIBS}\" \"${TES3MP_GNS_FIXUP_DIRS}\")
+        fixup_bundle(\"${INSTALLED_OPENCS_APP}\" \"${OPENCS_PLUGINS};${TES3MP_GNS_FIXUP_LIBS}\" \"${TES3MP_GNS_FIXUP_DIRS}\")
         " COMPONENT Runtime)
 
     set(CPACK_PRE_BUILD_SCRIPTS ${CMAKE_SOURCE_DIR}/cmake/SignMacApplications.cmake)
