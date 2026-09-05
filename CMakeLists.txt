@@ -64,6 +64,16 @@ if (BUILD_TES3MP_CLIENT OR BUILD_TES3MP_SERVER OR BUILD_TES3MP_MASTER)
     set(BUILD_TES3MP_TARGETS ON)
 endif()
 
+# The game executable is renamed for CommunityMP builds (see apps/openmw), so
+# everything that has to name it -- the launcher's Play button, the Start Menu
+# entries CPack generates -- has to agree on that name rather than hardcode
+# "openmw".
+if (BUILD_TES3MP_CLIENT)
+    set(OPENMW_GAME_EXECUTABLE_NAME "communitymp-client")
+else()
+    set(OPENMW_GAME_EXECUTABLE_NAME "openmw")
+endif()
+
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
 
 if (BUILD_LAUNCHER OR BUILD_OPENCS OR BUILD_WIZARD OR BUILD_OPENCS_TESTS)
@@ -1281,7 +1291,7 @@ elseif(NOT APPLE)
         endif()
 
         SET(CPACK_GENERATOR "NSIS")
-        SET(CPACK_PACKAGE_EXECUTABLES "communitymp-client;CommunityMP Client")
+        SET(CPACK_PACKAGE_EXECUTABLES "${OPENMW_GAME_EXECUTABLE_NAME};CommunityMP Client")
         IF(BUILD_LAUNCHER)
             SET(CPACK_PACKAGE_EXECUTABLES "${CPACK_PACKAGE_EXECUTABLES};openmw-launcher;OpenMW Launcher")
         ENDIF(BUILD_LAUNCHER)
